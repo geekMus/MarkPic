@@ -48,6 +48,12 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	if sum.Failed > 0 || sum.FailedImages > 0 {
 		return 1
 	}
+	// 一个文件都没处理（路径全都不存在、通配符没匹配到、目录里没有 Markdown）：
+	// 脚本里 `convert-md-picture docs/*.md || echo 出错了` 应该能察觉，所以也算失败。
+	if sum.Files == 0 {
+		fmt.Fprintln(os.Stderr, "没有找到任何可处理的文件。")
+		return 1
+	}
 	return 0
 }
 
