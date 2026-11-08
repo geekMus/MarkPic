@@ -31,6 +31,8 @@ const (
 	wmNCActivate    = 0x0086
 	wmEraseBkgnd    = 0x0014
 	wmNCLButtonDown = 0x00A1
+	wmNCLButtonUp   = 0x00A2
+	wmNCLButtonDbl  = 0x00A3
 	wmSysCommand    = 0x0112
 	wmClose         = 0x0010
 	wmGetMinMaxInfo = 0x0024
@@ -131,6 +133,10 @@ type windowChrome struct {
 // 单窗口程序，直接用一个包级变量记录当前窗口。
 var chromeWindow *windowChrome
 
+// zoomedBeforeClick 记的是「按下标题栏那一刻」窗口是不是最大化，
+// 双击时用它判断该最大化还是还原（见 chromeWndProc 里的说明）。
+var zoomedBeforeClick bool
+
 // installWindowChrome 去掉系统标题栏并接管拖动 / 缩放。
 // target 是 webview2.WebView，这里用 any 接收以便非 Windows 侧共享同一个签名。
 func installWindowChrome(target any) {
@@ -178,6 +184,26 @@ func hwndValue() uintptr {
 // 这样写既贴近原意，也让 uintptr→unsafe.Pointer 的转换不必出现（vet 不允许）。
 func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uintptr {
 	switch msg {
+	case wmNCLButtonDown:
+		if wp == htCaption {
+			// 记下按下去之前的状态。系统在拖动循环开始的那一刻就可能把
+			// 最大化窗口还原掉，等到 DBLCLK 再问「现在是不是最大化」已经晚了。
+			zoomedBeforeClick = zoomed(uintptr(hwnd))
+		}
+
+	case wmNCLButtonDbl:
+		// 标题栏上的双击在这里处理，和真标题栏一致：最大化 ↔ 还原。
+		// 网页收不到第二次点击 —— 第一次点击就进了系统的拖动循环，
+		// 鼠标被那个循环接管了，所以不能指望前端的 dblclick。
+		if wp == htCaption {
+			if zoomedBeforeClick {
+				restoreWindow()
+			} else {
+				maximizeWindow()
+			}
+			return 0
+		}
+
 	case wmNCCalcSize:
 		// wParam == FALSE：问的是客户区矩形，不干预。
 		if wp == 0 {
@@ -332,16 +358,21 @@ func beginResize(edge string) {
 
 func minimizeWindow() { postSysCommand(scMinimize) }
 
+func maximizeWindow() { postSysCommand(scMaximize) }
+
+func restoreWindow() { postSysCommand(scRestore) }
+
+// toggleMaximizeWindow 供标题栏右侧那个按钮使用（读的是当下状态）。
 func toggleMaximizeWindow() {
 	hwnd := hwndValue()
 	if hwnd == 0 {
 		return
 	}
 	if zoomed(hwnd) {
-		postSysCommand(scRestore)
+		restoreWindow()
 		return
 	}
-	postSysCommand(scMaximize)
+	maximizeWindow()
 }
 
 func closeWindow() {

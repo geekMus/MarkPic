@@ -126,8 +126,8 @@ function handleDoubleClick(event: MouseEvent): void {
         type="button"
         class="icon-btn"
         :class="{ 'icon-btn--active': optionsOpen }"
-        :title="optionsOpen ? '隐藏设置面板' : '显示设置面板'"
-        :aria-label="optionsOpen ? '隐藏设置面板' : '显示设置面板'"
+        :title="optionsOpen ? '关闭设置' : '打开设置'"
+        :aria-label="optionsOpen ? '关闭设置' : '打开设置'"
         :aria-pressed="optionsOpen"
         @click="emit('toggle-settings')"
       >

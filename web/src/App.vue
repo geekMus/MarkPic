@@ -58,7 +58,8 @@ const {
   clearQueue,
 } = useRun()
 
-const optionsOpen = ref(true)
+// 设置现在是弹窗，默认关着；需要时从标题栏打开
+const optionsOpen = ref(false)
 const manualOpen = ref(false)
 
 const version = computed(() => health.value?.version ?? null)
@@ -137,15 +138,31 @@ async function handlePickDir(): Promise<void> {
   }
 }
 
-/** Ctrl/Cmd + Enter 开始转换；Esc 收起手动输入。 */
+/** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。设置是弹窗，优先处理它。 */
 function handleKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape' && manualOpen.value) {
-    manualOpen.value = false
-    return
+  if (event.key === 'Escape') {
+    if (optionsOpen.value) {
+      optionsOpen.value = false
+      return
+    }
+    if (manualOpen.value) {
+      manualOpen.value = false
+      return
+    }
   }
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canStart.value) {
-    event.preventDefault()
-    handleRun()
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    // 弹窗开着的时候，回车是「保存设置」——后面那个「开始转换」按钮被挡住了
+    if (optionsOpen.value) {
+      if (dirty.value) {
+        event.preventDefault()
+        void handleSaveSettings()
+      }
+      return
+    }
+    if (canStart.value) {
+      event.preventDefault()
+      handleRun()
+    }
   }
 }
 
@@ -179,7 +196,7 @@ onBeforeUnmount(() => {
     />
 
     <main class="app__main">
-      <div class="workspace" :class="{ 'workspace--rail': optionsOpen }">
+      <div class="workspace">
         <FileQueue
           :rows="rowViews"
           :phase="phase"
@@ -193,24 +210,25 @@ onBeforeUnmount(() => {
           @clear="clearQueue"
           @update:manual-open="manualOpen = $event"
         />
-
-        <OptionsPanel
-          v-if="optionsOpen"
-          :settings="settings"
-          :dirty="dirty"
-          :loaded="settingsLoaded"
-          :loading="settingsLoading"
-          :saving="settingsSaving"
-          :load-error="settingsError"
-          @update="updateSettings"
-          @save="handleSaveSettings"
-          @discard="discardSettings"
-          @retry="loadSettings"
-          @close="optionsOpen = false"
-          @pick-dir="handlePickDir"
-        />
       </div>
     </main>
+
+    <!-- 设置是弹窗，独立于主栅格 -->
+    <OptionsPanel
+      v-if="optionsOpen"
+      :settings="settings"
+      :dirty="dirty"
+      :loaded="settingsLoaded"
+      :loading="settingsLoading"
+      :saving="settingsSaving"
+      :load-error="settingsError"
+      @update="updateSettings"
+      @save="handleSaveSettings"
+      @discard="discardSettings"
+      @retry="loadSettings"
+      @close="optionsOpen = false"
+      @pick-dir="handlePickDir"
+    />
 
     <AppFooter
       :stats="stats"
@@ -255,22 +273,12 @@ onBeforeUnmount(() => {
   padding-bottom: 2px;
 }
 
-/* 两块面板浮在画布上，间隙由 grid 栅格给出，不画外框 */
+/* 一块面板浮在画布上；设置改成弹窗后，这里只剩队列 */
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   height: 100%;
-}
-
-.workspace--rail {
-  grid-template-columns: minmax(0, 1fr) 344px;
-}
-
-@media (max-width: 1040px) {
-  .workspace--rail {
-    grid-template-columns: minmax(0, 1fr) 312px;
-  }
 }
 
 @media (max-width: 900px) {
@@ -280,11 +288,6 @@ onBeforeUnmount(() => {
 
   .app__main {
     padding-bottom: 8px;
-  }
-
-  .workspace--rail {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh);
   }
 }
 
