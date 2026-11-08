@@ -2,6 +2,7 @@ package mdscan
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -306,5 +307,65 @@ func TestLooseApplyKeepsTitle(t *testing.T) {
 	want := "# 标题\n\n![图](https://x/a.png \"说明\")\n"
 	if string(out) != want {
 		t.Errorf("Apply = %q, want %q", out, want)
+	}
+}
+
+// TestScanConcurrentReusesBuffers 确认掩码与行首表被放回池子复用之后，
+// 并发扫描仍然各算各的：池子里的缓冲区如果不干净（上一轮的标记没清掉），
+// 这里会随机漏掉图片引用。
+func TestScanConcurrentReusesBuffers(t *testing.T) {
+	src := []byte("# 标题\n\n```go\n![代码里的](img/a.png)\n```\n\n![真的](img/b.png)\n\n`![行内的](img/c.png)`\n\n<img src=\"img/d.png\">\n")
+	want := []string{"img/b.png", "img/d.png"}
+
+	var wg sync.WaitGroup
+	errs := make(chan string, 32)
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for round := 0; round < 200; round++ {
+				doc := Scan(src)
+				got := make([]string, 0, len(doc.Refs))
+				for _, ref := range doc.Refs {
+					got = append(got, ref.Target)
+				}
+				if len(got) != len(want) {
+					errs <- "引用数不对：" + strings.Join(got, ",")
+					return
+				}
+				for k := range want {
+					if got[k] != want[k] {
+						errs <- "引用不对：" + strings.Join(got, ",")
+						return
+					}
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for msg := range errs {
+		t.Fatal(msg)
+	}
+}
+
+// TestScanRepeatedlyIsStable 跑同一篇文档 500 遍，结果必须逐字节一致：
+// 缓冲区复用最容易在这里出错（上一轮留下的标记让本轮少认几张图）。
+func TestScanRepeatedlyIsStable(t *testing.T) {
+	src := []byte("![a](img/a.png)\n\n```\n![b](img/b.png)\n```\n\n![c](img/c.png)\n")
+	first := Scan(src)
+	if len(first.Refs) != 2 {
+		t.Fatalf("第一遍就有 %d 个引用，想要 2 个", len(first.Refs))
+	}
+	for i := 0; i < 500; i++ {
+		doc := Scan(src)
+		if len(doc.Refs) != len(first.Refs) {
+			t.Fatalf("第 %d 遍引用数变成 %d", i+2, len(doc.Refs))
+		}
+		for k := range doc.Refs {
+			if doc.Refs[k] != first.Refs[k] {
+				t.Fatalf("第 %d 遍第 %d 个引用变了：%+v", i+2, k, doc.Refs[k])
+			}
+		}
 	}
 }

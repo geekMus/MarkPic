@@ -349,6 +349,22 @@ func main() {
 
 func runParse(f *fixture) {
 	// 纯解析：把文档预读进内存，只量 mdscan 本身的吞吐与分配。
+	//
+	// profile 要在这里自己起：-cpuprofile 原来只挂在 e2e 路径上，于是
+	// `-bench parse -cpuprofile x` 什么文件都不会生成（踩过一次，白等一轮）。
+	var cpuFile *os.File
+	if *cpuProfile != "" {
+		f2, err := os.Create(*cpuProfile)
+		if err != nil {
+			fail(err)
+		}
+		defer f2.Close()
+		cpuFile = f2
+		if err := pprof.StartCPUProfile(cpuFile); err != nil {
+			fail(err)
+		}
+		defer pprof.StopCPUProfile()
+	}
 	bench := testing.Benchmark(func(b *testing.B) {
 		var refs int
 		for i := 0; i < b.N; i++ {

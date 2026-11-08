@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
@@ -55,7 +56,9 @@ func Scan(src []byte) *Document { return ScanLang(src, i18n.ZH) }
 func ScanLang(src []byte, lang i18n.Lang) *Document {
 	d := &Document{Src: src}
 	masked := protectedMask(src)
+	defer masked.release()
 	lineStarts := indexLines(src)
+	defer releaseLines(lineStarts)
 
 	// Markdown 语法：![alt](dest "title")，以及引用式 ![alt][label]。
 	// 链接定义只在这篇文档真的出现引用式图片时才去收集：绝大多数文档没有，
@@ -79,7 +82,7 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 		if i+1 >= len(src) {
 			break
 		}
-		if masked[i] || src[i+1] != '[' {
+		if masked.has(i) || src[i+1] != '[' {
 			i++
 			continue
 		}
@@ -122,7 +125,7 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 		if i+3 >= len(src) {
 			break
 		}
-		if masked[i] || (!hasPrefixFold(src[i:], "<img") && !hasPrefixFold(src[i:], "<source")) {
+		if masked.has(i) || (!hasPrefixFold(src[i:], "<img") && !hasPrefixFold(src[i:], "<source")) {
 			i++
 			continue
 		}
@@ -503,17 +506,76 @@ func appendSrcsetRefs(dst []Ref, src []byte, tagStart, tagEnd, valueStart, value
 	return refs
 }
 
+// maskBits 记录「这段内容属于代码块或注释，不该按图片语法解析」。
+//
+// 试过换成位图（uint64 打包）省内存，实测反而慢 9%：掩码是随机访问的，
+// 字节表一次 load 就够，位图每次都要移位掩码。这里保持一字节一位的简单做法。
+type maskBits struct {
+	bits []bool
+}
+
+// maskPool 复用掩码缓冲区。一篇文档一个 []bool 就是「一字节一字节」的分配，
+// 批量转换时这些分配全进了 GC（profile 里 lock/unlock 合计约两成）。
+// 池子里只留不超过 maxPooledMask 字节的缓冲区，免得一两篇超大文档把内存钉住。
+const maxPooledMask = 4 << 20
+
+var maskPool sync.Pool
+
+func newMaskBits(n int) maskBits {
+	if n <= maxPooledMask {
+		if v, ok := maskPool.Get().([]bool); ok && cap(v) >= n {
+			v = v[:n]
+			for i := range v {
+				v[i] = false
+			}
+			return maskBits{bits: v}
+		}
+	}
+	return maskBits{bits: make([]bool, n)}
+}
+
+// release 把缓冲区放回池子。调用方必须保证之后不再使用这个掩码。
+func (m maskBits) release() {
+	if cap(m.bits) <= maxPooledMask {
+		maskPool.Put(m.bits[:cap(m.bits)])
+	}
+}
+
+func (m maskBits) has(i int) bool {
+	return m.bits[i]
+}
+
+func (m maskBits) set(i int) {
+	m.bits[i] = true
+}
+
+// setRange 标记 [from, to) 这一段。代码块动辄几千字节，用 copy 展开成
+// 整段写入，比逐字节赋值快。
+func (m maskBits) setRange(from, to int) {
+	if from < 0 {
+		from = 0
+	}
+	if to > len(m.bits) {
+		to = len(m.bits)
+	}
+	for i := from; i < to; i++ {
+		m.bits[i] = true
+	}
+}
+
 // protectedMask 标记不应被当作图片语法解析的区域：围栏代码块、行内代码、HTML 注释。
-func protectedMask(src []byte) []bool {
-	mask := make([]bool, len(src))
+func protectedMask(src []byte) maskBits {
 	n := len(src)
+	mask := newMaskBits(n)
 
 	// 围栏代码块
 	lineStart := 0
 	for lineStart < n {
-		lineEnd := lineStart
-		for lineEnd < n && src[lineEnd] != '\n' {
-			lineEnd++
+		// 行尾用 IndexByte 找：这段循环每篇文档都要走一遍全文，
+		// 逐字节判断 src[lineEnd] != '\n' 曾占到解析时间的三分之一。
+		lineEnd := n
+		if rel := bytes.IndexByte(src[lineStart:], '\n'); rel >= 0 {
+			lineEnd = lineStart + rel
 		}
 		trim := lineStart
 		spaces := 0
@@ -535,9 +597,9 @@ func protectedMask(src []byte) []bool {
 					p++
 				}
 				for p < n {
-					e := p
-					for e < n && src[e] != '\n' {
-						e++
+					e := n
+					if rel := bytes.IndexByte(src[p:], '\n'); rel >= 0 {
+						e = p + rel
 					}
 					t := p
 					s2 := 0
@@ -557,9 +619,7 @@ func protectedMask(src []byte) []bool {
 					}
 					p = e + 1
 				}
-				for i := lineStart; i < closeEnd && i < n; i++ {
-					mask[i] = true
-				}
+				mask.setRange(lineStart, closeEnd)
 				lineStart = closeEnd
 				if lineStart < n {
 					lineStart++
@@ -570,66 +630,79 @@ func protectedMask(src []byte) []bool {
 		lineStart = lineEnd + 1
 	}
 
-	// HTML 注释
-	for i := 0; i+3 < n; i++ {
-		if mask[i] {
+	// HTML 注释。没有 "<!" 的文档直接跳过这一段：绝大多数文档没有注释，
+	// 为它们白扫一遍全文不值得（这里曾经逐字节走完全文）。
+	for i := 0; i+3 < n; {
+		rel := bytes.Index(src[i:], []byte("<!"))
+		if rel < 0 {
+			break
+		}
+		i += rel
+		if i+3 >= n {
+			break
+		}
+		if mask.has(i) || src[i] != '<' || src[i+1] != '!' || src[i+2] != '-' || src[i+3] != '-' {
+			i++
 			continue
 		}
-		if src[i] == '<' && src[i+1] == '!' && src[i+2] == '-' && src[i+3] == '-' {
-			end := strings.Index(string(src[i+4:]), "-->")
-			if end < 0 {
-				for j := i; j < n; j++ {
-					mask[j] = true
-				}
-				break
-			}
-			for j := i; j < i+4+end+3 && j < n; j++ {
-				mask[j] = true
-			}
-			i += 4 + end + 3
+		end := bytes.Index(src[i+4:], []byte("-->"))
+		if end < 0 {
+			mask.setRange(i, n)
+			break
 		}
+		mask.setRange(i, i+4+end+3)
+		i += 4 + end + 3
 	}
 
 	// HTML 里的代码区域：<pre>…</pre>、<code>…</code> 的内容按原样显示，
 	// 不该被当成图片语法（和围栏代码块、行内代码一个道理）。
-	for _, pair := range [][2]string{{"<pre", "</pre>"}, {"<code", "</code>"}} {
-		open, close := pair[0], pair[1]
-		i := 0
-		for i < n {
-			// 用 IndexByte 直接跳到下一个 '<'，避免逐字节扫全文（那会让解析慢两成）。
-			rel := bytes.IndexByte(src[i:], '<')
-			if rel < 0 {
-				break
+	// 只有文档里真出现这些标签时才扫：没有 <pre>/<code> 的文档占了绝大多数。
+	if bytes.Contains(src, []byte("<")) {
+		for _, pair := range [][2]string{{"<pre", "</pre>"}, {"<code", "</code>"}} {
+			open, close := pair[0], pair[1]
+			i := 0
+			for i < n {
+				// 用 IndexByte 直接跳到下一个 '<'，避免逐字节扫全文（那会让解析慢两成）。
+				rel := bytes.IndexByte(src[i:], '<')
+				if rel < 0 {
+					break
+				}
+				i += rel
+				if i+len(open) >= n {
+					break
+				}
+				if mask.has(i) || !hasPrefixFold(src[i:], open) {
+					i++
+					continue
+				}
+				if after := i + len(open); after < n && !isTagBoundary(src[after]) {
+					// 例如 <prefix>，不是我们要找的标签
+					i++
+					continue
+				}
+				rel2 := indexFold(src[i:], close)
+				if rel2 < 0 {
+					i++
+					continue
+				}
+				end := i + rel2 + len(close)
+				mask.setRange(i, end)
+				i = end
 			}
-			i += rel
-			if i+len(open) >= n {
-				break
-			}
-			if mask[i] || !hasPrefixFold(src[i:], open) {
-				i++
-				continue
-			}
-			if after := i + len(open); after < n && !isTagBoundary(src[after]) {
-				// 例如 <prefix>，不是我们要找的标签
-				i++
-				continue
-			}
-			rel2 := indexFold(src[i:], close)
-			if rel2 < 0 {
-				i++
-				continue
-			}
-			end := i + rel2 + len(close)
-			for j := i; j < end && j < n; j++ {
-				mask[j] = true
-			}
-			i = end
 		}
 	}
 
 	// 行内代码：未被围栏覆盖的 `run`
-	for i := 0; i < n; i++ {
-		if mask[i] || src[i] != '`' {
+	for i := 0; i < n; {
+		// 同样用 IndexByte 跳到下一个反引号：绝大多数字节既不是 ` 也不在掩码里，
+		// 逐字节问 mask.has(i) 纯属浪费（profile 里这一项排在前三）。
+		rel := bytes.IndexByte(src[i:], '`')
+		if rel < 0 {
+			break
+		}
+		i += rel
+		if mask.has(i) {
+			i++
 			continue
 		}
 		runLen := 0
@@ -639,7 +712,7 @@ func protectedMask(src []byte) []bool {
 		// 找等长的闭合 run
 		closeAt := -1
 		for j := i + runLen; j < n; j++ {
-			if src[j] != '`' || mask[j] {
+			if src[j] != '`' || mask.has(j) {
 				continue
 			}
 			m := 0
@@ -653,26 +726,43 @@ func protectedMask(src []byte) []bool {
 			j += m - 1
 		}
 		if closeAt < 0 {
-			i += runLen - 1
+			i += runLen
 			continue
 		}
-		for j := i; j < closeAt+runLen && j < n; j++ {
-			mask[j] = true
-		}
-		i = closeAt + runLen - 1
+		mask.setRange(i, closeAt+runLen)
+		i = closeAt + runLen
 	}
 
 	return mask
 }
 
+// linePool 复用行首偏移表。一篇 1000 行的文档就是一次切片分配，
+// 批量转换时全落在 GC 上（profile 里 indexLines 的分配排第一）。
+var linePool sync.Pool
+
 func indexLines(src []byte) []int {
 	starts := []int{0}
-	for i, c := range src {
-		if c == '\n' {
-			starts = append(starts, i+1)
+	if v, ok := linePool.Get().([]int); ok {
+		starts = append(v[:0], 0)
+	}
+	// 用 IndexByte 找换行：range 逐字节扫全文在 3 MB 的文档上要占一成多的解析时间，
+	// 而 memchr 是逐字节的几十倍速（profile 里 indexLines 排第二）。
+	for off := 0; off < len(src); {
+		rel := bytes.IndexByte(src[off:], '\n')
+		if rel < 0 {
+			break
 		}
+		off += rel + 1
+		starts = append(starts, off)
 	}
 	return starts
+}
+
+// releaseLines 把行首表放回池子；调用方必须保证之后不再使用它。
+func releaseLines(starts []int) {
+	if cap(starts) <= 1<<16 {
+		linePool.Put(starts[:0])
+	}
 }
 
 func lineOf(lineStarts []int, pos int) int {
@@ -719,10 +809,25 @@ func hasPrefixFold(b []byte, prefix string) bool {
 
 // indexFold 在 b 里找 ASCII 大小写不敏感的 needle，找不到返回 -1。
 func indexFold(b []byte, needle string) int {
-	for i := 0; i+len(needle) <= len(b); i++ {
+	// 只可能在 '<' 上匹配到标签，直接跳过其余字节：逐字节比较在长代码块里
+	// 会把这块开销放大好几倍（profile 里排得上前几）。
+	first := needle[0]
+	if 'A' <= first && first <= 'Z' {
+		first += 'a' - 'A'
+	}
+	for i := 0; i+len(needle) <= len(b); {
+		rel := bytes.IndexByte(b[i:], first)
+		if rel < 0 {
+			return -1
+		}
+		i += rel
+		if i+len(needle) > len(b) {
+			return -1
+		}
 		if hasPrefixFold(b[i:], needle) {
 			return i
 		}
+		i++
 	}
 	return -1
 }

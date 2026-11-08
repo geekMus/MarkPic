@@ -11,7 +11,7 @@ type linkRef struct {
 //
 // 只认「行首（最多三个空格）+ [label]: 地址」这种写法，与 CommonMark 的定义语法一致。
 // 代码块里的内容已经在 masked 里标记过，这里跳过，免得把示例代码当成定义。
-func collectLinkRefs(src []byte, masked []bool) map[string]linkRef {
+func collectLinkRefs(src []byte, masked maskBits) map[string]linkRef {
 	defs := map[string]linkRef{}
 	for i := 0; i < len(src); i++ {
 		if i > 0 && src[i-1] != '\n' {
@@ -22,7 +22,7 @@ func collectLinkRefs(src []byte, masked []bool) map[string]linkRef {
 		for n := 0; n < 3 && p < len(src) && src[p] == ' '; n++ {
 			p++
 		}
-		if p >= len(src) || masked[p] || src[p] != '[' {
+		if p >= len(src) || masked.has(p) || src[p] != '[' {
 			continue
 		}
 		label, next, ok := parseRefLabel(src, p)
