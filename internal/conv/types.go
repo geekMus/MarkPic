@@ -74,7 +74,11 @@ type Summary struct {
 	Reused       int    `json:"reused"`
 	FailedImages int    `json:"failedImages"`
 	Cancelled    bool   `json:"cancelled"`
-	DurationMs   int64  `json:"durationMs"`
+	// AbortReason 非空表示这一轮是「被提前掐掉的」而不是跑完的：连续太多张图
+	// 上传失败、期间一张都没成功，基本就是图床连不上，与其让用户一张张等超时，
+	// 不如停在这里并说清原因。
+	AbortReason string `json:"abortReason,omitempty"`
+	DurationMs  int64  `json:"durationMs"`
 }
 
 // Event 是推送给前端的事件（SSE）。

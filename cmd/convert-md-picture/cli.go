@@ -107,10 +107,15 @@ func (p *printer) emit(ev conv.Event) {
 			label = "错误"
 		}
 		fmt.Fprintf(os.Stderr, "  %s：%s\n", label, ev.Message)
-	case conv.EventRunFinished:
+	case conv.EventRunFinished, conv.EventRunCancelled:
 		if ev.Summary != nil {
 			fmt.Println()
 			fmt.Println(p.summaryLine(ev.Summary))
+			// 图床成片失败时这一轮是被提前掐掉的，原因必须说出来，
+			// 否则用户只看到「已取消」和一堆失败，不知道到底怎么了。
+			if ev.Summary.AbortReason != "" {
+				fmt.Fprintf(os.Stderr, "  错误：%s\n", ev.Summary.AbortReason)
+			}
 		}
 	}
 }
@@ -161,6 +166,11 @@ func previewBreakdown(r *conv.FileResult) string {
 	return strings.Join(parts, " · ")
 }
 
+// maxDetailLines 是单个文件最多列出的问题条数。
+// 一篇文档里同一张缺图可能被引用上百次（实测 5 MB 文档里有 100 行一样的内容），
+// 全打出来只会把真正重要的信息挤出屏幕。
+const maxDetailLines = 20
+
 // detailLines 只列出有问题的引用，替换成功的不用刷屏。
 func (p *printer) detailLines(r *conv.FileResult) []string {
 	var out []string
@@ -170,6 +180,7 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 	for _, w := range r.Warnings {
 		out = append(out, indent+"提示  "+w)
 	}
+	hidden := 0
 	for _, it := range r.Items {
 		var label string
 		switch it.Status {
@@ -180,11 +191,18 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 		default:
 			continue
 		}
+		if len(out) >= maxDetailLines {
+			hidden++
+			continue
+		}
 		line := fmt.Sprintf("%s第 %d 行  %s  %s", indent, it.Line, label, it.Target)
 		if it.Error != "" {
 			line += "（" + it.Error + "）"
 		}
 		out = append(out, line)
+	}
+	if hidden > 0 {
+		out = append(out, fmt.Sprintf("%s……另有 %d 处问题（同一文件里重复的只列前 %d 处）", indent, hidden, maxDetailLines))
 	}
 	return out
 }
@@ -205,6 +223,9 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	}
 	if s.Failed > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 个", s.Failed))
+	}
+	if s.Cancelled {
+		parts = append(parts, "已取消")
 	}
 	return fmt.Sprintf("%s · 用时 %.1fs", strings.Join(parts, " · "), float64(s.DurationMs)/1000)
 }

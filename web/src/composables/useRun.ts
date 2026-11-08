@@ -457,7 +457,10 @@ function onSignal(event: RunEvent): void {
       if (event.summary.cancelled) markUnsettledCancelled()
       runId.value = null
       if (event.summary.cancelled) {
-        warning(t('toast.runCancelled'))
+        // 图床成片失败时这一轮是我们自己掐掉的，得把原因摆出来，
+        // 否则用户只看到「已取消」，以为是自己点错了。
+        if (event.summary.abortReason) danger(event.summary.abortReason)
+        else warning(t('toast.runCancelled'))
       } else if (event.summary.failedImages > 0) {
         warning(t('toast.runFinishedPartial', { count: event.summary.failedImages }))
       } else {
@@ -468,10 +471,12 @@ function onSignal(event: RunEvent): void {
     case 'run.cancelled': {
       if (!matches(event.runId)) return
       clearCancelTimer()
+      if (event.summary) summary.value = event.summary
       phase.value = 'cancelled'
       markUnsettledCancelled()
       runId.value = null
-      warning(t('toast.runCancelled'))
+      if (event.summary?.abortReason) danger(event.summary.abortReason)
+      else warning(t('toast.runCancelled'))
       return
     }
     case 'log': {

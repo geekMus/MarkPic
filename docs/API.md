@@ -74,6 +74,9 @@ type RunSummary = {
   uploaded: number
   failedImages: number
   cancelled: boolean
+  // 这一轮被提前掐掉的原因（目前只有「图床成片失败」一种）。
+  // 取消事件也带 summary，所以客户端能把「为什么停了」说清楚。
+  abortReason?: string
   durationMs: number
 }
 ```
@@ -166,7 +169,7 @@ type Event =
   | { type: 'file.progress'; runId: string; id: string; uploaded: number; total: number }
   | { type: 'file.finished'; runId: string; id: string; result: FileResult }
   | { type: 'run.finished'; runId: string; summary: RunSummary }
-  | { type: 'run.cancelled'; runId: string }
+  | { type: 'run.cancelled'; runId: string; summary?: RunSummary }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
 ```
 

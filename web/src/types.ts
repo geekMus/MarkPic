@@ -68,6 +68,11 @@ export type RunSummary = {
   reused: number
   failedImages: number
   cancelled: boolean
+  /**
+   * 这一轮被提前掐掉的原因（目前只有「图床成片失败」一种）。
+   * 取消事件也带汇总，所以界面能说清楚「为什么停了」。
+   */
+  abortReason?: string
   durationMs: number
 }
 
@@ -86,7 +91,7 @@ export type RunEvent =
   | { type: 'file.progress'; runId: string; id: string; uploaded: number; total: number }
   | { type: 'file.finished'; runId: string; id: string; result: FileResult }
   | { type: 'run.finished'; runId: string; summary: RunSummary }
-  | { type: 'run.cancelled'; runId: string }
+  | { type: 'run.cancelled'; runId: string; summary?: RunSummary }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
 
 export type Health = {

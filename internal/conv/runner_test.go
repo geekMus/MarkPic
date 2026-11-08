@@ -3,6 +3,7 @@ package conv
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -584,5 +585,64 @@ func TestLiteralPercentNameResolves(t *testing.T) {
 	}
 	if strings.Contains(string(out), "(img/图%20片.png)") {
 		t.Fatalf("输出里还留着本地引用：%s", out)
+	}
+}
+
+// TestAbortsWhenEndpointIsDead 验证「图床整个连不上就别干等」：
+// 连续失败到阈值就直接掐掉整轮，并把原因写进汇总（界面/命令行据此报错），
+// 而不是让用户对着几百张图的超时重试干瞪眼。
+func TestAbortsWhenEndpointIsDead(t *testing.T) {
+	dir := t.TempDir()
+	const files = 20
+	paths := make([]string, 0, files)
+	for i := 0; i < files; i++ {
+		name := fmt.Sprintf("doc-%02d", i)
+		writeFile(t, filepath.Join(dir, "img", name+".png"), "png")
+		doc := filepath.Join(dir, name+".md")
+		writeFile(t, doc, fmt.Sprintf("![x](img/%s.png)\n", name))
+		paths = append(paths, doc)
+	}
+
+	// 一律 500：模拟「PicGo 在，但它背后的图床全挂」。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := baseCfg(srv.URL)
+	cfg.Concurrency = 4
+	var events []Event
+	r := NewRunner(cfg, i18n.ZH, "run1", func(ev Event) { events = append(events, ev) })
+
+	sum := r.Run(context.Background(), paths)
+
+	if sum.AbortReason == "" {
+		t.Fatalf("图床全挂时该给出终止原因，实际为空（失败 %d 张）", sum.FailedImages)
+	}
+	if !sum.Cancelled {
+		t.Errorf("提前掐掉的这一轮应该算「已取消」")
+	}
+	if strings.Contains(sum.AbortReason, srv.URL) == false {
+		t.Errorf("原因里该带上图床地址 %s，实际：%s", srv.URL, sum.AbortReason)
+	}
+	if sum.FailedImages >= files {
+		t.Errorf("应该在连续失败后停下，实际把 %d 张全试完了", sum.FailedImages)
+	}
+	if sum.Uploaded != 0 {
+		t.Errorf("上传全失败，Uploaded 应为 0，实际 %d", sum.Uploaded)
+	}
+
+	// 终止事件要带汇总，界面才能把原因显示出来。
+	var cancelled *Event
+	for i := range events {
+		if events[i].Type == EventRunCancelled {
+			cancelled = &events[i]
+		}
+	}
+	if cancelled == nil {
+		t.Fatalf("没有收到 %s 事件", EventRunCancelled)
+	}
+	if cancelled.Summary == nil || cancelled.Summary.AbortReason == "" {
+		t.Errorf("取消事件要带汇总与原因，实际 %+v", cancelled.Summary)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -68,7 +69,22 @@ type Runner struct {
 	scanMu    sync.Mutex
 	scanDocs  map[string]*mdscan.Document
 	scanBytes int
+
+	// 图床整个连不上时别一张张慢慢失败：连续失败到 abortsAfterFailures 张、
+	// 且这一轮一张都没成功过，就判定图床不可用，提前收工。
+	succeeded  atomic.Bool
+	failStreak atomic.Int32
+	abortMu    sync.Mutex
+	abortRun   context.CancelFunc
+	abortWhy   string
 }
+
+// abortsAfterFailures 是「认定图床不可用」的连续失败张数。
+//
+// 为什么不是 1：单张图床偶发失败很正常（限流、某张图损坏），重试也救不回来。
+// 为什么不是 100：默认重试 2 次时，一张失败的图要耗掉几秒，100 张就是几分钟，
+// 用户只会看到一个不动声色的进度条。12 张 × 3 次尝试已经是很强的信号了。
+const abortsAfterFailures = 12
 
 // scanCacheBudget 是预扫结果缓存的字节上限（源文档本身，不是解析结果的额外开销）。
 const scanCacheBudget = 64 << 20
@@ -100,6 +116,36 @@ func (r *Runner) SaveUploadCache() {
 	if r.uploads.Enabled() {
 		_ = r.uploads.Save()
 	}
+}
+
+// noteUploadSuccess 记下「这一轮至少成功过一张」。一旦成功过，就说明图床是通的，
+// 后面偶发失败交给重试与逐图报错即可，不再触发提前收工。
+func (r *Runner) noteUploadSuccess() {
+	r.succeeded.Store(true)
+}
+
+// noteUploadFailure 记一次上传失败；连续失败够多就掐掉整轮。
+func (r *Runner) noteUploadFailure() {
+	if r.succeeded.Load() {
+		return
+	}
+	if r.failStreak.Add(1) < abortsAfterFailures {
+		return
+	}
+	r.abortMu.Lock()
+	defer r.abortMu.Unlock()
+	if r.abortWhy != "" || r.abortRun == nil {
+		return
+	}
+	r.abortWhy = fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvEndpointDead), abortsAfterFailures, r.client.Endpoint)
+	r.abortRun()
+}
+
+// abortReason 返回「这一轮为什么被提前掐掉」，没被掐掉时返回空串。
+func (r *Runner) abortReason() string {
+	r.abortMu.Lock()
+	defer r.abortMu.Unlock()
+	return r.abortWhy
 }
 
 // NewRunner 创建运行器。
@@ -208,6 +254,19 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	started := time.Now()
 	sum := Summary{RunID: r.runID}
 
+	// 自己也能掐断这一轮：图床成片失败时（见 noteUploadFailure）用它提前收工，
+	// 调用方的取消信号照样能透传下来。
+	ctx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	r.abortMu.Lock()
+	r.abortRun = cancelRun
+	r.abortMu.Unlock()
+	defer func() {
+		r.abortMu.Lock()
+		r.abortRun = nil
+		r.abortMu.Unlock()
+	}()
+
 	files, missing, err := ExpandPaths(paths, r.cfg.Suffix)
 	if err != nil {
 		r.logf("error", "%s", i18n.T(r.lang, i18n.KeyConvExpandFailed, err))
@@ -315,13 +374,16 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	}
 	sum.DurationMs = time.Since(started).Milliseconds()
 	sum.Cancelled = ctx.Err() != nil
+	sum.AbortReason = r.abortReason()
 	// Reused 统计的是「这一轮少传了几张图」——按去重后的图片算，
 	// 和 Uploaded（按引用处算）不是一个口径，界面上分开写。
 	sum.Reused = r.uploads.Hits()
 	r.SaveUploadCache()
 
 	if sum.Cancelled {
-		r.notify(Event{Type: EventRunCancelled})
+		// 取消事件也带上汇总：图床连不上时这一轮是被我们自己掐掉的，
+		// 原因得让界面与命令行都能说出来。
+		r.notify(Event{Type: EventRunCancelled, Summary: &sum})
 	} else {
 		r.notify(Event{Type: EventRunFinished, Summary: &sum})
 	}
@@ -641,8 +703,11 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 			// 请求是被取消打断的，这一张没传成，但也不算「上传失败」。
 			return "", StatusCancelled, err
 		}
+		// 只有「领头」的那个协程会走到这儿，失败计数不会被重复累加。
+		r.noteUploadFailure()
 		return "", StatusFailed, err
 	}
+	r.noteUploadSuccess()
 	if size, mtime, ok := r.fileStamp(absPath); ok {
 		r.uploads.Store(r.client.Endpoint, key, size, mtime, url)
 	}

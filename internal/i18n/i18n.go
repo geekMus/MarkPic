@@ -55,6 +55,7 @@ const (
 	KeyConvOutDirCreateFailed Key = "conv.outDirCreateFailed"
 	KeyConvReferenceStyle     Key = "conv.referenceStyle"
 	KeyConvLoosePath          Key = "conv.loosePath"
+	KeyConvEndpointDead       Key = "conv.endpointDead"
 
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
@@ -216,6 +217,10 @@ var catalog = map[Key]entry{
 	KeyConvLoosePath: {
 		"第 %d 行：图片路径里有空格，规范写法是 <路径> 或把空格写成 %%20（已按原样处理）",
 		"Line %d: the image path contains a space; the standard form is <path> or %%20 (handled as written)",
+	},
+	KeyConvEndpointDead: {
+		"连续 %d 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上：%s",
+		"%d images in a row failed to upload without a single success, so the run was stopped early — the host is probably unreachable: %s",
 	},
 
 	KeyUpdateBadURL: {
