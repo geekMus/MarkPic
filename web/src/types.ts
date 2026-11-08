@@ -112,6 +112,19 @@ export type PreviewResult = { files: FileResult[]; summary: RunSummary }
 
 export type RunStartResult = { runId: string }
 
+/**
+ * 服务端眼里的「这一轮」。刷新页面之后前端内存里的 runId 就没了，
+ * 只能问服务端现在在跑什么、已经出了哪些结果。
+ */
+export type CurrentRun = {
+  running: boolean
+  done: boolean
+  runId?: string
+  files?: RunFileInfo[]
+  results?: FileResult[]
+  summary?: RunSummary
+}
+
 export type OkResult = { ok: boolean }
 
 /** 更新包（清单里给出的地址、校验值与大小）。 */

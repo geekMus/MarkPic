@@ -1,4 +1,5 @@
 import type {
+  CurrentRun,
   DialogResult,
   Health,
   OkResult,
@@ -140,6 +141,11 @@ export function startRun(paths: string[], settings?: Partial<Settings>): Promise
 
 export function cancelRun(runId: string): Promise<OkResult> {
   return request<OkResult>('/api/run/cancel', { method: 'POST', body: { runId } })
+}
+
+/** 服务端现在在跑哪一轮、已经出了哪些结果（刷新页面后靠它把界面接回来）。 */
+export function getCurrentRun(): Promise<CurrentRun> {
+  return request<CurrentRun>('/api/run/current')
 }
 
 export function revealPath(path: string): Promise<OkResult> {

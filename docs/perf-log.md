@@ -1473,3 +1473,35 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 `PUT https://openlist.rt.mus.pp.ua:100/api/fs/form → AggregateError [ETIMEDOUT]`，
 `curl` 直连 36677 19 ms 就回 `{"success":false,"message":"File upload failed"}`。
 所以本轮所有端到端数字仍来自进程内假图床（`tools/mockpicgo`），真机验证等存储恢复。
+## 第 31 轮：刷新页面不再丢掉正在跑的那一轮
+
+**问题**：跑到一半按 F5，界面回到「队列为空」，等运行结束也永远看不到结果——而磁盘上的输出文件其实照常写出来了。
+
+夹具：20 篇文档各一张图，图床用假图床 `-delay 250ms`、并发 2（一轮约 2.5 秒，足够在中途刷新）。
+
+| | 改之前 | 改之后 |
+| --- | --- | --- |
+| 刷新后立刻 | **队列为空 · 0 行** | **20 个文件 · 20 张图 · 替换 14 · 13 行** |
+| 刷新后还能取消吗 | —（连按钮都没有） | **能**：页脚「替换 12 · 已取消」、行状态 12 完成 1 已取消 |
+| 跑完的结果 | 永远看不到 | 接着往下走，最后「替换 20」、13 行全「完成」 |
+
+**机理**：事件流是增量的。`run.started` 只在 `runId === null && phase === 'preparing'` 时被接受，
+而刷新之后前端内存里的 `runId` 是 null、`phase` 是 `idle`，于是整条事件流被 `matches()` 挡掉；
+服务端也没有「现在在跑什么」的接口，前端没有任何办法把状态接回来。
+
+**改法（服务端记现状 + 前端连上就问一次）**：
+- `internal/server/server.go`：新增 `runSnapshot{runID, files, results, summary, done}` 与 `Server.current`；
+  runner 的事件出口包一层 `track(runID)`，按事件类型把 `run.started` 的文件清单、
+  每个 `file.finished` 的结果、终止事件的汇总记进快照，然后照常广播。
+  新增 `GET /api/run/current` 返回 `{ running, done, runId, files, results, summary }`；
+  `done=true` 的那份只回一次（留给「刚刷新完想看上一轮结果」的那一次请求），再问就清掉。
+- `web/src/composables/useRun.ts`：新增 `adoptSnapshot()` 与 `resync()`，在 `EventSource.onopen`
+  里先问一次现状再接着吃增量（重连同理）。快照里的结果直接 `absorbResult` 到对应的行上，
+  还在跑的标成「上传中」，所以刷新后取消按钮、进度、结果都在。
+  用模块级的 `lastAdoptedRunId` 挡住「一轮已经结束、重连又把它变回界面」。
+- 顺手修掉一个数据竞争：`handleRun` 的后台协程原来在里面调 `langOf(r)`，
+  而 `*http.Request` 在 `ServeHTTP` 返回后会被连接复用——改成启动前取好 `lang` 再闭包捕获。
+
+回归测试 `TestCurrentRunSnapshot`：没跑过时 `running=false`；图床卡住时 `running=true`、文件清单到位、
+结果为空；放行后同一接口能拿到 `results[0].uploaded == 1` 与 `summary`。
+`docs/API.md` 端点表补 `/api/run/current`，README 的图形界面一节补一段「刷新/断线不会丢这一轮」。

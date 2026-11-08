@@ -456,3 +456,97 @@ func TestDecodeBodyLimitBoundary(t *testing.T) {
 		t.Fatalf("空体应该报 emptyBody，实际 %v", err)
 	}
 }
+
+// 刷新页面之后，前端内存里的 runId 就没了；它得能问服务端「现在在跑什么」，
+// 否则界面回到「队列为空」，而 Go 侧其实还在跑（甚至已经跑完）。
+func TestCurrentRunSnapshot(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	open := func() { once.Do(func() { close(release) }) }
+	defer open()
+
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result":  []string{"https://cdn.example.com/a.png"},
+		})
+	}))
+	defer slow.Close()
+
+	_, base := newTestServer(t, slow.URL)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "a")
+	doc := filepath.Join(dir, "note.md")
+	writeFile(t, doc, "![a](a.png)\n")
+
+	// 还没跑过：running=false。
+	var idle currentRun
+	getJSON(t, base+"/api/run/current", &idle)
+	if idle.Running || idle.RunID != "" {
+		t.Fatalf("还没开始跑，不该有当前轮：%+v", idle)
+	}
+
+	resp := postJSON(t, base+"/api/run", map[string]any{"paths": []string{doc}})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("启动转换失败，状态码 = %d", resp.StatusCode)
+	}
+
+	// 跑起来之后（图床被卡住，这一轮不会结束）：能看到文件清单，一个结果都还没有。
+	var running currentRun
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		getJSON(t, base+"/api/run/current", &running)
+		if running.Running && len(running.Files) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("没等到正在跑的这轮：%+v", running)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if running.RunID == "" {
+		t.Fatalf("正在跑的这一轮应该有 runId：%+v", running)
+	}
+	if len(running.Results) != 0 || running.Summary != nil {
+		t.Fatalf("还没跑完，不该有结果：%+v", running)
+	}
+
+	// 放行之后跑完：同一个接口能拿到结果与汇总（刷新在收尾瞬间发生也不至于白屏）。
+	open()
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		var finished currentRun
+		getJSON(t, base+"/api/run/current", &finished)
+		if finished.Summary != nil {
+			if len(finished.Results) != 1 || finished.Results[0].Uploaded != 1 {
+				t.Fatalf("结果不对：%+v", finished.Results)
+			}
+			if finished.Summary.Uploaded != 1 {
+				t.Fatalf("汇总不对：%+v", *finished.Summary)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("没等到这一轮结束")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func getJSON(t *testing.T, url string, v any) {
+	t.Helper()
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatalf("请求 %s 失败: %v", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("请求 %s 状态码 = %d", url, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(v); err != nil {
+		t.Fatalf("解析 %s 响应失败: %v", url, err)
+	}
+}

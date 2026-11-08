@@ -2,9 +2,11 @@ import { computed, markRaw, reactive, ref } from 'vue'
 import {
   cancelRun as requestCancelRun,
   describeError,
+  getCurrentRun,
   startRun as requestStartRun,
 } from '../api'
 import type {
+  CurrentRun,
   FileResult,
   PreviewResult,
   RunEvent,
@@ -90,6 +92,13 @@ const eventIndex = new Map<string, number>()
 const pathIndex = new Map<string, number>()
 const summary = ref<RunSummary | null>(null)
 const runId = ref<string | null>(null)
+/**
+ * 最近一次从服务端快照接管过来的 runId。
+ *
+ * 用来挡住「一轮已经结束、重连又把它变回界面」这种情况：结束时服务端还会留一份快照，
+ * 供刚刚刷新的页面接一次；但同一个页面不该靠重连把清空过的队列重新填满。
+ */
+let lastAdoptedRunId: string | null = null
 const connected = ref(false)
 const reconnecting = ref(false)
 
@@ -544,6 +553,66 @@ function handleRaw(raw: string): void {
   enqueue(parsed)
 }
 
+/**
+ * 把服务端记着的「这一轮」接管过来。
+ *
+ * 用在两种时刻：页面刚打开（刷新过，内存里的 runId 已经没了）、以及断线重连之后
+ * （断的那段时间里 file.finished 全丢了）。文件清单来自快照，已完成的结果直接贴回
+ * 对应的行，还在跑的标成「上传中」。
+ */
+function adoptSnapshot(snapshot: CurrentRun): void {
+  if (!snapshot.runId) return
+  // 这一轮的结果已经在界面上了（自己刚跑完），不要用快照再盖一遍。
+  if (summary.value !== null && summary.value.runId === snapshot.runId) return
+  // 已经结束、而且这个页面早就见过它（比如用户跑完又清空了队列）：
+  // 重连时别把旧结果重新变出来。
+  if (!snapshot.running && lastAdoptedRunId === snapshot.runId) return
+  lastAdoptedRunId = snapshot.runId
+
+  runId.value = snapshot.runId
+  summary.value = snapshot.summary ?? null
+  phase.value = snapshot.running
+    ? 'running'
+    : snapshot.summary?.cancelled
+      ? 'cancelled'
+      : 'done'
+
+  applyStarted(snapshot.files ?? [])
+
+  for (const result of snapshot.results ?? []) {
+    const row = rowForResult(result.id, result.path) ?? rowFromResult(result)
+    if (!rowAt(result.id) && !rowIndex.has(row.id)) pushRow(row)
+    absorbResult(row, result)
+  }
+  if (snapshot.running) {
+    for (const row of rows.value) {
+      if (row.phase === 'queued') row.phase = 'running'
+    }
+  } else if (snapshot.summary?.cancelled) {
+    markUnsettledCancelled()
+  }
+}
+
+/**
+ * 和服务端对齐一次「现在在跑什么」。
+ *
+ * 事件流是增量的：刷新页面会漏掉 run.started 和之前所有 file.finished，前端内存里的
+ * runId 也没了，界面就退回「队列为空」—— 可 Go 侧其实还在跑，甚至已经跑完。
+ * 所以每次连上事件流都先问一次现状，再接着吃增量。
+ */
+async function resync(): Promise<void> {
+  if (busy.value) return
+  let snapshot: CurrentRun
+  try {
+    snapshot = await getCurrentRun()
+  } catch {
+    return
+  }
+  // 请求飞在路上时用户可能自己点了开始，这时别用快照把新的一轮盖掉。
+  if (busy.value) return
+  adoptSnapshot(snapshot)
+}
+
 function connect(): void {
   if (source !== null) return
   intentionalClose = false
@@ -558,6 +627,8 @@ function connect(): void {
       reconnecting.value = false
       success(t('toast.reconnected'))
     }
+    // 连上（含重连）就先对一次现状：漏掉的事件靠这次补齐。
+    void resync()
   }
 
   // 后端每条 SSE 都带具名事件行（event: run.started …），具名事件不会触发

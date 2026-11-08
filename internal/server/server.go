@@ -43,11 +43,24 @@ type Server struct {
 
 	mu   sync.Mutex
 	runs map[string]context.CancelFunc
-	ln   net.Listener
-	port int
+	// current 是「服务端眼里的这一轮」：刷新页面之后，前端靠它把界面接回来。
+	// 事件流是增量的，页面一刷新就断在半截，只能从服务端重新问一次现状。
+	current *runSnapshot
+	ln      net.Listener
+	port    int
 
 	updOpts UpdateOptions
 	upd     updateTracker
+}
+
+// runSnapshot 记着这一轮跑到哪儿了：文件清单、已经出结果的那些、以及最终汇总。
+// 它只在内存里，进程退出就没了 —— 这本来就是「正在跑的这一轮」。
+type runSnapshot struct {
+	runID   string
+	files   []conv.FileTask
+	results map[string]*conv.FileResult
+	summary *conv.Summary
+	done    bool
 }
 
 // New 创建服务实例。
@@ -151,6 +164,7 @@ func (s *Server) routes() http.Handler {
 		api.Post("/dialog/folder", s.handleDialogFolder)
 		api.Post("/preview", s.handlePreview)
 		api.Post("/run", s.handleRun)
+		api.Get("/run/current", s.handleRunCurrent)
 		api.Post("/run/cancel", s.handleCancel)
 		api.Post("/reveal", s.handleReveal)
 		api.Post("/open", s.handleOpen)
@@ -439,7 +453,12 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.runs[runID] = cancel
+	s.current = &runSnapshot{runID: runID, results: make(map[string]*conv.FileResult)}
 	s.mu.Unlock()
+
+	// 语言必须在启动协程之前取好：ServeHTTP 返回之后 *http.Request 会被连接复用，
+	// 在后台协程里再读它的头就是一次数据竞争。
+	lang := langOf(r)
 
 	go func() {
 		defer func() {
@@ -448,11 +467,80 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			cancel()
 		}()
-		runner := conv.NewRunner(cfg, langOf(r), runID, s.hub.publish).AttachUploadCache(appdata.UploadCachePath())
+		runner := conv.NewRunner(cfg, lang, runID, s.track(runID)).AttachUploadCache(appdata.UploadCachePath())
 		runner.Run(ctx, req.Paths)
 	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{"runId": runID})
+}
+
+// track 包一层事件出口：先把这一轮的状态记进快照，再照常广播给 SSE 订阅者。
+//
+// 为什么要记：事件流是增量的，页面一刷新就断在半截，前端内存里的 runId 也没了，
+// 于是界面回到「队列为空」，而 Go 侧其实还在跑（甚至已经跑完）。有了快照，
+// 前端启动时问一次 /api/run/current 就能把整轮接回来。
+func (s *Server) track(runID string) func(conv.Event) {
+	return func(ev conv.Event) {
+		s.mu.Lock()
+		snap := s.current
+		if snap != nil && snap.runID == runID {
+			switch ev.Type {
+			case conv.EventRunStarted:
+				snap.files = ev.Files
+			case conv.EventFileFinished:
+				if ev.Result != nil {
+					snap.results[ev.ID] = ev.Result
+				}
+			case conv.EventRunFinished, conv.EventRunCancelled:
+				snap.summary = ev.Summary
+				snap.done = true
+			}
+		}
+		s.mu.Unlock()
+		s.hub.publish(ev)
+	}
+}
+
+// currentRun 是 /api/run/current 的返回体。running=false 时其余字段没有意义。
+type currentRun struct {
+	Running bool               `json:"running"`
+	Done    bool               `json:"done"`
+	RunID   string             `json:"runId,omitempty"`
+	Files   []conv.FileTask    `json:"files,omitempty"`
+	Results []*conv.FileResult `json:"results,omitempty"`
+	Summary *conv.Summary      `json:"summary,omitempty"`
+}
+
+func (s *Server) handleRunCurrent(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	snap := s.current
+	var out currentRun
+	if snap != nil {
+		out = currentRun{
+			Running: !snap.done,
+			Done:    snap.done,
+			RunID:   snap.runID,
+			Files:   snap.files,
+			Summary: snap.summary,
+		}
+		for _, f := range snap.files {
+			if res, ok := snap.results[f.ID]; ok {
+				out.Results = append(out.Results, res)
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	// 已经结束的这一轮只留给「刚刷新完、想看看上一轮结果」的那一次请求；
+	// 再下一次就清掉，免得几天后打开界面还看到一轮陈年结果。
+	if out.Done {
+		s.mu.Lock()
+		if s.current == snap {
+			s.current = nil
+		}
+		s.mu.Unlock()
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {

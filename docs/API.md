@@ -95,6 +95,7 @@ type RunSummary = {
 | POST | `/api/dialog/folder` | — | `{ paths: string[] }`；不支持时 `501` |
 | POST | `/api/preview` | `{ paths: string[], settings?: Partial<Settings> }` | `{ files: FileResult[], summary: RunSummary }` |
 | POST | `/api/run` | `{ paths: string[], settings?: Partial<Settings> }` | `{ runId: string }`；已经有一次转换在跑时返回 `409`（`error.code = "conflict"`）；请求体超过 4 MB 返回 `413`（`error.code = "too_large"`） |
+| GET | `/api/run/current` | — | `{ running, done, runId?, files?, results?, summary? }`；服务端记着「这一轮」的现状，刷新页面或断线重连后前端靠它把界面接回来（`done=true` 的那份只回一次，再问就清掉） |
 | POST | `/api/run/cancel` | `{ runId: string }` | `{ ok: boolean }` |
 | POST | `/api/reveal` | `{ path: string }` | `{ ok: boolean }`（在资源管理器中定位） |
 | POST | `/api/open` | `{ target: string }` | `{ ok: boolean }`（打开文件/目录/URL） |
