@@ -8,6 +8,7 @@
     · 前端  http://localhost:<WebPort>  —— Vite 开发服务器，/api 请求由它代理到后端
 
   浏览器请打开「前端」那个地址（默认 http://localhost:5173）。
+  默认会在 Vite 就绪后自动帮你打开；加 -NoOpen 可以关掉这个行为。
   改 .vue/.ts 立刻热更新；改 Go 代码需要按 Ctrl+C 重跑本脚本。
   结束脚本时会一并关掉它启动的后端进程。
 
@@ -29,6 +30,9 @@
 .PARAMETER ApiOnly
   只启动后端（前端自己另开终端跑 pnpm --dir web dev）。
 
+.PARAMETER NoOpen
+  不要自动打开浏览器（默认会自动打开前端地址）。
+
 .EXAMPLE
   pnpm dev
 
@@ -45,7 +49,8 @@ param(
     [string]$Go = '',
     [string]$Pnpm = '',
     [switch]$NoInstall,
-    [switch]$ApiOnly
+    [switch]$ApiOnly,
+    [switch]$NoOpen
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,6 +60,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 
 $apiProc = $null
+$opener = $null
 try {
     $goExe = Resolve-GoCommand -Hint $Go
 
@@ -128,10 +134,30 @@ try {
     # 让 vite.config.ts 知道后端在哪个端口（它读 CMP_API，默认 17860）。
     $env:CMP_API = "http://127.0.0.1:$ApiPort"
 
+    # Vite 就在下面这行以前台方式跑，所以「等它起来再开浏览器」只能放到后台作业里。
+    # 早点开浏览器会撞上一个还没监听的端口，用户看到的是一张连接失败页。
+    if (-not $NoOpen) {
+        $opener = Start-Job -ScriptBlock {
+            param($port, $url, $tools)
+            . $tools
+            if (Wait-TcpPort -Port $port -TimeoutSeconds 30) {
+                Open-Url -Url $url | Out-Null
+            }
+        } -ArgumentList $WebPort, "http://127.0.0.1:$WebPort", (Join-Path $PSScriptRoot '_tools.ps1')
+    }
+
+    if (-not $NoOpen) {
+        Write-Host ("  Vite 就绪后会自动打开 http://127.0.0.1:{0}（不想自动打开就加 -NoOpen）" -f $WebPort) -ForegroundColor DarkGray
+    }
+
     Write-Host '==> 启动前端 Vite（改 Vue 代码即时生效，Ctrl+C 结束）' -ForegroundColor Cyan
     & $pnpmExe --dir web dev --port $WebPort --strictPort
 }
 finally {
+    if ($opener) {
+        Stop-Job $opener -ErrorAction SilentlyContinue
+        Remove-Job $opener -Force -ErrorAction SilentlyContinue
+    }
     if ($apiProc -and -not $apiProc.HasExited) {
         Write-Host ''
         Write-Host '==> 关闭后端' -ForegroundColor Cyan

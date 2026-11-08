@@ -114,3 +114,47 @@ function Get-ApiHealth {
     }
     catch { return $null }
 }
+
+# 等一个 TCP 端口有人监听（Vite 没有 /api/health 之类的探针，只能连端口）。
+function Wait-TcpPort {
+    [CmdletBinding()]
+    param(
+        [int]$Port,
+        [int]$TimeoutSeconds = 30
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $client = New-Object System.Net.Sockets.TcpClient
+        try {
+            $client.Connect('127.0.0.1', $Port)
+            $client.Close()
+            return $true
+        }
+        catch {
+            $client.Dispose()
+            Start-Sleep -Milliseconds 250
+        }
+    }
+    return $false
+}
+
+# 用系统默认浏览器打开一个网址。
+# 不用 Start-Process：Windows PowerShell 5.1 在本机可能因为环境变量里同时存在
+# NO_PROXY / no_proxy 而抛 ArgumentException；交给 cmd 的 start 更稳。
+function Open-Url {
+    [CmdletBinding()]
+    param([string]$Url)
+
+    try {
+        & cmd.exe /c start '' $Url 2>$null | Out-Null
+        return $true
+    }
+    catch {
+        try {
+            Start-Process $Url | Out-Null
+            return $true
+        }
+        catch { return $false }
+    }
+}
