@@ -35,6 +35,10 @@ func TestScanMarkdown(t *testing.T) {
 		{"代码块内忽略", "```\n![a](p.png)\n```", nil},
 		{"行内代码忽略", "`![a](p.png)`", nil},
 		{"HTML 注释内忽略", "<!-- ![a](p.png) -->", nil},
+		{"pre 块内忽略", "<pre>\n![a](p.png)\n</pre>", nil},
+		{"行内 code 标签忽略", "<code>![a](p.png)</code>", nil},
+		{"pre 大小写", "<PRE>![a](p.png)</PRE>", nil},
+		{"prefix 标签不算 pre", "<prefix>![a](p.png)</prefix>", []string{"p.png"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

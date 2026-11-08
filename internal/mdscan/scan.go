@@ -6,6 +6,7 @@
 package mdscan
 
 import (
+	"bytes"
 	"sort"
 	"strings"
 
@@ -495,6 +496,43 @@ func protectedMask(src []byte) []bool {
 		}
 	}
 
+	// HTML 里的代码区域：<pre>…</pre>、<code>…</code> 的内容按原样显示，
+	// 不该被当成图片语法（和围栏代码块、行内代码一个道理）。
+	for _, pair := range [][2]string{{"<pre", "</pre>"}, {"<code", "</code>"}} {
+		open, close := pair[0], pair[1]
+		i := 0
+		for i < n {
+			// 用 IndexByte 直接跳到下一个 '<'，避免逐字节扫全文（那会让解析慢两成）。
+			rel := bytes.IndexByte(src[i:], '<')
+			if rel < 0 {
+				break
+			}
+			i += rel
+			if i+len(open) >= n {
+				break
+			}
+			if mask[i] || !hasPrefixFold(src[i:], open) {
+				i++
+				continue
+			}
+			if after := i + len(open); after < n && !isTagBoundary(src[after]) {
+				// 例如 <prefix>，不是我们要找的标签
+				i++
+				continue
+			}
+			rel2 := indexFold(src[i:], close)
+			if rel2 < 0 {
+				i++
+				continue
+			}
+			end := i + rel2 + len(close)
+			for j := i; j < end && j < n; j++ {
+				mask[j] = true
+			}
+			i = end
+		}
+	}
+
 	// 行内代码：未被围栏覆盖的 `run`
 	for i := 0; i < n; i++ {
 		if mask[i] || src[i] != '`' {
@@ -567,6 +605,22 @@ func hasPrefixFold(b []byte, prefix string) bool {
 		return false
 	}
 	return strings.EqualFold(string(b[:len(prefix)]), prefix)
+}
+
+// indexFold 在 b 里找 ASCII 大小写不敏感的 needle，找不到返回 -1。
+func indexFold(b []byte, needle string) int {
+	for i := 0; i+len(needle) <= len(b); i++ {
+		if hasPrefixFold(b[i:], needle) {
+			return i
+		}
+	}
+	return -1
+}
+
+// isTagBoundary 判断 HTML 标签名之后是否就是标签的边界（`>`、`/` 或空白），
+// 用来区分 <pre> 和 <prefix> 这种名字开头的别的标签。
+func isTagBoundary(c byte) bool {
+	return c == '>' || c == '/' || c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
 // pathEscapes 是解释路径时才会被还原的反斜杠转义。
