@@ -534,6 +534,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			flusher.Flush()
 		case <-sub.signal():
+			// 攒一小会儿再发：同一个文件会连着发 started/progress/finished，
+			// 逐条下发时 5000 篇文档要发两万条事件；攒一个窗口之后，中间状态
+			// 会被后来的覆盖掉，事件量掉一个数量级。终止事件不等（界面就靠它
+			// 结束这一轮），整批里只要有终止事件就立刻发。
+			if !sub.hasTerminalEvent() {
+				timer := time.NewTimer(sseFlushWindow)
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				}
+				timer.Stop()
+			}
 			batch := sub.drain()
 			if len(batch) == 0 {
 				continue
@@ -663,34 +677,52 @@ func newRunID() string {
 // 这里刻意不用带缓冲的 channel：channel 一满就只能整条丢掉，而 run.finished
 // 这种终止事件一旦丢掉，界面会永远停在进行中。300 篇文档实测过：9528 条事件
 // 把 512 的缓冲灌满，前端再也等不到结束，Go 侧其实早就跑完了。
-// 改成「队列 + 覆盖 + 成批取走」之后：
-//   - 进度事件按文件就地覆盖，同一文件只留最新一条，事件量从「每张图一条」
-//     降到「每个文件一条」；
+// 改成「队列 + 按文件覆盖 + 成批取走」之后：
+//   - 同一个文件的事件（file.started / file.progress / file.finished）只占一个槽，
+//     留下的是最新那条 —— 5000 个文件那次实测，事件量把 4096 的上限灌满，
+//     1656 个文件的结果被丢掉，界面里三分之一的行走在「待转换」上；
 //   - 终止事件（run.finished/run.cancelled）永不丢弃；
 //   - 一批事件一次写完、一次 flush，浏览器不必为每条事件各做一次渲染。
 type subscriber struct {
-	mu       sync.Mutex
-	events   []conv.Event          // 待下发事件，先进先出
-	progress map[string]conv.Event // 每个文件只保留最新一条进度
-	order    []string              // 进度事件的下发顺序（首次出现的顺序）
-	closed   bool
-	sig      chan struct{}
+	mu     sync.Mutex
+	events []conv.Event          // 待下发事件，先进先出
+	slots  map[string]conv.Event // 每个文件只保留最新一条（含 started/finished）
+	order  []string              // 文件槽的下发顺序（首次出现的顺序）
+	closed bool
+	sig    chan struct{}
 }
 
-// subscriberQueueLimit 是单个订阅者积压事件的上限。正常情况下队列里
-// 最多是「每个文件两条」（file.started/file.finished）加零头。
+// subscriberQueueLimit 是单个订阅者积压事件的上限。正常情况下队列里是
+// 「成批落下的文件槽」加零头，这个上限只是兜底。
 const subscriberQueueLimit = 4096
+
+// subscriberSlotBatch 是一批文件槽攒到多少条就先落进队列。
+// 攒批是为了让长时间运行的界面仍然能一条条往前推进，而不是跑完才一次性收到。
+const subscriberSlotBatch = 256
+
+// sseFlushWindow 是「整批里没有终止事件时」最多再攒多久才下发。
+// 见 handleEvents 里的说明。
+const sseFlushWindow = 40 * time.Millisecond
 
 func newSubscriber() *subscriber {
 	return &subscriber{
-		progress: make(map[string]conv.Event),
-		sig:      make(chan struct{}, 1),
+		slots: make(map[string]conv.Event),
+		sig:   make(chan struct{}, 1),
 	}
 }
 
 // isTerminalEvent 判断事件是否属于「丢了界面就会卡住」的那一类。
 func isTerminalEvent(t string) bool {
 	return t == conv.EventRunFinished || t == conv.EventRunCancelled
+}
+
+// isFileEvent 判断事件是否描述「某个文件的状态」，这类事件按文件 id 覆盖。
+func isFileEvent(t string) bool {
+	switch t {
+	case conv.EventFileStarted, conv.EventFileProgress, conv.EventFileFinished:
+		return true
+	}
+	return false
 }
 
 // push 把一个事件放进队列，然后戳一下等待中的 SSE 协程。绝不阻塞生产者。
@@ -700,16 +732,20 @@ func (sub *subscriber) push(ev conv.Event) {
 		sub.mu.Unlock()
 		return
 	}
-	if ev.Type == conv.EventFileProgress {
-		// 同一文件的进度只留最新一条：这就是事件量下降的主要来源。
-		if _, seen := sub.progress[ev.ID]; !seen {
+	if isFileEvent(ev.Type) {
+		// 同一文件的事件会互相覆盖，只留最新那条。顺序由生产者保证
+		// （runner 里每个文件由一个 goroutine 顺序 notify），这里不做乱序保护。
+		if _, seen := sub.slots[ev.ID]; !seen {
 			sub.order = append(sub.order, ev.ID)
 		}
-		sub.progress[ev.ID] = ev
+		sub.slots[ev.ID] = ev
+		if len(sub.slots) >= subscriberSlotBatch {
+			sub.materializeSlotsLocked()
+		}
 	} else {
-		// 先把攒着的进度按原顺序落到队列里，保证 file.finished 不会排在
+		// 先把攒着的文件槽按原顺序落到队列里，保证 file.finished 不会排在
 		// 它自己的进度前面（否则行状态会从「已完成」退回「进行中」）。
-		sub.materializeProgressLocked()
+		sub.materializeSlotsLocked()
 		if len(sub.events) >= subscriberQueueLimit {
 			sub.dropOldestLocked()
 		}
@@ -723,14 +759,19 @@ func (sub *subscriber) push(ev conv.Event) {
 	}
 }
 
-func (sub *subscriber) materializeProgressLocked() {
+func (sub *subscriber) materializeSlotsLocked() {
 	for _, id := range sub.order {
-		if ev, ok := sub.progress[id]; ok {
-			sub.events = append(sub.events, ev)
+		ev, ok := sub.slots[id]
+		if !ok {
+			continue
 		}
+		if len(sub.events) >= subscriberQueueLimit {
+			break
+		}
+		sub.events = append(sub.events, ev)
 	}
 	sub.order = sub.order[:0]
-	clear(sub.progress)
+	clear(sub.slots)
 }
 
 // dropOldestLocked 丢掉队列里最旧的一条「丢了也不影响结果」的事件。
@@ -746,11 +787,23 @@ func (sub *subscriber) dropOldestLocked() {
 	sub.events = sub.events[1:]
 }
 
+// hasTerminalEvent 报告队列里是否已经有终止事件（有就不能再等攒批窗口了）。
+func (sub *subscriber) hasTerminalEvent() bool {
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	for _, ev := range sub.events {
+		if isTerminalEvent(ev.Type) {
+			return true
+		}
+	}
+	return false
+}
+
 // drain 把当前积压的事件整批交给调用方（切片所有权转移，下次重新分配）。
 func (sub *subscriber) drain() []conv.Event {
 	sub.mu.Lock()
 	defer sub.mu.Unlock()
-	sub.materializeProgressLocked()
+	sub.materializeSlotsLocked()
 	if len(sub.events) == 0 {
 		return nil
 	}
@@ -767,7 +820,7 @@ func (sub *subscriber) close() {
 	sub.closed = true
 	sub.events = nil
 	sub.order = nil
-	clear(sub.progress)
+	clear(sub.slots)
 	sub.mu.Unlock()
 }
 

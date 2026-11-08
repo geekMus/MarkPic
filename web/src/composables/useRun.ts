@@ -81,6 +81,13 @@ const rows = ref<RunRow[]>([])
 const rowIndex = new Map<string, number>()
 /** 服务端 id → 下标。事件里的 id 是服务端给的，队列行的 id 是本地的，两张表各查各的。 */
 const eventIndex = new Map<string, number>()
+/**
+ * 路径（pathKey）→ 下标。
+ *
+ * 兜底用：万一行没拿到 serverId（run.started 那批事件没送到、或行是先手动
+ * 加进来的），file.finished 还能按路径认领已有的一行，不至于同一个文件冒出两行。
+ */
+const pathIndex = new Map<string, number>()
 const summary = ref<RunSummary | null>(null)
 const runId = ref<string | null>(null)
 const connected = ref(false)
@@ -242,16 +249,32 @@ function rowAt(id: string): RunRow | null {
 function reindexRows(): void {
   rowIndex.clear()
   eventIndex.clear()
+  pathIndex.clear()
   rows.value.forEach((row, index) => {
     rowIndex.set(row.id, index)
     if (row.serverId) eventIndex.set(row.serverId, index)
+    pathIndex.set(pathKey(row.path), index)
   })
 }
 
 function pushRow(row: RunRow): void {
   rowIndex.set(row.id, rows.value.length)
   if (row.serverId) eventIndex.set(row.serverId, rows.value.length)
+  pathIndex.set(pathKey(row.path), rows.value.length)
   rows.value.push(row)
+}
+
+/**
+ * 找到 file.finished 该落到哪一行。
+ *
+ * 先按服务端 id 找；找不到再按路径找（事件合并、漏收 run.started 时的兜底）。
+ */
+function rowForResult(id: string, path: string): RunRow | null {
+  const byId = rowAt(id)
+  if (byId) return byId
+  const index = pathIndex.get(pathKey(path))
+  if (index === undefined) return null
+  return rows.value[index] ?? null
 }
 
 function updateRow(
@@ -417,9 +440,10 @@ function onSignal(event: RunEvent): void {
     }
     case 'file.finished': {
       if (!matches(event.runId)) return
-      let row = rowAt(event.id)
+      let row = rowForResult(event.id, event.result.path)
       if (!row) {
         row = rowFromResult(event.result)
+        row.serverId = event.id
         pushRow(row)
       }
       absorbResult(row, event.result)
@@ -470,14 +494,26 @@ function onSignal(event: RunEvent): void {
  */
 const EVENT_FLUSH_MS = 16
 
+/**
+ * 一次最多应用多少条事件。
+ *
+ * 服务端是按批下发的，一批可能有上千条。一次全应用会让 Vue 在同一个 tick 里
+ * 更新上千个组件、浏览器紧接着同步重排整张表——5000 篇那次实测出现过 5.7 秒的
+ * 单帧停顿。分片之后每帧的工作量有上限，剩下的下一帧接着做。
+ */
+const EVENT_FLUSH_MAX = 200
+
 const pending: RunEvent[] = []
 let pendingTimer: number | null = null
 
 function flushPending(): void {
   pendingTimer = null
   if (pending.length === 0) return
-  const batch = pending.splice(0, pending.length)
+  const batch = pending.splice(0, EVENT_FLUSH_MAX)
   for (const event of batch) onSignal(event)
+  if (pending.length > 0) {
+    pendingTimer = window.setTimeout(flushPending, EVENT_FLUSH_MS)
+  }
 }
 
 function enqueue(event: RunEvent): void {

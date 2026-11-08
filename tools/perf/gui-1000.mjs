@@ -7,6 +7,9 @@ async (page) => {
   await page.setViewportSize({ width: 1280, height: 800 })
 
   await page.addInitScript(() => {
+    // addInitScript 会在同一 page 上累积，重复跑之前先 browser_close。
+    if (window.__sseHooked) return
+    window.__sseHooked = true
     const Orig = window.EventSource
     const sse = { total: 0, byType: {} }
     window.__sse = sse

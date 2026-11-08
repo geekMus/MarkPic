@@ -245,10 +245,15 @@ func TestRunEndToEnd(t *testing.T) {
 			t.Fatalf("汇总不对: %+v", *res.summary)
 		}
 		joined := strings.Join(res.events, ",")
-		for _, want := range []string{conv.EventRunStarted, conv.EventFileStarted, conv.EventFileFinished, conv.EventRunFinished} {
+		// 文件级的中间状态（file.started/file.progress）会按文件合并，只保证
+		// 「每个文件的最终结果」和 run 级事件一定送到；run.started 必须最先到。
+		for _, want := range []string{conv.EventRunStarted, conv.EventFileFinished, conv.EventRunFinished} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("缺少事件 %s，实际: %s", want, joined)
 			}
+		}
+		if res.events[0] != conv.EventRunStarted {
+			t.Fatalf("第一条事件应该是 run.started，实际: %s", joined)
 		}
 	case <-time.After(15 * time.Second):
 		t.Fatal("等待 run.finished 超时")
