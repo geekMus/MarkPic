@@ -90,7 +90,7 @@ func bindWindowCommands(w webview2.WebView) {
 		{"cmpWinToggleMaximize", func() { toggleMaximizeWindow() }},
 		{"cmpWinMaximized", func() bool { return windowMaximized() }},
 		{"cmpWinClose", func() { closeWindow() }},
-		{"cmpWinDrag", func() { beginCaptionDrag() }},
+		{"cmpWinDrag", func(x, y int) { beginCaptionDrag(x, y) }},
 		{"cmpWinResize", func(edge string) { beginResize(edge) }},
 		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
 	}

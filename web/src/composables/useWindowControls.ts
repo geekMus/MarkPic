@@ -24,10 +24,17 @@ interface WindowBridge {
   cmpWinToggleMaximize?: () => Promise<unknown>
   cmpWinMaximized?: () => Promise<boolean>
   cmpWinClose?: () => Promise<unknown>
-  cmpWinDrag?: () => Promise<unknown>
+  cmpWinDrag?: (x: number, y: number) => Promise<unknown>
   cmpWinResize?: (edge: ResizeEdge) => Promise<unknown>
   cmpWinSetDark?: (dark: boolean) => Promise<unknown>
 }
+
+/**
+ * 拖动标题栏时，鼠标移动超过这个距离（CSS 像素）才把这次按下交给系统。
+ * 阈值不能是 0：一旦交给系统，鼠标就被拖动循环接管，网页再也收不到
+ * 这次抬起，浏览器也就凑不出 click / dblclick —— 那样双击就没法用了。
+ */
+const DRAG_THRESHOLD = 4
 
 const bridge = window as unknown as WindowBridge
 
@@ -94,13 +101,36 @@ export function useWindowControls() {
     close: (): void => {
       void bridge.cmpWinClose?.()
     },
-    /** 在标题栏空白处按下：把这次按下交给系统去拖动窗口。 */
+    /**
+     * 在标题栏空白处按下。真正的交接推迟到鼠标确实移动之后：
+     * 只是点一下的话，这次点击留给网页，双击才能被浏览器的 dblclick 认出来；
+     * 拖动的话，一到阈值就把「按下的那一点」交给系统的标题栏拖动循环，
+     * 吸附、双击还原之类的原生手感都还在。
+     */
     startDrag: (event: MouseEvent): void => {
       if (!available.value || event.button !== 0) return
       const target = event.target as HTMLElement | null
       if (target?.closest('[data-no-drag]')) return
       event.preventDefault()
-      void bridge.cmpWinDrag?.()
+
+      const startX = event.screenX
+      const startY = event.screenY
+
+      const stop = (): void => {
+        window.removeEventListener('mousemove', onMove, true)
+        window.removeEventListener('mouseup', stop, true)
+      }
+
+      const onMove = (move: MouseEvent): void => {
+        if (Math.abs(move.screenX - startX) < DRAG_THRESHOLD && Math.abs(move.screenY - startY) < DRAG_THRESHOLD) {
+          return
+        }
+        stop()
+        void bridge.cmpWinDrag?.(startX, startY)
+      }
+
+      window.addEventListener('mousemove', onMove, true)
+      window.addEventListener('mouseup', stop, true)
     },
     /** 在窗口边缘按下：把这次按下交给系统去缩放窗口。 */
     startResize: (edge: ResizeEdge): void => {
