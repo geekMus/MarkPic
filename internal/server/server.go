@@ -23,6 +23,7 @@ import (
 
 	"github.com/geekMus/convert-md-picture/internal/appdata"
 	"github.com/geekMus/convert-md-picture/internal/conv"
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/platform"
 	"github.com/geekMus/convert-md-picture/internal/settings"
@@ -128,10 +129,10 @@ func (s *Server) routes() http.Handler {
 	r.Route("/api", func(api chi.Router) {
 		// 未匹配到的接口返回 JSON 错误，前端可以统一处理。
 		api.NotFound(func(w http.ResponseWriter, req *http.Request) {
-			writeErr(w, http.StatusNotFound, "接口不存在")
+			errKey(w, req, http.StatusNotFound, i18n.KeyServerNotFound)
 		})
 		api.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
-			writeErr(w, http.StatusMethodNotAllowed, "不支持的请求方法")
+			errKey(w, req, http.StatusMethodNotAllowed, i18n.KeyServerMethodNotAllowed)
 		})
 
 		api.Get("/health", s.handleHealth)
@@ -170,12 +171,12 @@ func (s *Server) guard(next http.Handler) http.Handler {
 		switch host {
 		case "127.0.0.1", "localhost", "::1":
 		default:
-			writeErr(w, http.StatusForbidden, "仅允许本机访问")
+			errKey(w, r, http.StatusForbidden, i18n.KeyServerLocalOnly)
 			return
 		}
 		if origin := r.Header.Get("Origin"); origin != "" {
 			if origin != "http://"+r.Host {
-				writeErr(w, http.StatusForbidden, "拒绝跨站请求")
+				errKey(w, r, http.StatusForbidden, i18n.KeyServerCrossOrigin)
 				return
 			}
 		}
@@ -242,8 +243,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 1600*time.Millisecond)
 	defer cancel()
 
-	pc := picgo.New(cfg.Endpoint, 0, 2*time.Second)
-	online, detail := true, "PicGo 服务正常"
+	pc := picgo.New(cfg.Endpoint, 0, 2*time.Second, langOf(r))
+	online, detail := true, i18n.T(langOf(r), i18n.KeyServerPicgoOK)
 	if err := pc.Ping(ctx); err != nil {
 		online, detail = false, err.Error()
 	}
@@ -254,7 +255,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Endpoint: cfg.Endpoint,
 		Picgo:    picgoHealth{Online: online, Detail: detail},
 		DataDir:  appdata.Dir(),
-		DataNote: appdata.Note(),
+		DataNote: appdata.Note(langOf(r)),
 	})
 }
 
@@ -276,16 +277,16 @@ func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.Save(cfg); err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存设置失败: "+err.Error())
+		errKey(w, r, http.StatusInternalServerError, i18n.KeyServerSaveFailed, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.Load())
 }
 
 func (s *Server) handleDialogFiles(w http.ResponseWriter, r *http.Request) {
-	paths, err := platform.PickFiles("选择要转换的 Markdown 文件")
+	paths, err := platform.PickFiles(i18n.T(langOf(r), i18n.KeyPlatformPickFiles), langOf(r))
 	if errors.Is(err, platform.ErrUnsupported) {
-		writeErr(w, http.StatusNotImplemented, "当前系统不支持原生对话框，请手动输入路径")
+		errKey(w, r, http.StatusNotImplemented, i18n.KeyServerNoDialog)
 		return
 	}
 	if err != nil {
@@ -301,9 +302,9 @@ func (s *Server) handleDialogFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDialogFolder(w http.ResponseWriter, r *http.Request) {
-	dir, err := platform.PickFolder("选择包含 Markdown 文件的文件夹")
+	dir, err := platform.PickFolder(i18n.T(langOf(r), i18n.KeyPlatformPickFolder), langOf(r))
 	if errors.Is(err, platform.ErrUnsupported) {
-		writeErr(w, http.StatusNotImplemented, "当前系统不支持原生对话框，请手动输入路径")
+		errKey(w, r, http.StatusNotImplemented, i18n.KeyServerNoDialog)
 		return
 	}
 	if err != nil {
@@ -325,11 +326,11 @@ type previewResponse struct {
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	var req runRequest
 	if err := decode(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeDecodeErr(w, r, err)
 		return
 	}
 	if len(req.Paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "请先选择文件或文件夹")
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerNeedPaths)
 		return
 	}
 	cfg, err := s.configOf(req.Settings)
@@ -339,7 +340,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.DryRun = true
 
-	runner := conv.NewRunner(cfg, "preview", nil)
+	runner := conv.NewRunner(cfg, langOf(r), "preview", nil)
 	files, sum := runner.RunCollect(r.Context(), req.Paths)
 	if files == nil {
 		files = []conv.FileResult{}
@@ -398,11 +399,11 @@ type runRequest struct {
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	var req runRequest
 	if err := decode(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeDecodeErr(w, r, err)
 		return
 	}
 	if len(req.Paths) == 0 {
-		writeErr(w, http.StatusBadRequest, "请先选择文件或文件夹")
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerNeedPaths)
 		return
 	}
 	cfg, err := s.configOf(req.Settings)
@@ -425,7 +426,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			cancel()
 		}()
-		runner := conv.NewRunner(cfg, runID, s.hub.publish)
+		runner := conv.NewRunner(cfg, langOf(r), runID, s.hub.publish)
 		runner.Run(ctx, req.Paths)
 	}()
 
@@ -458,11 +459,15 @@ type pathRequest struct {
 
 func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 	var req pathRequest
-	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Path) == "" {
-		writeErr(w, http.StatusBadRequest, "缺少文件路径")
+	if err := decode(r, &req); err != nil {
+		writeDecodeErr(w, r, err)
 		return
 	}
-	if err := platform.Reveal(req.Path); err != nil {
+	if strings.TrimSpace(req.Path) == "" {
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerMissingFilePath)
+		return
+	}
+	if err := platform.Reveal(req.Path, langOf(r)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -472,7 +477,7 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 	var req pathRequest
 	if err := decode(r, &req); err != nil {
-		writeErr(w, http.StatusBadRequest, "请求内容不是合法的 JSON")
+		writeDecodeErr(w, r, err)
 		return
 	}
 	target := strings.TrimSpace(req.Target)
@@ -480,10 +485,10 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 		target = strings.TrimSpace(req.Path)
 	}
 	if target == "" {
-		writeErr(w, http.StatusBadRequest, "缺少路径")
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerMissingPath)
 		return
 	}
-	if err := platform.Open(target); err != nil {
+	if err := platform.Open(target, langOf(r)); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -494,7 +499,7 @@ func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, http.StatusInternalServerError, "当前连接不支持事件流")
+		errKey(w, r, http.StatusInternalServerError, i18n.KeyServerNoEventStream)
 		return
 	}
 	// 先订阅再写响应头：客户端拿到响应时事件通道一定已就绪，
@@ -564,6 +569,14 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = enc.Encode(v)
 }
 
+// langOf 取这次请求希望的语言：前端每个请求都带 Accept-Language。
+func langOf(r *http.Request) i18n.Lang { return i18n.Parse(r.Header.Get("Accept-Language")) }
+
+// errKey 按请求语言返回一条错误。
+func errKey(w http.ResponseWriter, r *http.Request, status int, key i18n.Key, args ...any) {
+	writeErr(w, status, i18n.T(langOf(r), key, args...))
+}
+
 func writeErr(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]any{
 		"error": map[string]string{
@@ -593,14 +606,29 @@ func codeFor(status int) string {
 	}
 }
 
+// decode 的两个哨兵错误：交给调用方按请求语言翻译。
+var (
+	errEmptyBody = errors.New("decode: empty body")
+	errBadJSON   = errors.New("decode: invalid json")
+)
+
+// writeDecodeErr 把 decode 的失败按请求语言翻成一句可展示的文案。
+func writeDecodeErr(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errEmptyBody) {
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerEmptyBody)
+		return
+	}
+	errKey(w, r, http.StatusBadRequest, i18n.KeyServerBadJSON)
+}
+
 func decode(r *http.Request, v any) error {
 	defer func() { _, _ = io.Copy(io.Discard, r.Body) }()
 	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<20))
 	if err := dec.Decode(v); err != nil {
 		if errors.Is(err, io.EOF) {
-			return errors.New("请求内容为空")
+			return errEmptyBody
 		}
-		return errors.New("请求内容不是合法的 JSON")
+		return errBadJSON
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 // 输出方式。
@@ -46,6 +47,11 @@ func Default() Settings {
 
 // Normalize 校验并规整设置，返回用户可读的错误。
 func (s *Settings) Normalize() error {
+	return s.NormalizeLang(i18n.ZH)
+}
+
+// NormalizeLang 与 Normalize 相同，但错误文案按 lang 本地化。
+func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 	s.Endpoint = strings.TrimSpace(s.Endpoint)
 	if s.Endpoint == "" {
 		s.Endpoint = Default().Endpoint
@@ -60,7 +66,7 @@ func (s *Settings) Normalize() error {
 	case "":
 		s.Output = OutputSidecar
 	default:
-		return fmt.Errorf("未知的输出方式: %q", s.Output)
+		return fmt.Errorf(i18n.T(lang, i18n.KeySettingsUnknownOutput), s.Output)
 	}
 
 	if s.Concurrency < 1 {
@@ -81,12 +87,12 @@ func (s *Settings) Normalize() error {
 		s.Suffix = Default().Suffix
 	}
 	if strings.ContainsAny(s.Suffix, `/\:*?"<>|`) {
-		return errors.New(`文件名后缀不能包含 \ / : * ? " < > |`)
+		return errors.New(i18n.T(lang, i18n.KeySettingsBadSuffix))
 	}
 
 	s.OutDir = strings.TrimSpace(s.OutDir)
 	if s.Output == OutputDirectory && s.OutDir == "" {
-		return errors.New("输出到目录时必须指定目录")
+		return errors.New(i18n.T(lang, i18n.KeySettingsOutDirNeeded))
 	}
 	return nil
 }

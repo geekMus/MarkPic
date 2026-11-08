@@ -51,6 +51,11 @@ export function useTheme() {
     resolved,
     isDark: computed(() => resolved.value === 'dark'),
     setChoice,
-    toggle: () => setChoice(resolved.value === 'dark' ? 'light' : 'dark'),
+    /** 标题栏那个按钮：跟随系统 → 亮色 → 暗色 → 跟随系统。 */
+    cycle: () => {
+      const order: ThemeChoice[] = ['system', 'light', 'dark']
+      const next = order[(order.indexOf(choice.value) + 1) % order.length]
+      setChoice(next ?? 'system')
+    },
   }
 }

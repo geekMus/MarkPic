@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { RunPhase, RunStats } from '../composables/useRun'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{
   stats: RunStats
@@ -23,6 +24,8 @@ const emit = defineEmits<{
   about: []
 }>()
 
+const { t } = useI18n()
+
 /** 底栏只放 v1.0.0 这样的短号，提交号留给关于对话框。 */
 const versionShort = computed(() => {
   const raw = props.version.trim()
@@ -43,19 +46,21 @@ const settled = computed(
 /** 状态栏读数：文件数、引用数，跑完之后追加替换与失败计数。 */
 const parts = computed<Part[]>(() => {
   const stats = props.stats
-  if (stats.files === 0) return [{ text: '队列为空', tone: 'plain' }]
+  if (stats.files === 0) return [{ text: t('footer.queueEmpty'), tone: 'plain' }]
 
-  const list: Part[] = [{ text: `${stats.files} 个文件`, tone: 'plain' }]
+  const list: Part[] = [{ text: t('footer.files', { count: stats.files }), tone: 'plain' }]
   list.push(
     stats.images > 0
-      ? { text: `${stats.images} 张图`, tone: 'plain' }
-      : { text: '未发现图片', tone: 'plain' },
+      ? { text: t('footer.images', { count: stats.images }), tone: 'plain' }
+      : { text: t('footer.noImages'), tone: 'plain' },
   )
   if (settled.value) {
-    list.push({ text: `替换 ${stats.uploaded}`, tone: 'plain' })
-    if (stats.failed > 0) list.push({ text: `失败 ${stats.failed}`, tone: 'bad' })
+    list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
+    if (stats.failed > 0) {
+      list.push({ text: t('footer.failed', { count: stats.failed }), tone: 'bad' })
+    }
   }
-  if (props.phase === 'cancelled') list.push({ text: '已取消', tone: 'warn' })
+  if (props.phase === 'cancelled') list.push({ text: t('footer.cancelled'), tone: 'warn' })
   return list
 })
 
@@ -75,7 +80,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         <span v-if="index > 0" class="foot__sep" aria-hidden="true">·</span>
         <span class="foot__part" :data-tone="part.tone">{{ part.text }}</span>
       </template>
-      <span v-if="dryRun" class="tag tag--warn">试运行</span>
+      <span v-if="dryRun" class="tag tag--warn">{{ t('footer.dryRun') }}</span>
     </div>
 
     <div class="foot__actions">
@@ -83,11 +88,11 @@ const showShortcut = computed(() => props.canStart && !props.busy)
       <button
         type="button"
         class="foot__ver"
-        :title="`当前版本 ${version}，点击查看更新`"
+        :title="t('footer.version', { version })"
         @click="emit('about')"
       >
         <span class="mono">{{ versionShort }}</span>
-        <span v-if="hasUpdate" class="foot__ver-dot" aria-label="有新版本" />
+        <span v-if="hasUpdate" class="foot__ver-dot" :aria-label="t('footer.updateAvailable')" />
       </button>
 
       <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
@@ -98,7 +103,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 
       <button v-if="showReveal" type="button" class="btn btn--secondary" @click="emit('reveal')">
         <AppIcon name="folder-open" :size="15" />
-        打开输出目录
+        {{ t('footer.reveal') }}
       </button>
 
       <button
@@ -107,7 +112,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         class="btn btn--primary btn--lg"
         disabled
       >
-        启动中
+        {{ t('footer.starting') }}
       </button>
       <button
         v-else-if="phase === 'cancelling'"
@@ -115,7 +120,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         class="btn btn--secondary btn--lg"
         disabled
       >
-        正在取消
+        {{ t('footer.cancelling') }}
       </button>
       <button
         v-else-if="busy"
@@ -123,7 +128,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         class="btn btn--secondary btn--lg"
         @click="emit('cancel')"
       >
-        取消
+        {{ t('common.cancel') }}
       </button>
       <button
         v-else
@@ -133,7 +138,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         @click="emit('run')"
       >
         <AppIcon name="play" :size="15" />
-        开始转换
+        {{ t('footer.run') }}
       </button>
     </div>
   </footer>

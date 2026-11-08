@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
 import type { Toast, ToastTone } from '../composables/useToasts'
+import { useI18n } from '../i18n'
 
 defineProps<{ toasts: Toast[] }>()
 
 const emit = defineEmits<{ dismiss: [id: number] }>()
+
+const { t } = useI18n()
 
 const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
   info: 'info',
@@ -15,7 +18,7 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
 </script>
 
 <template>
-  <aside class="toasts" aria-label="通知" aria-live="polite">
+  <aside class="toasts" :aria-label="t('toast.region')" aria-live="polite">
     <TransitionGroup name="toast">
       <div
         v-for="toast in toasts"
@@ -31,7 +34,7 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
         <button
           type="button"
           class="toast__close"
-          aria-label="关闭提示"
+          :aria-label="t('toast.dismiss')"
           @click="emit('dismiss', toast.id)"
         >
           <AppIcon name="x" :size="13" />

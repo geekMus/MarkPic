@@ -8,11 +8,12 @@
 package appdata
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 // EnvDir 可用来强制指定数据目录。
@@ -37,10 +38,11 @@ const (
 )
 
 var (
-	once   sync.Once
-	dir    string
-	source Source
-	note   string
+	once     sync.Once
+	dir      string
+	source   Source
+	noteKey  i18n.Key
+	noteArgs []any
 )
 
 // Dir 返回数据目录（调用后会确保它存在）。
@@ -56,9 +58,12 @@ func Where() (string, Source) {
 }
 
 // Note 在没能放到 exe 旁边时说明原因；一切正常时返回空串。
-func Note() string {
+func Note(lang i18n.Lang) string {
 	once.Do(resolve)
-	return note
+	if noteKey == "" {
+		return ""
+	}
+	return i18n.T(lang, noteKey, noteArgs...)
 }
 
 // SettingsPath 返回设置文件的位置。
@@ -82,7 +87,7 @@ func resolve() {
 			dir, source = v, SourceEnv
 			return
 		}
-		note = fmt.Sprintf("环境变量 %s 指定的目录写不进去，改用别处", EnvDir)
+		noteKey, noteArgs = i18n.KeyAppdataEnvUnusable, []any{EnvDir}
 	}
 
 	if exe, err := os.Executable(); err == nil {
@@ -90,8 +95,8 @@ func resolve() {
 			dir, source = base, SourcePortable
 			return
 		}
-		if note == "" {
-			note = "程序所在目录写不进去（可能装在 Program Files），数据放到了系统目录"
+		if noteKey == "" {
+			noteKey = i18n.KeyAppdataExeUnusable
 		}
 	}
 

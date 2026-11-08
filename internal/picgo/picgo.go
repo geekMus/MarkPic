@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 // Client 是 PicGo 上传接口的客户端。
@@ -21,16 +23,22 @@ type Client struct {
 	Endpoint string
 	Retries  int
 	HTTP     *http.Client
+	// Lang 决定错误文案的语言（跟着请求的 Accept-Language 走）。
+	Lang i18n.Lang
 }
 
 // New 创建客户端。timeout 是单次上传的等待上限（大图会比较慢）。
-func New(endpoint string, retries int, timeout time.Duration) *Client {
+func New(endpoint string, retries int, timeout time.Duration, lang i18n.Lang) *Client {
+	if lang == "" {
+		lang = i18n.ZH
+	}
 	if timeout <= 0 {
 		timeout = 60 * time.Second
 	}
 	return &Client{
 		Endpoint: strings.TrimRight(endpoint, "/"),
 		Retries:  retries,
+		Lang:     lang,
 		HTTP: &http.Client{
 			Timeout: timeout,
 			Transport: &http.Transport{
@@ -99,37 +107,37 @@ func (c *Client) uploadOnce(ctx context.Context, body []byte) (string, bool, err
 	if err != nil {
 		if isConnRefused(err) {
 			// 连不上重试没有意义，直接给出可操作提示
-			return "", false, fmt.Errorf("无法连接 PicGo（%s）：请确认 PicGo 正在运行，并在「PicGo 设置 → 设置 Server」中开启服务", c.Endpoint)
+			return "", false, fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoConnect), c.Endpoint)
 		}
 		if ctx.Err() != nil {
 			return "", false, ctx.Err()
 		}
-		return "", true, fmt.Errorf("请求 PicGo 失败: %w", err)
+		return "", true, fmt.Errorf("%s: %w", i18n.T(c.Lang, i18n.KeyPicgoRequest, err), err)
 	}
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 
 	if resp.StatusCode >= 500 {
-		return "", true, fmt.Errorf("PicGo 返回 %d: %s", resp.StatusCode, snippet(raw))
+		return "", true, fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoStatus), resp.StatusCode, c.snippet(raw))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("PicGo 返回 %d: %s", resp.StatusCode, snippet(raw))
+		return "", false, fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoStatus), resp.StatusCode, c.snippet(raw))
 	}
 
 	var out uploadResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", false, fmt.Errorf("无法解析 PicGo 响应: %s", snippet(raw))
+		return "", false, fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoParse), c.snippet(raw))
 	}
 	if !out.Success {
 		msg := out.Message
 		if msg == "" {
-			msg = "PicGo 报告上传失败（未返回原因）"
+			msg = i18n.T(c.Lang, i18n.KeyPicgoNoMessage)
 		}
 		return "", true, errors.New(msg)
 	}
 	if len(out.Result) == 0 || strings.TrimSpace(out.Result[0]) == "" {
-		return "", false, errors.New("PicGo 返回成功但没有 URL")
+		return "", false, errors.New(i18n.T(c.Lang, i18n.KeyPicgoNoURL))
 	}
 	return strings.TrimSpace(out.Result[0]), false, nil
 }
@@ -138,13 +146,13 @@ func (c *Client) uploadOnce(ctx context.Context, body []byte) (string, bool, err
 func (c *Client) Ping(ctx context.Context) error {
 	u, err := url.Parse(c.Endpoint)
 	if err != nil || u.Host == "" {
-		return fmt.Errorf("地址不合法: %s", c.Endpoint)
+		return fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoBadEndpoint), c.Endpoint)
 	}
 	d := net.Dialer{Timeout: 1500 * time.Millisecond}
 	conn, err := d.DialContext(ctx, "tcp", u.Host)
 	if err != nil {
 		if isConnRefused(err) || errors.Is(err, context.DeadlineExceeded) {
-			return fmt.Errorf("端口未响应（%s）", u.Host)
+			return fmt.Errorf(i18n.T(c.Lang, i18n.KeyPicgoNoResponse), u.Host)
 		}
 		return err
 	}
@@ -167,14 +175,14 @@ func isConnRefused(err error) bool {
 	return false
 }
 
-func snippet(b []byte) string {
+func (c *Client) snippet(b []byte) string {
 	s := strings.TrimSpace(string(b))
 	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) > 200 {
 		s = s[:200] + "…"
 	}
 	if s == "" {
-		return "(空响应)"
+		return i18n.T(c.Lang, i18n.KeyPicgoEmptySnippet)
 	}
 	return s
 }

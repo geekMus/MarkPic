@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 )
 
@@ -89,7 +90,7 @@ func TestNoDoubleReplace(t *testing.T) {
 
 	cfg := baseCfg(srv.URL)
 	var events []Event
-	r := NewRunner(cfg, "run1", func(ev Event) { events = append(events, ev) })
+	r := NewRunner(cfg, i18n.ZH, "run1", func(ev Event) { events = append(events, ev) })
 
 	sum := r.Run(context.Background(), []string{doc})
 
@@ -161,7 +162,7 @@ func TestInPlaceWithBackup(t *testing.T) {
 	cfg.Output = settings.OutputInPlace
 	cfg.Backup = true
 
-	r := NewRunner(cfg, "run2", nil)
+	r := NewRunner(cfg, i18n.ZH, "run2", nil)
 	sum := r.Run(context.Background(), []string{doc})
 	if sum.OK != 1 {
 		t.Fatalf("summary = %+v", sum)
@@ -185,7 +186,7 @@ func TestAllUploadsFailWritesNothing(t *testing.T) {
 
 	srv, _ := fakePicGo(t, map[string]bool{"p.png": true})
 	cfg := baseCfg(srv.URL)
-	r := NewRunner(cfg, "run3", nil)
+	r := NewRunner(cfg, i18n.ZH, "run3", nil)
 	sum := r.Run(context.Background(), []string{doc})
 
 	if sum.Failed != 1 {
@@ -203,7 +204,7 @@ func TestCRLFAndBOMPreserved(t *testing.T) {
 	writeFile(t, doc, "\xEF\xBB\xBF第一行\r\n![](p.png)\r\n第三行\r\n")
 
 	srv, _ := fakePicGo(t, nil)
-	r := NewRunner(baseCfg(srv.URL), "run4", nil)
+	r := NewRunner(baseCfg(srv.URL), i18n.ZH, "run4", nil)
 	r.Run(context.Background(), []string{doc})
 
 	got, err := os.ReadFile(filepath.Join(dir, "a.converted.md"))
@@ -225,7 +226,7 @@ func TestDryRunUploadsNothing(t *testing.T) {
 	srv, hitCount := fakePicGo(t, nil)
 	cfg := baseCfg(srv.URL)
 	cfg.DryRun = true
-	r := NewRunner(cfg, "run5", nil)
+	r := NewRunner(cfg, i18n.ZH, "run5", nil)
 	sum := r.Run(context.Background(), []string{doc})
 
 	if len(hitCount()) != 0 {
@@ -251,7 +252,7 @@ func TestItemsAreReported(t *testing.T) {
 	// 预检模式：明细也要在，状态是 pending / missing / remote。
 	cfg := baseCfg(srv.URL)
 	cfg.DryRun = true
-	results, _ := NewRunner(cfg, "run-items-1", nil).RunCollect(context.Background(), []string{doc})
+	results, _ := NewRunner(cfg, i18n.ZH, "run-items-1", nil).RunCollect(context.Background(), []string{doc})
 	if len(results) != 1 {
 		t.Fatalf("期望 1 个文件结果，实际 %d", len(results))
 	}
@@ -271,7 +272,7 @@ func TestItemsAreReported(t *testing.T) {
 
 	// 正式模式：状态变成 uploaded / missing / remote，且带回了图床 URL。
 	cfg.DryRun = false
-	results, _ = NewRunner(cfg, "run-items-2", nil).RunCollect(context.Background(), []string{doc})
+	results, _ = NewRunner(cfg, i18n.ZH, "run-items-2", nil).RunCollect(context.Background(), []string{doc})
 	items = results[0].Items
 	if len(items) != 3 {
 		t.Fatalf("正式运行应带回 3 条明细，实际 %d 条", len(items))
@@ -317,7 +318,7 @@ func TestImageUploadedOnceAcrossFiles(t *testing.T) {
 		cfg := baseCfg(srv.URL)
 		cfg.Concurrency = concurrency
 
-		results, sum := NewRunner(cfg, "run-dedup", nil).RunCollect(context.Background(),
+		results, sum := NewRunner(cfg, i18n.ZH, "run-dedup", nil).RunCollect(context.Background(),
 			[]string{filepath.Join(dir, "a.md"), filepath.Join(dir, "b.md")})
 
 		for _, name := range []string{"a", "b"} {

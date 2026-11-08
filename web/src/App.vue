@@ -21,9 +21,11 @@ import { useTheme } from './composables/useTheme'
 import { useToasts } from './composables/useToasts'
 import { useUpdate } from './composables/useUpdate'
 import { useWindowControls } from './composables/useWindowControls'
+import { useI18n } from './i18n'
 
 const { toasts, dismiss, warning } = useToasts()
-const { resolved: theme, toggle: toggleTheme } = useTheme()
+const { t } = useI18n()
+const { resolved: theme, cycle: toggleTheme } = useTheme()
 // 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
 const { available: windowChrome, startResize } = useWindowControls()
 const { health, loading: healthLoading, refresh: refreshHealth } = useHealth()
@@ -77,7 +79,7 @@ const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
 
 function dialogFallback(): void {
-  warning('当前系统不支持原生对话框，请手动输入路径')
+  warning(t('toast.dialogFallback'))
   manualOpen.value = true
 }
 
@@ -91,21 +93,21 @@ async function pick(kind: 'files' | 'folder'): Promise<void> {
       dialogFallback()
       return
     }
-    warning(`选择路径失败：${describeError(error, '未知错误')}`)
+    warning(t('error.pickPath', { detail: describeError(error, t('error.unknown')) }))
   }
 }
 
 async function enqueue(paths: string[]): Promise<void> {
   const added = addPaths(paths)
   if (added.length === 0) {
-    if (!busy.value) warning('这些路径已在队列中')
+    if (!busy.value) warning(t('toast.pathsQueued'))
     return
   }
   manualOpen.value = false
   try {
     applyPreview(await preview(added, settingsSnapshot()))
   } catch (error) {
-    warning(`读取图片数量失败：${describeError(error, '未知错误')}`)
+    warning(t('error.preview', { detail: describeError(error, t('error.unknown')) }))
   }
 }
 
@@ -127,7 +129,7 @@ async function handleReveal(): Promise<void> {
   try {
     await revealPath(target)
   } catch (error) {
-    warning(`打开输出目录失败：${describeError(error, '未知错误')}`)
+    warning(t('error.revealOutput', { detail: describeError(error, t('error.unknown')) }))
   }
 }
 
@@ -138,10 +140,10 @@ async function handlePickDir(): Promise<void> {
     if (dir !== undefined) updateSettings({ outDir: dir })
   } catch (error) {
     if (isDialogUnsupported(error)) {
-      warning('当前系统不支持原生对话框，请手动输入输出目录')
+      warning(t('toast.dialogFallbackDir'))
       return
     }
-    warning(`选择目录失败：${describeError(error, '未知错误')}`)
+    warning(t('error.pickDir', { detail: describeError(error, t('error.unknown')) }))
   }
 }
 

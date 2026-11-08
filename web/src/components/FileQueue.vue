@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{
   rows: RunRowView[]
@@ -21,6 +22,8 @@ const emit = defineEmits<{
   clear: []
   'update:manualOpen': [open: boolean]
 }>()
+
+const { t } = useI18n()
 
 const manualText = ref('')
 const textarea = ref<HTMLTextAreaElement | null>(null)
@@ -57,10 +60,10 @@ function submitManual(): void {
   <section class="panel queue">
     <header class="panel__head">
       <div class="panel__title">
-        <h2>队列</h2>
+        <h2>{{ t('queue.title') }}</h2>
         <span v-if="rows.length > 0" class="panel__count num">{{ rows.length }}</span>
         <span v-if="busy" class="panel__note num queue__running" role="status" aria-live="polite">
-          {{ completed }}/{{ total }} 已完成
+          {{ t('queue.progress', { done: completed, total }) }}
         </span>
       </div>
 
@@ -68,29 +71,29 @@ function submitManual(): void {
         <button
           type="button"
           class="btn btn--secondary btn--sm"
-          title="选择 Markdown 文件"
+          :title="t('queue.pickFiles')"
           :disabled="busy"
           @click="emit('pick-files')"
         >
           <AppIcon name="file-plus" :size="14" />
-          文件
+          {{ t('queue.files') }}
         </button>
         <button
           type="button"
           class="btn btn--secondary btn--sm"
-          title="选择包含 Markdown 的文件夹"
+          :title="t('queue.pickFolder')"
           :disabled="busy"
           @click="emit('pick-folder')"
         >
           <AppIcon name="folder-plus" :size="14" />
-          文件夹
+          {{ t('queue.folder') }}
         </button>
         <button
           type="button"
           class="icon-btn"
           :class="{ 'icon-btn--active': manualOpen }"
-          title="手动输入路径"
-          aria-label="手动输入路径"
+          :title="t('queue.manual.toggle')"
+          :aria-label="t('queue.manual.toggle')"
           :aria-pressed="manualOpen"
           @click="emit('update:manualOpen', !manualOpen)"
         >
@@ -102,8 +105,8 @@ function submitManual(): void {
         <button
           type="button"
           class="icon-btn icon-btn--danger"
-          title="清空队列"
-          aria-label="清空队列"
+          :title="t('queue.clear')"
+          :aria-label="t('queue.clear')"
           :disabled="rows.length === 0 || busy"
           @click="emit('clear')"
         >
@@ -115,7 +118,7 @@ function submitManual(): void {
     <div class="panel__body queue__body">
       <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
         <label class="manual__label" for="queue-manual">
-          每行一个路径，支持 .md 文件或包含 .md 的文件夹
+          {{ t('queue.manual.label') }}
         </label>
         <textarea
           id="queue-manual"
@@ -128,10 +131,12 @@ function submitManual(): void {
           @keydown.enter.exact.prevent="submitManual"
         />
         <div class="manual__foot">
-          <span class="manual__hint">Enter 加入队列 · Shift+Enter 换行</span>
-          <button type="button" class="btn btn--ghost btn--sm" @click="closeManual">取消</button>
+          <span class="manual__hint">{{ t('queue.manual.hint') }}</span>
+          <button type="button" class="btn btn--ghost btn--sm" @click="closeManual">
+            {{ t('common.cancel') }}
+          </button>
           <button type="submit" class="btn btn--secondary btn--sm" :disabled="manualText.trim() === ''">
-            加入队列
+            {{ t('queue.manual.submit') }}
           </button>
         </div>
       </form>
@@ -139,9 +144,9 @@ function submitManual(): void {
       <template v-if="rows.length > 0">
         <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 移除 34px -->
         <div class="ledger__head" aria-hidden="true">
-          <span class="ledger__col">文件</span>
-          <span class="ledger__col ledger__col--num">图片</span>
-          <span class="ledger__col">状态</span>
+          <span class="ledger__col">{{ t('queue.col.file') }}</span>
+          <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
+          <span class="ledger__col">{{ t('queue.col.status') }}</span>
           <span />
         </div>
 

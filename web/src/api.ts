@@ -7,6 +7,7 @@ import type {
   Settings,
   UpdateStatus,
 } from './types'
+import { langHeader, t } from './i18n'
 
 /**
  * 本地服务地址：仅用于错误文案，请求本身走同源 /api。
@@ -49,13 +50,19 @@ async function request<T>(path: string, init: RequestInitLite = {}): Promise<T> 
   try {
     response = await fetch(path, {
       method: init.method ?? 'GET',
+      // Accept-Language：服务端返回的文字（逐图失败原因、PicGo 提示、更新错误）
+      // 也要跟着界面语言走，所以每个请求都带上当前语言。
       headers: hasBody
-        ? { Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8' }
-        : { Accept: 'application/json' },
+        ? {
+            Accept: 'application/json',
+            'Content-Type': 'application/json; charset=utf-8',
+            'Accept-Language': langHeader(),
+          }
+        : { Accept: 'application/json', 'Accept-Language': langHeader() },
       body: hasBody ? JSON.stringify(init.body) : undefined,
     })
   } catch {
-    throw new ApiError(0, 'network', `无法连接本地服务（${serviceOrigin()}）`)
+    throw new ApiError(0, 'network', t('error.network', { origin: serviceOrigin() }))
   }
 
   const raw = await response.text()
@@ -76,7 +83,7 @@ async function request<T>(path: string, init: RequestInitLite = {}): Promise<T> 
     throw new ApiError(
       response.status,
       `http-${response.status}`,
-      text || `请求失败（HTTP ${response.status}）`,
+      text || t('error.http', { status: response.status }),
     )
   }
 

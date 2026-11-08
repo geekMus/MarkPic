@@ -28,6 +28,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 const (
@@ -78,11 +80,11 @@ type manifest struct {
 }
 
 // Check 读取版本清单并与当前版本比较。arch 取 runtime.GOARCH（amd64 / arm64）。
-func Check(ctx context.Context, current, arch string) (*Release, error) {
+func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release, error) {
 	target := ManifestURL()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, fmt.Errorf("版本地址不对：%w", err)
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadURL), err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "convert-md-picture/"+current+"/"+arch)
@@ -90,24 +92,24 @@ func Check(ctx context.Context, current, arch string) (*Release, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("连不上版本地址（%s）：%w", target, err)
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateConnectFailed), target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, errors.New("版本清单不存在，可能还没有发布过版本")
+		return nil, errors.New(i18n.T(lang, i18n.KeyUpdateManifestMissing))
 	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("版本地址返回 %s", resp.Status)
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateManifestStatus), resp.Status)
 	}
 
 	var m manifest
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxManifestBytes))
 	if err := decoder.Decode(&m); err != nil {
-		return nil, fmt.Errorf("版本清单格式不对：%w", err)
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateManifestInvalid), err)
 	}
 	if strings.TrimSpace(m.Version) == "" {
-		return nil, errors.New("版本清单里没有版本号")
+		return nil, errors.New(i18n.T(lang, i18n.KeyUpdateManifestNoVer))
 	}
 
 	release := &Release{
@@ -125,10 +127,10 @@ func Check(ctx context.Context, current, arch string) (*Release, error) {
 	// 有新版本时才要求清单给出可用的包：没校验值就不自动装，免得下到什么装什么。
 	asset, ok := m.Windows[arch]
 	if !ok || strings.TrimSpace(asset.URL) == "" {
-		return nil, fmt.Errorf("清单里没有 %s 平台的下载地址", arch)
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateNoAssetForArch), arch)
 	}
 	if len(strings.TrimSpace(asset.SHA256)) != 64 {
-		return nil, errors.New("清单没有给出 SHA-256，出于安全考虑不自动安装")
+		return nil, errors.New(i18n.T(lang, i18n.KeyUpdateNoSHA))
 	}
 	release.Asset = asset
 	return release, nil
@@ -178,30 +180,30 @@ func versionNumbers(v string) []int {
 
 // Download 把安装包下载到 dest 并校验 SHA-256，校验失败不会留下文件。
 // progress 可以为 nil，会被反复调用以汇报进度。
-func Download(ctx context.Context, url, wantSHA, dest string, progress func(received, total int64)) error {
+func Download(ctx context.Context, url, wantSHA, dest string, progress func(received, total int64), lang i18n.Lang) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("下载地址不对：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadDownloadURL), err)
 	}
 	req.Header.Set("User-Agent", "convert-md-picture-updater")
 
 	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("下载失败：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateDownloadFailed), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载失败：服务器返回 %s", resp.Status)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateDownloadStatus), resp.Status)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-		return fmt.Errorf("无法创建下载目录：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateDestDirFailed), err)
 	}
 	tmp := dest + ".part"
 	file, err := os.Create(tmp)
 	if err != nil {
-		return fmt.Errorf("无法创建下载文件：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateDestFileFailed), err)
 	}
 
 	hash := sha256.New()
@@ -214,7 +216,7 @@ func Download(ctx context.Context, url, wantSHA, dest string, progress func(rece
 			if _, err := file.Write(buf[:n]); err != nil {
 				_ = file.Close()
 				_ = os.Remove(tmp)
-				return fmt.Errorf("写入下载文件失败：%w", err)
+				return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateWriteFailed), err)
 			}
 			hash.Write(buf[:n])
 			received += int64(n)
@@ -228,22 +230,22 @@ func Download(ctx context.Context, url, wantSHA, dest string, progress func(rece
 		if readErr != nil {
 			_ = file.Close()
 			_ = os.Remove(tmp)
-			return fmt.Errorf("下载中断：%w", readErr)
+			return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateInterrupted), readErr)
 		}
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("关闭下载文件失败：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateCloseFailed), err)
 	}
 
 	got := hex.EncodeToString(hash.Sum(nil))
 	if !strings.EqualFold(got, strings.TrimSpace(wantSHA)) {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("下载内容校验失败（期望 %s，实际 %s），已丢弃", short(wantSHA), short(got))
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateChecksumMismatch), short(wantSHA), short(got))
 	}
 	if err := os.Rename(tmp, dest); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("保存下载文件失败：%w", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateSaveFailed), err)
 	}
 	return nil
 }
@@ -260,19 +262,19 @@ func short(s string) string {
 //
 // 先改名再写新的：Windows 不允许删除正在运行的程序，但允许给它改名。
 // 任何一步失败都会尽量把旧文件改回来。
-func Replace(exePath, newExe string) (string, error) {
+func Replace(exePath, newExe string, lang i18n.Lang) (string, error) {
 	oldPath := exePath + ".old"
 	_ = os.Remove(oldPath) // 上次留下的，能删就删
 	if err := os.Rename(exePath, oldPath); err != nil {
 		// 有可能旧文件被占用删不掉，换个名字再试一次。
 		oldPath = exePath + "." + strconv.FormatInt(time.Now().Unix(), 10) + ".old"
 		if err2 := os.Rename(exePath, oldPath); err2 != nil {
-			return "", fmt.Errorf("无法替换正在运行的程序（%v）：请关掉占用它的程序后重试", err2)
+			return "", fmt.Errorf(i18n.T(lang, i18n.KeyUpdateReplaceBusy), err2)
 		}
 	}
 	if err := os.Rename(newExe, exePath); err != nil {
 		_ = os.Rename(oldPath, exePath) // 装不上就把原程序还原
-		return "", fmt.Errorf("无法写入新版本（%v）：新版本已下载，可手动替换", err)
+		return "", fmt.Errorf(i18n.T(lang, i18n.KeyUpdateReplaceFailed), err)
 	}
 	return oldPath, nil
 }
@@ -290,11 +292,11 @@ func Cleanup(exePath string) {
 }
 
 // Restart 启动新版本。调用方应该紧接着退出。
-func Restart(exePath string, args []string) error {
+func Restart(exePath string, args []string, lang i18n.Lang) error {
 	cmd := exec.Command(exePath, args...)
 	cmd.Dir = filepath.Dir(exePath)
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("无法启动新版本（%v）：关掉本程序后重新打开即可", err)
+		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateRestartFailed), err)
 	}
 	_ = cmd.Process.Release()
 	return nil

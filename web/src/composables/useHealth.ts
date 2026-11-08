@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { describeError, getHealth } from '../api'
+import { t } from '../i18n'
 import type { Health } from '../types'
 import { useToasts } from './useToasts'
 
@@ -21,7 +22,7 @@ function refresh(): Promise<void> {
       health.value = await getHealth()
       error.value = null
     } catch (err) {
-      error.value = describeError(err, '无法读取服务状态')
+      error.value = describeError(err, t('error.health'))
       health.value = null
       danger(error.value)
     } finally {

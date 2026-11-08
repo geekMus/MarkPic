@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { describeError, revealPath } from '../api'
 import { useUpdate } from '../composables/useUpdate'
+import { useI18n } from '../i18n'
 
 const props = defineProps<{
   /** 服务端报上来的版本串，例如 1.0.0 (b7fb0d2)。 */
@@ -14,6 +15,8 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+const { t } = useI18n()
 
 const {
   status,
@@ -29,7 +32,7 @@ const {
   setAutoCheck,
 } = useUpdate()
 
-const currentLabel = computed(() => props.version.trim() || '未知')
+const currentLabel = computed(() => props.version.trim() || t('about.unknown'))
 const latestLabel = computed(() => status.value.latest.trim() || '—')
 
 const canInstall = computed(() => state.value === 'available' && !busy.value)
@@ -39,21 +42,21 @@ const statusLine = computed(() => {
   const now = status.value
   switch (state.value) {
     case 'checking':
-      return '正在检查…'
+      return t('about.checking')
     case 'latest':
-      return '已是最新版本'
+      return t('about.state.latest')
     case 'available':
-      return '有新版本可以更新'
+      return t('about.state.available')
     case 'downloading':
-      return `正在下载 ${percent.value}%`
+      return t('about.state.downloading', { percent: percent.value })
     case 'installing':
-      return '正在校验并替换程序…'
+      return t('about.state.installing')
     case 'restarting':
-      return '正在重启，界面马上会重新打开'
+      return t('about.state.restarting')
     case 'error':
-      return error.value || now.error || '检查失败'
+      return error.value || now.error || t('about.state.error')
     default:
-      return '还没有检查过'
+      return t('about.state.idle')
   }
 })
 
@@ -95,7 +98,7 @@ async function openDataDir(): Promise<void> {
   try {
     await revealPath(dir)
   } catch (error) {
-    dirOpenError.value = describeError(error, '打不开数据目录')
+    dirOpenError.value = describeError(error, t('error.openDataDir'))
   }
 }
 </script>
@@ -112,11 +115,17 @@ async function openDataDir(): Promise<void> {
     >
       <header class="panel__head">
         <div class="panel__title">
-          <h2 id="about-title">关于</h2>
+          <h2 id="about-title">{{ t('about.title') }}</h2>
           <span class="panel__note mono">convert-md-picture</span>
         </div>
         <div class="panel__actions">
-          <button type="button" class="icon-btn" title="关闭" aria-label="关闭" @click="emit('close')">
+          <button
+            type="button"
+            class="icon-btn"
+            :title="t('common.close')"
+            :aria-label="t('common.close')"
+            @click="emit('close')"
+          >
             <AppIcon name="x" :size="16" />
           </button>
         </div>
@@ -125,26 +134,28 @@ async function openDataDir(): Promise<void> {
       <div class="dlg__body about">
         <dl class="about__facts">
           <div class="about__fact">
-            <dt>当前版本</dt>
+            <dt>{{ t('about.current') }}</dt>
             <dd class="mono">{{ currentLabel }}</dd>
           </div>
           <div class="about__fact">
-            <dt>最新版本</dt>
+            <dt>{{ t('about.latest') }}</dt>
             <dd class="mono">{{ latestLabel }}</dd>
           </div>
           <div class="about__fact">
-            <dt>状态</dt>
+            <dt>{{ t('about.status') }}</dt>
             <dd :data-tone="statusTone">{{ statusLine }}</dd>
           </div>
           <div v-if="sizeLabel && state === 'available'" class="about__fact">
-            <dt>安装包</dt>
+            <dt>{{ t('about.asset') }}</dt>
             <dd class="mono">{{ sizeLabel }}</dd>
           </div>
           <div v-if="dataDir" class="about__fact">
-            <dt>数据目录</dt>
+            <dt>{{ t('about.dataDir') }}</dt>
             <dd class="about__path">
               <span class="about__path-text mono" :title="dataDir">{{ dataDir }}</span>
-              <button type="button" class="btn btn--ghost btn--sm" @click="openDataDir">打开</button>
+              <button type="button" class="btn btn--ghost btn--sm" @click="openDataDir">
+                {{ t('common.open') }}
+              </button>
             </dd>
           </div>
         </dl>
@@ -156,7 +167,7 @@ async function openDataDir(): Promise<void> {
           v-if="state === 'downloading'"
           class="about__bar"
           role="progressbar"
-          aria-label="下载进度"
+          :aria-label="t('about.downloadProgress')"
           :aria-valuenow="percent"
           aria-valuemin="0"
           aria-valuemax="100"
@@ -166,7 +177,7 @@ async function openDataDir(): Promise<void> {
 
         <div v-if="notes" class="about__notes">
           <h3 class="about__notes-title">
-            更新说明
+            {{ t('about.notes') }}
             <span v-if="published" class="about__notes-date mono">{{ published }}</span>
           </h3>
           <pre class="about__notes-body">{{ notes }}</pre>
@@ -174,12 +185,14 @@ async function openDataDir(): Promise<void> {
 
         <label class="check about__auto">
           <input type="checkbox" :checked="autoCheck" @change="onAutoCheck" />
-          <span>启动时自动检查更新</span>
+          <span>{{ t('about.autoCheck') }}</span>
         </label>
       </div>
 
       <footer class="panel__foot">
-        <button type="button" class="btn btn--ghost" @click="openReleasePage()">打开发布页</button>
+        <button type="button" class="btn btn--ghost" @click="openReleasePage()">
+          {{ t('about.release') }}
+        </button>
         <span class="about__spacer" />
         <button
           type="button"
@@ -187,10 +200,10 @@ async function openDataDir(): Promise<void> {
           :disabled="busy || locked"
           @click="check()"
         >
-          {{ state === 'checking' ? '检查中…' : '检查更新' }}
+          {{ state === 'checking' ? t('about.checking') : t('about.checkUpdate') }}
         </button>
         <button type="button" class="btn btn--primary" :disabled="!canInstall" @click="install()">
-          立即更新
+          {{ t('about.install') }}
         </button>
       </footer>
     </section>

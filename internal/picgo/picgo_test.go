@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 type uploadCall struct {
@@ -38,7 +40,7 @@ func TestUploadSuccess(t *testing.T) {
 		w.Write(okBody("https://cdn.example.com/a.png"))
 	})
 
-	c := New(srv.URL, 2, 5*time.Second)
+	c := New(srv.URL, 2, 5*time.Second, i18n.ZH)
 	got, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err != nil {
 		t.Fatalf("上传失败: %v", err)
@@ -61,7 +63,7 @@ func TestUploadRecoversFromServerError(t *testing.T) {
 		w.Write(okBody("https://cdn.example.com/a.png"))
 	})
 
-	c := New(srv.URL, 2, 5*time.Second)
+	c := New(srv.URL, 2, 5*time.Second, i18n.ZH)
 	got, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err != nil {
 		t.Fatalf("重试后应当成功: %v", err)
@@ -80,7 +82,7 @@ func TestUploadGivesUpAfterRetries(t *testing.T) {
 		w.Write([]byte("boom"))
 	})
 
-	c := New(srv.URL, 1, 5*time.Second)
+	c := New(srv.URL, 1, 5*time.Second, i18n.ZH)
 	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err == nil {
 		t.Fatal("一直 500 应当报错")
@@ -99,7 +101,7 @@ func TestUploadNoRetryOnClientError(t *testing.T) {
 		w.Write([]byte("bad request"))
 	})
 
-	c := New(srv.URL, 3, 5*time.Second)
+	c := New(srv.URL, 3, 5*time.Second, i18n.ZH)
 	if _, err := c.Upload(context.Background(), `C:\docs\a.png`); err == nil {
 		t.Fatal("400 应当报错")
 	}
@@ -113,7 +115,7 @@ func TestUploadBusinessFailureKeepsMessage(t *testing.T) {
 		json.NewEncoder(w).Encode(uploadResponse{Success: false, Message: "图片超过大小限制"})
 	})
 
-	c := New(srv.URL, 0, 5*time.Second)
+	c := New(srv.URL, 0, 5*time.Second, i18n.ZH)
 	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err == nil || !strings.Contains(err.Error(), "图片超过大小限制") {
 		t.Fatalf("应当原样透出 PicGo 的失败原因，实际: %v", err)
@@ -125,7 +127,7 @@ func TestUploadBusinessFailureWithoutMessage(t *testing.T) {
 		json.NewEncoder(w).Encode(uploadResponse{Success: false})
 	})
 
-	c := New(srv.URL, 0, 5*time.Second)
+	c := New(srv.URL, 0, 5*time.Second, i18n.ZH)
 	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err == nil || !strings.Contains(err.Error(), "未返回原因") {
 		t.Fatalf("应给出兜底原因，实际: %v", err)
@@ -137,7 +139,7 @@ func TestUploadEmptyResult(t *testing.T) {
 		w.Write(okBody("   "))
 	})
 
-	c := New(srv.URL, 0, 5*time.Second)
+	c := New(srv.URL, 0, 5*time.Second, i18n.ZH)
 	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err == nil || !strings.Contains(err.Error(), "没有 URL") {
 		t.Fatalf("空 result 应当报错，实际: %v", err)
@@ -149,7 +151,7 @@ func TestUploadMalformedJSON(t *testing.T) {
 		w.Write([]byte("not json at all"))
 	})
 
-	c := New(srv.URL, 0, 5*time.Second)
+	c := New(srv.URL, 0, 5*time.Second, i18n.ZH)
 	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
 	if err == nil || !strings.Contains(err.Error(), "无法解析") {
 		t.Fatalf("应当报解析失败，实际: %v", err)
@@ -165,7 +167,7 @@ func TestUploadConnRefusedIsNotRetried(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
-	c := New("http://"+addr, 3, 5*time.Second)
+	c := New("http://"+addr, 3, 5*time.Second, i18n.ZH)
 	start := time.Now()
 	_, err = c.Upload(context.Background(), `C:\docs\a.png`)
 	elapsed := time.Since(start)
@@ -187,7 +189,7 @@ func TestUploadCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	c := New(srv.URL, 1, 5*time.Second)
+	c := New(srv.URL, 1, 5*time.Second, i18n.ZH)
 	if _, err := c.Upload(ctx, `C:\docs\a.png`); err == nil {
 		t.Fatal("已取消的 context 应当报错")
 	}
@@ -198,7 +200,7 @@ func TestPing(t *testing.T) {
 		w.Write(okBody("https://cdn.example.com/a.png"))
 	})
 
-	if err := New(srv.URL, 0, time.Second).Ping(context.Background()); err != nil {
+	if err := New(srv.URL, 0, time.Second, i18n.ZH).Ping(context.Background()); err != nil {
 		t.Fatalf("在线时 Ping 不该报错: %v", err)
 	}
 
@@ -209,14 +211,14 @@ func TestPing(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
-	err = New("http://"+addr, 0, time.Second).Ping(context.Background())
+	err = New("http://"+addr, 0, time.Second, i18n.ZH).Ping(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "端口未响应") {
 		t.Fatalf("离线时 Ping 应当报端口未响应，实际: %v", err)
 	}
 }
 
 func TestNewTrimsTrailingSlash(t *testing.T) {
-	c := New("http://127.0.0.1:36677/", 0, 0)
+	c := New("http://127.0.0.1:36677/", 0, 0, i18n.ZH)
 	if c.Endpoint != "http://127.0.0.1:36677" {
 		t.Fatalf("Endpoint = %q", c.Endpoint)
 	}

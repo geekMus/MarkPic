@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
+import { useI18n } from '../i18n'
 
 const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
   manual: []
 }>()
+
+const { t } = useI18n()
 </script>
 
 <template>
@@ -13,29 +16,26 @@ const emit = defineEmits<{
     <div class="empty__inner">
       <div class="empty__hero">
         <div class="empty__copy">
-          <h2 class="empty__title">把本地图片换成图床链接</h2>
-          <p class="empty__text">
-            读取 Markdown 里引用的本地图片，经本机 PicGo 上传，再把文档里的地址替换成图床链接。
-            默认另存一份副本，原文件不动。
-          </p>
+          <h2 class="empty__title">{{ t('empty.title') }}</h2>
+          <p class="empty__text">{{ t('empty.text') }}</p>
 
           <div class="empty__actions">
             <button type="button" class="btn btn--primary btn--lg" @click="emit('pick-files')">
               <AppIcon name="file-plus" :size="15" />
-              选择文件
+              {{ t('empty.pickFiles') }}
             </button>
             <button type="button" class="btn btn--secondary btn--lg" @click="emit('pick-folder')">
               <AppIcon name="folder-plus" :size="15" />
-              选择文件夹
+              {{ t('empty.pickFolder') }}
             </button>
             <button type="button" class="btn btn--ghost btn--lg" @click="emit('manual')">
               <AppIcon name="terminal" :size="15" />
-              手动输入路径
+              {{ t('queue.manual.toggle') }}
             </button>
           </div>
 
           <p class="empty__foot">
-            可以一次加入多个文件或整个目录，也可以直接把 Windows 绝对路径粘进来。
+            {{ t('empty.foot') }}
           </p>
         </div>
 
@@ -107,14 +107,14 @@ const emit = defineEmits<{
 
       <!-- 支持的写法：第一次用的人最想知道「我这份文档能不能被认出来」 -->
       <section class="spec">
-        <h3 class="spec__title">支持的写法</h3>
+        <h3 class="spec__title">{{ t('empty.spec.title') }}</h3>
         <ul class="spec__list">
           <li class="spec__item mono">![说明](images/a.png)</li>
           <li class="spec__item mono">![](<带 空格.png>)</li>
           <li class="spec__item mono">&lt;img src="a.png" width="60"&gt;</li>
         </ul>
         <p class="spec__note">
-          围栏代码块与行内代码里的图片会被跳过；已经是网络地址的图片原样保留。
+          {{ t('empty.spec.note') }}
         </p>
       </section>
 
@@ -122,22 +122,22 @@ const emit = defineEmits<{
         <li class="step">
           <span class="step__n num">1</span>
           <span class="step__body">
-            <span class="step__t">加入 Markdown</span>
-            <span class="step__d">文件、文件夹或直接粘路径</span>
+            <span class="step__t">{{ t('empty.step.add') }}</span>
+            <span class="step__d">{{ t('empty.step.add.detail') }}</span>
           </span>
         </li>
         <li class="step">
           <span class="step__n num">2</span>
           <span class="step__body">
-            <span class="step__t">交给本机 PicGo 上传</span>
-            <span class="step__d">同一张图一轮只传一次</span>
+            <span class="step__t">{{ t('empty.step.upload') }}</span>
+            <span class="step__d">{{ t('empty.step.upload.detail') }}</span>
           </span>
         </li>
         <li class="step">
           <span class="step__n num">3</span>
           <span class="step__body">
-            <span class="step__t">回写链接并另存</span>
-            <span class="step__d">失败项保持原文，不串位</span>
+            <span class="step__t">{{ t('empty.step.write') }}</span>
+            <span class="step__d">{{ t('empty.step.write.detail') }}</span>
           </span>
         </li>
       </ol>

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/geekMus/convert-md-picture/internal/conv"
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 	"github.com/geekMus/convert-md-picture/internal/version"
@@ -20,7 +21,7 @@ import (
 // runCLI 在命令行完成一轮转换，返回进程退出码。
 func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	if !cfg.DryRun {
-		pc := picgo.New(cfg.Endpoint, 0, 3*time.Second)
+		pc := picgo.New(cfg.Endpoint, 0, 3*time.Second, i18n.ZH)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := pc.Ping(ctx)
 		cancel()
@@ -37,7 +38,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runner := conv.NewRunner(cfg, "cli", p.emit)
+	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit)
 	sum := runner.Run(ctx, paths)
 
 	if sum.Cancelled {

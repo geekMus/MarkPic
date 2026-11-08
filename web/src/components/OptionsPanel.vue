@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
 import { OUTPUT_MODES } from '../composables/useSettings'
+import { useTheme, type ThemeChoice } from '../composables/useTheme'
+import { useI18n, type Lang, type MessageKey } from '../i18n'
 import type { Settings } from '../types'
 
 defineProps<{
@@ -20,6 +22,21 @@ const emit = defineEmits<{
   close: []
   'pick-dir': []
 }>()
+
+const { t, lang, setLang } = useI18n()
+const { choice: themeChoice, setChoice: setTheme } = useTheme()
+
+/** 外观是界面自己的偏好，跟 PicGo / 输出那些转换设置不同，改完立即生效。 */
+const THEME_OPTIONS: readonly { value: ThemeChoice; labelKey: MessageKey }[] = [
+  { value: 'system', labelKey: 'theme.system' },
+  { value: 'light', labelKey: 'theme.light' },
+  { value: 'dark', labelKey: 'theme.dark' },
+]
+
+const LANG_OPTIONS: readonly { value: Lang; labelKey: MessageKey }[] = [
+  { value: 'zh', labelKey: 'language.zh' },
+  { value: 'en', labelKey: 'language.en' },
+]
 
 function textValue(event: Event): string {
   return (event.target as HTMLInputElement).value
@@ -49,15 +66,15 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
     >
       <header class="panel__head">
         <div class="panel__title">
-          <h2 id="settings-title">设置</h2>
-          <span v-if="dirty" class="panel__note panel__note--dirty">未保存</span>
+          <h2 id="settings-title">{{ t('settings.title') }}</h2>
+          <span v-if="dirty" class="panel__note panel__note--dirty">{{ t('settings.unsaved') }}</span>
         </div>
         <div class="panel__actions">
           <button
             type="button"
             class="icon-btn"
-            title="关闭设置"
-            aria-label="关闭设置"
+            :title="t('settings.close')"
+            :aria-label="t('settings.close')"
             @click="emit('close')"
           >
             <AppIcon name="x" :size="15" />
@@ -68,9 +85,9 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
       <div class="dlg__body">
         <template v-if="loaded">
           <section class="section">
-            <h3 class="section__title">PicGo 服务</h3>
+            <h3 class="section__title">{{ t('settings.section.picgo') }}</h3>
             <label class="field">
-              <span class="field__label">服务地址</span>
+              <span class="field__label">{{ t('settings.endpoint') }}</span>
               <input
                 class="input mono"
                 type="text"
@@ -79,15 +96,15 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.endpoint"
                 @input="emit('update', { endpoint: textValue($event) })"
               />
-              <span class="field__hint">默认 http://127.0.0.1:36677</span>
+              <span class="field__hint">{{ t('settings.endpoint.hint') }}</span>
             </label>
           </section>
 
           <section class="section">
-            <h3 class="section__title">并发与重试</h3>
+            <h3 class="section__title">{{ t('settings.section.concurrency') }}</h3>
             <label class="field">
               <span class="field__lblrow">
-                <span class="field__label">并发数</span>
+                <span class="field__label">{{ t('settings.concurrency') }}</span>
                 <span class="field__hint">1 – 16</span>
               </span>
               <input
@@ -102,7 +119,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
             </label>
             <label class="field">
               <span class="field__lblrow">
-                <span class="field__label">失败重试</span>
+                <span class="field__label">{{ t('settings.retries') }}</span>
                 <span class="field__hint">0 – 5</span>
               </span>
               <input
@@ -118,23 +135,23 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           </section>
 
           <section class="section">
-            <h3 class="section__title">输出方式</h3>
-            <div class="segmented" role="group" aria-label="输出方式">
+            <h3 class="section__title">{{ t('settings.section.output') }}</h3>
+            <div class="segmented" role="group" :aria-label="t('settings.section.output')">
               <button
                 v-for="mode in OUTPUT_MODES"
                 :key="mode.value"
                 type="button"
                 class="segmented__item"
                 :aria-pressed="settings.output === mode.value"
-                :title="mode.hint"
+                :title="t(mode.hintKey)"
                 @click="emit('update', { output: mode.value })"
               >
-                {{ mode.label }}
+                {{ t(mode.labelKey) }}
               </button>
             </div>
 
             <label v-if="settings.output === 'sidecar'" class="field">
-              <span class="field__label">副本后缀</span>
+              <span class="field__label">{{ t('settings.suffix') }}</span>
               <input
                 class="input mono"
                 type="text"
@@ -143,11 +160,11 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.suffix"
                 @input="emit('update', { suffix: textValue($event) })"
               />
-              <span class="field__hint">例：post{{ settings.suffix }}.md</span>
+              <span class="field__hint">{{ t('settings.suffix.hint', { suffix: settings.suffix }) }}</span>
             </label>
 
             <div v-if="settings.output === 'directory'" class="field">
-              <span class="field__label">输出目录</span>
+              <span class="field__label">{{ t('settings.outDir') }}</span>
               <div class="field__row">
                 <input
                   class="input mono"
@@ -160,25 +177,25 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 />
                 <button type="button" class="btn btn--secondary" @click="emit('pick-dir')">
                   <AppIcon name="folder-open" :size="14" />
-                  选择
+                  {{ t('common.choose') }}
                 </button>
               </div>
             </div>
 
             <p v-if="settings.output === 'in-place'" class="notice">
-              原地替换会直接改写原始文件，请确认已开启备份或已纳入版本控制。
+              {{ t('settings.inPlace.warning') }}
             </p>
           </section>
 
           <section class="section">
-            <h3 class="section__title">写入选项</h3>
+            <h3 class="section__title">{{ t('settings.section.write') }}</h3>
             <label class="check">
               <input
                 type="checkbox"
                 :checked="settings.backup"
                 @change="emit('update', { backup: checkedValue($event) })"
               />
-              <span>覆盖前备份原文件</span>
+              <span>{{ t('settings.backup') }}</span>
             </label>
             <label class="check">
               <input
@@ -186,18 +203,52 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :checked="settings.dryRun"
                 @change="emit('update', { dryRun: checkedValue($event) })"
               />
-              <span>试运行（只扫描与预览，不写文件、不上传）</span>
+              <span>{{ t('settings.dryRun') }}</span>
             </label>
+          </section>
+
+          <section class="section">
+            <h3 class="section__title">{{ t('settings.section.appearance') }}</h3>
+            <div class="field">
+              <span class="field__label">{{ t('header.theme.label') }}</span>
+              <div class="segmented" role="group" :aria-label="t('header.theme.label')">
+                <button
+                  v-for="opt in THEME_OPTIONS"
+                  :key="opt.value"
+                  type="button"
+                  class="segmented__item"
+                  :aria-pressed="themeChoice === opt.value"
+                  @click="setTheme(opt.value)"
+                >
+                  {{ t(opt.labelKey) }}
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <span class="field__label">{{ t('language.label') }}</span>
+              <div class="segmented" role="group" :aria-label="t('language.label')">
+                <button
+                  v-for="opt in LANG_OPTIONS"
+                  :key="opt.value"
+                  type="button"
+                  class="segmented__item"
+                  :aria-pressed="lang === opt.value"
+                  @click="setLang(opt.value)"
+                >
+                  {{ t(opt.labelKey) }}
+                </button>
+              </div>
+            </div>
           </section>
         </template>
 
         <div v-else class="placeholder">
-          <p v-if="loading" role="status" aria-live="polite">正在读取设置…</p>
+          <p v-if="loading" role="status" aria-live="polite">{{ t('settings.loading') }}</p>
           <template v-else>
-            <p class="placeholder__error">{{ loadError ?? '设置读取失败' }}</p>
+            <p class="placeholder__error">{{ loadError ?? t('settings.loadFailed') }}</p>
             <button type="button" class="btn btn--secondary btn--sm" @click="emit('retry')">
               <AppIcon name="refresh" :size="14" />
-              重新读取
+              {{ t('common.reload') }}
             </button>
           </template>
         </div>
@@ -207,7 +258,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
         <span class="dlg__kbd">
           <span class="kbd">Ctrl</span>
           <span class="kbd">Enter</span>
-          保存
+          {{ t('settings.shortcut.save') }}
         </span>
         <button
           type="button"
@@ -215,7 +266,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           :disabled="!dirty || saving"
           @click="emit('discard')"
         >
-          还原
+          {{ t('settings.discard') }}
         </button>
         <button
           type="button"
@@ -223,7 +274,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           :disabled="!dirty || saving"
           @click="emit('save')"
         >
-          {{ saving ? '保存中' : '保存设置' }}
+          {{ saving ? t('settings.saving') : t('settings.save') }}
         </button>
       </footer>
     </section>

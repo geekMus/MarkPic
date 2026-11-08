@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"syscall"
 	"unsafe"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 var (
@@ -79,12 +81,13 @@ type browseInfoW struct {
 
 // PickFiles 弹出系统原生「打开文件」对话框，支持多选。
 // 用户取消时返回空切片。
-func PickFiles(title string) ([]string, error) {
+func PickFiles(title string, lang i18n.Lang) ([]string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	buf := make([]uint16, 32768)
-	filter := utf16Ptr("Markdown 文档 (*.md;*.markdown)\x00*.md;*.markdown\x00所有文件 (*.*)\x00*.*\x00\x00")
+	filter := utf16Ptr(i18n.T(lang, i18n.KeyPlatformFilterMd) + "\x00*.md;*.markdown\x00" +
+		i18n.T(lang, i18n.KeyPlatformFilterAll) + "\x00*.*\x00\x00")
 
 	ofn := openFileNameW{
 		lStructSize:  uint32(unsafe.Sizeof(openFileNameW{})),
@@ -104,7 +107,7 @@ func PickFiles(title string) ([]string, error) {
 }
 
 // PickFolder 弹出系统原生「选择文件夹」对话框。用户取消时返回空字符串。
-func PickFolder(title string) (string, error) {
+func PickFolder(title string, lang i18n.Lang) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -130,13 +133,13 @@ func PickFolder(title string) (string, error) {
 	path := make([]uint16, 260)
 	ok, _, _ := procSHGetPath.Call(pidl, uintptr(unsafe.Pointer(&path[0])))
 	if ok == 0 {
-		return "", errors.New("无法获取所选目录路径")
+		return "", errors.New(i18n.T(lang, i18n.KeyPlatformNoFolderPath))
 	}
 	return syscall.UTF16ToString(path), nil
 }
 
 // Open 用系统默认方式打开文件、目录或 URL。
-func Open(target string) error {
+func Open(target string, lang i18n.Lang) error {
 	p, err := syscall.UTF16PtrFromString(target)
 	if err != nil {
 		return err
@@ -150,13 +153,13 @@ func Open(target string) error {
 		swShowNormal,
 	)
 	if ret <= 32 {
-		return errors.New("系统无法打开：" + target)
+		return errors.New(i18n.T(lang, i18n.KeyPlatformCannotOpen, target))
 	}
 	return nil
 }
 
 // Reveal 在资源管理器中选中指定文件或目录。
-func Reveal(path string) error {
+func Reveal(path string, lang i18n.Lang) error {
 	cmd := exec.Command("explorer.exe", "/select,"+path)
 	if err := cmd.Start(); err != nil {
 		return err

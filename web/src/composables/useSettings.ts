@@ -1,5 +1,7 @@
 import { computed, reactive, ref } from 'vue'
 import { describeError, getSettings, putSettings } from '../api'
+import { t } from '../i18n'
+import type { MessageKey } from '../i18n'
 import type { Settings } from '../types'
 import { useToasts } from './useToasts'
 
@@ -7,14 +9,19 @@ const { danger, warning, success } = useToasts()
 
 export interface OutputModeOption {
   value: Settings['output']
-  label: string
-  hint: string
+  /** 文案放在 i18n 里（见 web/src/i18n），这里只留键名。 */
+  labelKey: MessageKey
+  hintKey: MessageKey
 }
 
 export const OUTPUT_MODES: readonly OutputModeOption[] = [
-  { value: 'sidecar', label: '旁挂副本', hint: '生成后缀副本，原文件不动' },
-  { value: 'in-place', label: '原地替换', hint: '直接改写原文件' },
-  { value: 'directory', label: '指定目录', hint: '统一写入输出目录' },
+  { value: 'sidecar', labelKey: 'settings.output.sidecar', hintKey: 'settings.output.sidecar.hint' },
+  { value: 'in-place', labelKey: 'settings.output.inPlace', hintKey: 'settings.output.inPlace.hint' },
+  {
+    value: 'directory',
+    labelKey: 'settings.output.directory',
+    hintKey: 'settings.output.directory.hint',
+  },
 ]
 
 const SETTINGS_KEYS: readonly (keyof Settings)[] = [
@@ -116,7 +123,7 @@ function load(): Promise<void> {
       loaded.value = true
       loadError.value = null
     } catch (err) {
-      loadError.value = describeError(err, '读取设置失败')
+      loadError.value = describeError(err, t('error.loadSettings'))
       danger(loadError.value)
     } finally {
       loading.value = false
@@ -143,17 +150,17 @@ function snapshot(): Settings {
 async function save(): Promise<boolean> {
   if (saving.value) return false
   if (!loaded.value) {
-    warning('设置尚未读取成功，暂不能保存')
+    warning(t('error.settingsNotLoaded'))
     return false
   }
 
   const endpoint = draft.endpoint.trim()
   if (endpoint === '') {
-    warning('请填写 PicGo 服务地址')
+    warning(t('error.picgoRequired'))
     return false
   }
   if (draft.output === 'directory' && draft.outDir.trim() === '') {
-    warning('请选择输出目录')
+    warning(t('error.outDirRequired'))
     return false
   }
 
@@ -164,10 +171,10 @@ async function save(): Promise<boolean> {
     adopt(persisted)
     loaded.value = true
     loadError.value = null
-    success('设置已保存')
+    success(t('toast.settingsSaved'))
     return true
   } catch (err) {
-    danger(describeError(err, '保存设置失败'))
+    danger(describeError(err, t('error.saveSettings')))
     return false
   } finally {
     saving.value = false

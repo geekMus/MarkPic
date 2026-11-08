@@ -7,16 +7,18 @@ package platform
 import (
 	"os/exec"
 	"runtime"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 // PickFiles 在非 Windows 平台返回 ErrUnsupported。
-func PickFiles(title string) ([]string, error) { return nil, ErrUnsupported }
+func PickFiles(title string, lang i18n.Lang) ([]string, error) { return nil, ErrUnsupported }
 
 // PickFolder 在非 Windows 平台返回 ErrUnsupported。
-func PickFolder(title string) (string, error) { return "", ErrUnsupported }
+func PickFolder(title string, lang i18n.Lang) (string, error) { return "", ErrUnsupported }
 
 // Open 用系统默认程序打开目标。
-func Open(target string) error {
+func Open(target string, lang i18n.Lang) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -28,7 +30,7 @@ func Open(target string) error {
 }
 
 // Reveal 打开目标所在目录。
-func Reveal(path string) error { return Open(path) }
+func Reveal(path string, lang i18n.Lang) error { return Open(path, lang) }
 
 // MessageBox 在非 Windows 平台什么也不做。
 func MessageBox(title, text string) {}

@@ -4,6 +4,7 @@ import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileStatus, ImageItem, ImageStatus } from '../types'
 import type { RunRowView } from '../composables/useRun'
+import { useI18n, type MessageKey } from '../i18n'
 
 type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
@@ -11,52 +12,56 @@ const props = defineProps<{ row: RunRowView; busy: boolean }>()
 
 const emit = defineEmits<{ remove: [id: string] }>()
 
-const FILE_STATUS_META: Record<FileStatus, { tone: Tone; label: string }> = {
-  ok: { tone: 'success', label: '完成' },
-  partial: { tone: 'warning', label: '部分失败' },
-  'no-images': { tone: 'neutral', label: '无图片' },
-  failed: { tone: 'danger', label: '失败' },
-  preview: { tone: 'neutral', label: '预览' },
+const { t } = useI18n()
+
+const FILE_STATUS_META: Record<FileStatus, { tone: Tone; labelKey: MessageKey }> = {
+  ok: { tone: 'success', labelKey: 'row.status.done' },
+  partial: { tone: 'warning', labelKey: 'row.status.partial' },
+  'no-images': { tone: 'neutral', labelKey: 'row.status.noImages' },
+  failed: { tone: 'danger', labelKey: 'row.status.failed' },
+  preview: { tone: 'neutral', labelKey: 'row.status.preview' },
 }
 
-const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; label: string }> = {
-  uploaded: { tone: 'success', label: '已上传' },
-  reused: { tone: 'accent', label: '已复用' },
-  remote: { tone: 'neutral', label: '远程链接' },
-  missing: { tone: 'warning', label: '文件缺失' },
-  failed: { tone: 'danger', label: '上传失败' },
-  pending: { tone: 'neutral', label: '待上传' },
+const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey }> = {
+  uploaded: { tone: 'success', labelKey: 'row.status.uploaded' },
+  reused: { tone: 'accent', labelKey: 'row.status.reused' },
+  remote: { tone: 'neutral', labelKey: 'row.status.remote' },
+  missing: { tone: 'warning', labelKey: 'row.status.missing' },
+  failed: { tone: 'danger', labelKey: 'row.status.uploadFailed' },
+  pending: { tone: 'neutral', labelKey: 'row.status.pending' },
 }
 
 const expanded = ref(false)
 
 const detailsId = `file-row-${useId()}`
 
-const statusMeta = computed<{ tone: Tone; label: string }>(() => {
+const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
   const result = props.row.result
   if (result) return FILE_STATUS_META[result.status]
-  if (props.row.phase === 'running') return { tone: 'accent', label: '上传中' }
-  if (props.row.phase === 'cancelled') return { tone: 'warning', label: '已取消' }
-  if (props.row.phase === 'settled') return { tone: 'neutral', label: '已结束' }
-  if (props.row.missing) return { tone: 'neutral', label: '未找到文件' }
-  return { tone: 'neutral', label: '待转换' }
+  if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
+  if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
+  if (props.row.phase === 'settled') return { tone: 'neutral', labelKey: 'row.status.finished' }
+  if (props.row.missing) return { tone: 'neutral', labelKey: 'row.status.notFound' }
+  return { tone: 'neutral', labelKey: 'row.status.queued' }
 })
 
 const countLabel = computed(() => {
   const images = props.row.result?.images ?? props.row.images
-  if (images === null || images === undefined) return props.row.missing ? '—' : '待统计'
-  return `${images} 张图`
+  if (images === null || images === undefined) {
+    return props.row.missing ? '—' : t('row.count.pending')
+  }
+  return t('row.count', { count: images })
 })
 
 const reason = computed(() => {
   const result = props.row.result
   if (!result) {
-    if (props.row.phase === 'cancelled') return '已取消，未处理的图片保持原样'
-    if (props.row.missing) return '这个路径下没有 Markdown 文件'
+    if (props.row.phase === 'cancelled') return t('row.reason.cancelled')
+    if (props.row.missing) return t('row.reason.noFiles')
     return ''
   }
   if (result.error) return result.error
-  if (result.failed > 0) return `${result.failed} 张图片未处理`
+  if (result.failed > 0) return t('row.reason.failed', { count: result.failed })
   const warning = result.warnings?.[0]
   return warning ?? ''
 })
@@ -98,15 +103,15 @@ const skippedOnly = computed(() => Math.max(0, (props.row.result?.skipped ?? 0) 
  * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
  * （路径根本没匹配到文件的行不展开，见 noDetails，所以这里只剩「没有本地图片」一种情况。）
  */
-const emptyDetailsText = computed(() => '这个文件里没有可处理的本地图片。')
+const emptyDetailsText = computed(() => t('row.details.empty'))
 
 /** 没有逐图明细的行（例如路径下压根没有 Markdown）就不该给一个能点的展开箭头。 */
 const noDetails = computed(() => Boolean(props.row.missing) && !props.row.result)
 
 function itemDetail(item: ImageItem): string {
-  if (item.status === 'failed') return item.error ?? '上传失败'
-  if (item.status === 'missing') return item.error ?? '本地文件不存在'
-  if (item.status === 'remote') return '已是远程地址，跳过'
+  if (item.status === 'failed') return item.error ?? t('row.status.uploadFailed')
+  if (item.status === 'missing') return item.error ?? t('row.item.missingFile')
+  if (item.status === 'remote') return t('row.item.remoteSkipped')
   // 待上传的引用：状态列已经写了「待上传」，这里再重复一句就是噪音
   if (item.status === 'pending') return ''
   return item.url ?? ''
@@ -127,7 +132,7 @@ function replaced(status: ImageStatus): boolean {
         :disabled="noDetails"
         :aria-expanded="noDetails ? undefined : expanded"
         :aria-controls="noDetails ? undefined : detailsId"
-        :title="noDetails ? row.path : expanded ? '收起图片明细' : '展开图片明细'"
+        :title="noDetails ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
         @click="expanded = !expanded"
       >
         <span
@@ -148,14 +153,14 @@ function replaced(status: ImageStatus): boolean {
       <span class="item__count num">{{ countLabel }}</span>
 
       <span class="item__status">
-        <StatusPill :label="statusMeta.label" :tone="statusMeta.tone" compact />
+        <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
       </span>
 
       <button
         type="button"
         class="icon-btn icon-btn--sm icon-btn--danger item__remove"
-        title="从队列移除"
-        aria-label="从队列移除"
+        :title="t('row.remove')"
+        :aria-label="t('row.remove')"
         :disabled="busy"
         @click="emit('remove', row.id)"
       >
@@ -174,30 +179,30 @@ function replaced(status: ImageStatus): boolean {
         <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
         <span v-if="(row.result?.uploaded ?? 0) > 0 || pendingCount === 0" class="stat">
           <span class="stat__n num">{{ row.result?.uploaded ?? 0 }}</span>
-          <span class="stat__k">替换</span>
+          <span class="stat__k">{{ t('row.stat.uploaded') }}</span>
         </span>
         <span v-if="reusedCount > 0" class="stat">
           <span class="stat__n num">{{ reusedCount }}</span>
-          <span class="stat__k">其中复用</span>
+          <span class="stat__k">{{ t('row.stat.reused') }}</span>
         </span>
         <span v-if="pendingCount > 0" class="stat">
           <span class="stat__n num">{{ pendingCount }}</span>
-          <span class="stat__k">待上传</span>
+          <span class="stat__k">{{ t('row.stat.pending') }}</span>
         </span>
         <span v-if="skippedOnly > 0" class="stat">
           <span class="stat__n num">{{ skippedOnly }}</span>
-          <span class="stat__k">跳过</span>
+          <span class="stat__k">{{ t('row.stat.skipped') }}</span>
         </span>
         <span v-if="(row.result?.failed ?? 0) > 0" class="stat">
           <span class="stat__n num stat__n--bad">{{ row.result?.failed }}</span>
-          <span class="stat__k">失败</span>
+          <span class="stat__k">{{ t('row.stat.failed') }}</span>
         </span>
       </div>
 
       <ul v-if="items.length > 0" class="items">
         <li v-for="(item, index) in items" :key="index" class="items__row" :data-status="item.status">
           <span class="items__line mono">L{{ item.line }}</span>
-          <span class="items__status">{{ IMAGE_STATUS_META[item.status].label }}</span>
+          <span class="items__status">{{ t(IMAGE_STATUS_META[item.status].labelKey) }}</span>
           <span class="items__target mono" :title="item.absolutePath || item.target">
             {{ item.target }}
           </span>
@@ -213,7 +218,7 @@ function replaced(status: ImageStatus): boolean {
       <p v-else class="details__empty">{{ emptyDetailsText }}</p>
 
       <p v-if="row.result?.outputPath" class="details__out">
-        <span>输出</span>
+        <span>{{ t('row.output') }}</span>
         <span class="mono">{{ row.result.outputPath }}</span>
       </p>
 

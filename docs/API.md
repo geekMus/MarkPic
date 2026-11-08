@@ -75,6 +75,8 @@ type RunSummary = {
 
 ## 端点
 
+所有接口都看 `Accept-Language` 请求头（`zh*` / `en*`，按 `q=` 排序取第一个支持的，其它一律回中文）：错误 `message`、`picgo.detail`、`items[].error`、更新相关的报错都会用这个语言返回。前端在 `web/src/i18n/index.ts` 里统一加这个头。
+
 | 方法 | 路径 | 请求体 | 响应 |
 | --- | --- | --- | --- |
 | GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string }, dataDir: string, dataNote?: string }` |

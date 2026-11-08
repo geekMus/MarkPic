@@ -8,6 +8,8 @@ package mdscan
 import (
 	"sort"
 	"strings"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 // 图片引用的语法类型。
@@ -38,8 +40,11 @@ type Document struct {
 	Warnings []string
 }
 
-// Scan 解析 src 并返回所有图片引用。src 不会被修改。
-func Scan(src []byte) *Document {
+// Scan 解析 src 并返回所有图片引用，警告文案用中文。src 不会被修改。
+func Scan(src []byte) *Document { return ScanLang(src, i18n.ZH) }
+
+// ScanLang 与 Scan 相同，但警告文案按 lang 本地化。
+func ScanLang(src []byte, lang i18n.Lang) *Document {
 	d := &Document{Src: src}
 	masked := protectedMask(src)
 	lineStarts := indexLines(src)
@@ -58,7 +63,7 @@ func Scan(src []byte) *Document {
 		}
 		if isReferenceStyleImage(src, i) {
 			d.Warnings = append(d.Warnings,
-				"第 "+itoa(lineOf(lineStarts, i))+" 行使用了引用式图片语法 ![alt][id]，本工具暂不处理")
+				i18n.T(lang, i18n.KeyConvReferenceStyle, lineOf(lineStarts, i)))
 		}
 	}
 

@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
+import { useTheme } from '../composables/useTheme'
 import { useWindowControls } from '../composables/useWindowControls'
+import { useI18n } from '../i18n'
 import type { Health } from '../types'
 import type { RunPhase } from '../composables/useRun'
 
@@ -23,9 +25,8 @@ const emit = defineEmits<{
 }>()
 
 const { available: windowChrome, maximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
-
-// 字标只写名字，中文说明挂在悬停提示里
-const brandTitle = 'convert-md-picture · Markdown 图片图床化'
+const { t } = useI18n()
+const { choice: themeChoice } = useTheme()
 
 const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
   if (props.picgo === null) return props.healthChecking ? 'neutral' : 'danger'
@@ -33,13 +34,15 @@ const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
 })
 
 const picgoLabel = computed(() => {
-  if (props.picgo === null) return props.healthChecking ? '检测中' : '服务未连接'
-  return props.picgo.online ? 'PicGo 已连接' : 'PicGo 未连接'
+  if (props.picgo === null) {
+    return props.healthChecking ? t('header.picgo.checking') : t('header.picgo.offline')
+  }
+  return props.picgo.online ? t('header.picgo.online') : t('header.picgo.offline')
 })
 
 const picgoTitle = computed(() => {
   const detail = props.picgo?.detail.trim() ?? ''
-  return detail === '' ? '点击重新检测 PicGo 连接' : `${detail}，点击重新检测`
+  return detail === '' ? t('header.picgo.recheck') : t('header.picgo.recheckDetail', { detail })
 })
 
 const runVisible = computed(
@@ -47,12 +50,21 @@ const runVisible = computed(
 )
 
 const runLabel = computed(() => {
-  if (props.phase === 'preparing') return '正在启动'
-  if (props.phase === 'cancelling') return '正在取消'
-  return `运行中 ${props.completed}/${props.total}`
+  if (props.phase === 'preparing') return t('header.run.preparing')
+  if (props.phase === 'cancelling') return t('header.run.cancelling')
+  return t('header.run.progress', { done: props.completed, total: props.total })
 })
 
-const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'))
+/** 三种主题各有自己的图标：跟随系统用显示器，亮色太阳，暗色月亮。 */
+const themeIcon = computed<'sun' | 'moon' | 'monitor'>(() => {
+  if (themeChoice.value === 'system') return 'monitor'
+  return props.theme === 'dark' ? 'moon' : 'sun'
+})
+
+const themeTitle = computed(() => {
+  const names = { system: t('theme.system'), light: t('theme.light'), dark: t('theme.dark') }
+  return t('theme.switch', { name: names[themeChoice.value] })
+})
 
 // 双击标题栏空白处 = 最大化 / 还原，和系统标题栏一致。
 function handleDoubleClick(event: MouseEvent): void {
@@ -88,7 +100,7 @@ function handleDoubleClick(event: MouseEvent): void {
       </span>
       <!-- 品牌就是命令行里的那个名字。md 是它在做的事（改写 Markdown 图片链接），
            所以把这一段点亮，其余保持普通字色：看着像命令，也像被高亮的 token。 -->
-      <span class="brand" role="img" aria-label="convert-md-picture" :title="brandTitle">
+      <span class="brand" role="img" aria-label="convert-md-picture" :title="t('header.brand')">
         <span class="brand__word" aria-hidden="true">convert</span>
         <span class="brand__dash" aria-hidden="true">-</span>
         <span class="brand__word brand__word--md" aria-hidden="true">md</span>
@@ -122,15 +134,15 @@ function handleDoubleClick(event: MouseEvent): void {
         :aria-label="themeTitle"
         @click="emit('toggle-theme')"
       >
-        <AppIcon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
+        <AppIcon :name="themeIcon" :size="16" />
       </button>
 
       <button
         type="button"
         class="icon-btn"
         :class="{ 'icon-btn--active': optionsOpen }"
-        :title="optionsOpen ? '关闭设置' : '打开设置'"
-        :aria-label="optionsOpen ? '关闭设置' : '打开设置'"
+        :title="optionsOpen ? t('header.settings.close') : t('header.settings.open')"
+        :aria-label="optionsOpen ? t('header.settings.close') : t('header.settings.open')"
         :aria-pressed="optionsOpen"
         @click="emit('toggle-settings')"
       >
@@ -140,7 +152,7 @@ function handleDoubleClick(event: MouseEvent): void {
 
     <!-- 窗口按钮只在桌面窗口里出现；浏览器里没有系统标题栏可替代，直接隐藏 -->
     <div v-if="windowChrome" class="tb__win" data-no-drag>
-      <button type="button" class="wbtn" title="最小化" aria-label="最小化" @click="minimize">
+      <button type="button" class="wbtn" :title="t('header.window.minimize')" :aria-label="t('header.window.minimize')" @click="minimize">
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 5.5h9" />
         </svg>
@@ -148,8 +160,8 @@ function handleDoubleClick(event: MouseEvent): void {
       <button
         type="button"
         class="wbtn"
-        :title="maximized ? '向下还原' : '最大化'"
-        :aria-label="maximized ? '向下还原' : '最大化'"
+        :title="maximized ? t('header.window.restore') : t('header.window.maximize')"
+        :aria-label="maximized ? t('header.window.restore') : t('header.window.maximize')"
         @click="toggleMaximize"
       >
         <svg v-if="maximized" viewBox="0 0 10 10" aria-hidden="true">
@@ -160,7 +172,7 @@ function handleDoubleClick(event: MouseEvent): void {
           <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
         </svg>
       </button>
-      <button type="button" class="wbtn wbtn--close" title="关闭" aria-label="关闭" @click="close">
+      <button type="button" class="wbtn wbtn--close" :title="t('common.close')" :aria-label="t('common.close')" @click="close">
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
         </svg>

@@ -6,6 +6,7 @@ import {
   installUpdate,
   openTarget,
 } from '../api'
+import { t } from '../i18n'
 import type { UpdateStatus } from '../types'
 
 /**
@@ -88,7 +89,7 @@ async function check(quiet = false): Promise<void> {
     if (quiet) {
       status.value = { ...blank() }
     } else {
-      error.value = describeError(e, '检查更新失败')
+      error.value = describeError(e, t('error.checkUpdate'))
       status.value = { ...status.value, state: 'idle' }
     }
   } finally {
@@ -104,7 +105,7 @@ async function install(): Promise<void> {
     status.value = await installUpdate()
     schedulePoll()
   } catch (e) {
-    error.value = describeError(e, '安装失败')
+    error.value = describeError(e, t('error.install'))
   } finally {
     busy.value = false
   }
@@ -114,13 +115,13 @@ async function openReleasePage(): Promise<void> {
   // 发布页地址由服务端给（和后端那份清单地址是同一个来源），前端不写死。
   const url = status.value.releasePage
   if (!url) {
-    error.value = '还不知道发布页地址'
+    error.value = t('error.releasePage')
     return
   }
   try {
     await openTarget(url)
   } catch (e) {
-    error.value = describeError(e, '打不开浏览器')
+    error.value = describeError(e, t('error.openBrowser'))
   }
 }
 

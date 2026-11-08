@@ -12,6 +12,7 @@ import type {
   RunSummary,
   Settings,
 } from '../types'
+import { t } from '../i18n'
 import { useToasts } from './useToasts'
 
 export type RunPhase = 'idle' | 'preparing' | 'running' | 'cancelling' | 'done' | 'cancelled'
@@ -269,11 +270,11 @@ function onSignal(event: RunEvent): void {
       if (event.summary.cancelled) markUnsettledCancelled()
       runId.value = null
       if (event.summary.cancelled) {
-        warning('转换已取消')
+        warning(t('toast.runCancelled'))
       } else if (event.summary.failedImages > 0) {
-        warning(`转换完成，${event.summary.failedImages} 张图片失败`)
+        warning(t('toast.runFinishedPartial', { count: event.summary.failedImages }))
       } else {
-        success(`转换完成 · 上传 ${event.summary.uploaded} 张图片`)
+        success(t('toast.runFinished', { count: event.summary.uploaded }))
       }
       return
     }
@@ -283,7 +284,7 @@ function onSignal(event: RunEvent): void {
       phase.value = 'cancelled'
       markUnsettledCancelled()
       runId.value = null
-      warning('转换已取消')
+      warning(t('toast.runCancelled'))
       return
     }
     case 'log': {
@@ -324,7 +325,7 @@ function connect(): void {
     reconnectDelay = 800
     if (reconnecting.value) {
       reconnecting.value = false
-      success('已恢复实时连接')
+      success(t('toast.reconnected'))
     }
   }
 
@@ -354,7 +355,7 @@ function scheduleReconnect(): void {
   if (reconnectTimer !== null) return
   if (!reconnecting.value) {
     reconnecting.value = true
-    warning('实时连接已断开，正在重连')
+    warning(t('toast.reconnecting'))
   }
   const delay = reconnectDelay
   reconnectDelay = Math.min(8000, reconnectDelay * 2)
@@ -389,7 +390,7 @@ function resetOutcome(): void {
 /** 加入队列；返回真正新增的路径，供调用方做预览。 */
 function addPaths(input: string[]): string[] {
   if (busy.value) {
-    warning('转换进行中，暂不能修改队列')
+    warning(t('toast.queueLocked'))
     return []
   }
 
@@ -452,7 +453,7 @@ function applyPreview(result: PreviewResult): void {
 async function start(paths: string[], settings: Settings): Promise<boolean> {
   if (busy.value) return false
   if (paths.length === 0) {
-    warning('队列为空，请先添加文件')
+    warning(t('toast.queueEmpty'))
     return false
   }
 
@@ -464,13 +465,13 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
   rows.value = rows.value.map(row => ({ ...row, phase: 'queued', uploaded: 0, total: row.images ?? 0 }))
 
   if (!connected.value) {
-    warning('实时进度连接未就绪，转换进度可能不会更新')
+    warning(t('toast.eventsNotReady'))
   }
 
   try {
     const started = await requestStartRun(paths, settings)
     if (typeof started.runId !== 'string' || started.runId === '') {
-      throw new Error('本地服务未返回 runId')
+      throw new Error(t('error.noRunId'))
     }
     if (runId.value === null && phase.value === 'preparing') {
       runId.value = started.runId
@@ -480,7 +481,7 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
   } catch (err) {
     if (runId.value !== null) return true
     phase.value = 'idle'
-    danger(describeError(err, '启动转换失败'))
+    danger(describeError(err, t('error.startRun')))
     return false
   }
 }
@@ -488,7 +489,7 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
 async function cancel(): Promise<void> {
   if (phase.value !== 'running') return
   if (runId.value === null) {
-    warning('未获取到运行标识，暂时无法取消')
+    warning(t('toast.noRunId'))
     return
   }
 
@@ -500,7 +501,7 @@ async function cancel(): Promise<void> {
     if (phase.value === 'cancelling') {
       phase.value = 'cancelled'
       markUnsettledCancelled()
-      warning('已请求取消，但未收到完成事件')
+      warning(t('toast.cancelUnconfirmed'))
     }
   }, 5000)
 
@@ -509,7 +510,7 @@ async function cancel(): Promise<void> {
   } catch (err) {
     clearCancelTimer()
     phase.value = 'running'
-    danger(describeError(err, '取消失败'))
+    danger(describeError(err, t('error.cancelRun')))
   }
 }
 
@@ -526,7 +527,7 @@ function removeRow(id: string): void {
 
 function clearQueue(): void {
   if (busy.value) {
-    warning('转换进行中，暂不能清空队列')
+    warning(t('toast.clearLocked'))
     return
   }
   clearCancelTimer()

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/update"
 	"github.com/geekMus/convert-md-picture/internal/version"
 )
@@ -128,7 +129,7 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 16*time.Second)
 	defer cancel()
 
-	rel, err := update.Check(ctx, version.Version, runtime.GOARCH)
+	rel, err := update.Check(ctx, version.Version, runtime.GOARCH, langOf(r))
 	if err != nil {
 		s.upd.fail(err.Error())
 		writeJSON(w, http.StatusOK, s.upd.snapshot())
@@ -140,24 +141,24 @@ func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateInstall(w http.ResponseWriter, r *http.Request) {
 	if s.updOpts.ExePath == "" {
-		writeErr(w, http.StatusNotImplemented, "当前构建不支持自动更新")
+		errKey(w, r, http.StatusNotImplemented, i18n.KeyServerUpdateUnsupported)
 		return
 	}
 	asset := s.upd.snapshot().Asset
 	if asset.URL == "" {
-		writeErr(w, http.StatusBadRequest, "请先检查更新")
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerCheckFirst)
 		return
 	}
 	if !s.upd.beginInstall(asset) {
-		writeErr(w, http.StatusConflict, "正在安装，请稍候")
+		errKey(w, r, http.StatusConflict, i18n.KeyServerUpdateBusy)
 		return
 	}
-	go s.installUpdate(asset)
+	go s.installUpdate(asset, langOf(r))
 	writeJSON(w, http.StatusOK, s.upd.snapshot())
 }
 
 // installUpdate 下载、校验、替换、重启。全程只更新状态，不往前端抛错。
-func (s *Server) installUpdate(asset update.Asset) {
+func (s *Server) installUpdate(asset update.Asset, lang i18n.Lang) {
 	exe := s.updOpts.ExePath
 	staged := exe + ".new"
 
@@ -165,13 +166,13 @@ func (s *Server) installUpdate(asset update.Asset) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	if err := update.Download(ctx, asset.URL, asset.SHA256, staged, s.upd.progress); err != nil {
+	if err := update.Download(ctx, asset.URL, asset.SHA256, staged, s.upd.progress, lang); err != nil {
 		s.upd.fail(err.Error())
 		return
 	}
 
 	s.upd.setState("installing")
-	if _, err := update.Replace(exe, staged); err != nil {
+	if _, err := update.Replace(exe, staged, lang); err != nil {
 		_ = os.Remove(staged)
 		s.upd.fail(err.Error())
 		return
@@ -183,7 +184,7 @@ func (s *Server) installUpdate(asset update.Asset) {
 		// 新实例先等这个端口空出来，否则会以为「已有实例在运行」而只是开个浏览器。
 		args = append(args, "--port", strconv.Itoa(s.port), "--handover-port", strconv.Itoa(s.port))
 	}
-	if err := update.Restart(exe, args); err != nil {
+	if err := update.Restart(exe, args, lang); err != nil {
 		s.upd.fail(err.Error())
 		return
 	}

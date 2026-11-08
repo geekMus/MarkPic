@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/imgpath"
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
@@ -36,6 +37,7 @@ type itemGroup struct {
 // Runner 执行一轮转换。它不是并发安全的，一次运行用一个实例。
 type Runner struct {
 	cfg    settings.Settings
+	lang   i18n.Lang
 	client *picgo.Client
 	runID  string
 	emit   Emit
@@ -48,14 +50,18 @@ type Runner struct {
 }
 
 // NewRunner 创建运行器。
-func NewRunner(cfg settings.Settings, runID string, emit Emit) *Runner {
+func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *Runner {
+	if lang == "" {
+		lang = i18n.ZH
+	}
 	conc := cfg.Concurrency
 	if conc < 1 {
 		conc = 1
 	}
 	return &Runner{
 		cfg:     cfg,
-		client:  picgo.New(cfg.Endpoint, cfg.Retries, 90*time.Second),
+		lang:    lang,
+		client:  picgo.New(cfg.Endpoint, cfg.Retries, 90*time.Second, lang),
 		runID:   runID,
 		emit:    emit,
 		sem:     make(chan struct{}, conc),
@@ -89,10 +95,10 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 
 	files, missing, err := ExpandPaths(paths, r.cfg.Suffix)
 	if err != nil {
-		r.logf("error", "展开目录失败: %v", err)
+		r.logf("error", "%s", i18n.T(r.lang, i18n.KeyConvExpandFailed, err))
 	}
 	for _, m := range missing {
-		r.logf("warn", "路径不存在，已跳过: %s", m)
+		r.logf("warn", "%s", i18n.T(r.lang, i18n.KeyConvPathMissing, m))
 	}
 	if len(files) == 0 {
 		sum.DurationMs = time.Since(started).Milliseconds()
@@ -105,7 +111,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		n := 0
 		if data, rerr := os.ReadFile(f); rerr == nil {
 			if utf8.Valid(data) {
-				n = len(mdscan.Scan(data).Refs)
+				n = len(mdscan.ScanLang(data, r.lang).Refs)
 			}
 		}
 		tasks[i] = fileTaskOf(taskID(i), f, n)
@@ -185,16 +191,16 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		res.Status = FileFailed
-		res.Error = "无法读取文件：" + err.Error()
+		res.Error = i18n.T(r.lang, i18n.KeyConvReadFailed, err)
 		return res
 	}
 	if !utf8.Valid(data) {
 		res.Status = FileFailed
-		res.Error = "文件不是 UTF-8 编码，暂不支持（请转存为 UTF-8 后重试）"
+		res.Error = i18n.T(r.lang, i18n.KeyConvNotUTF8)
 		return res
 	}
 
-	doc := mdscan.Scan(data)
+	doc := mdscan.ScanLang(data, r.lang)
 	res.Warnings = append(res.Warnings, doc.Warnings...)
 	res.Images = len(doc.Refs)
 	if len(doc.Refs) == 0 {
@@ -214,18 +220,18 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			it.Status = StatusRemote
 		case imgpath.Empty:
 			it.Status = StatusMissing
-			it.Error = "图片地址为空"
+			it.Error = i18n.T(r.lang, i18n.KeyConvEmptyTarget)
 		default:
 			abs, ok := imgpath.Resolve(path, ref.Target)
 			if !ok {
 				it.Status = StatusMissing
-				it.Error = "无法解析地址"
+				it.Error = i18n.T(r.lang, i18n.KeyConvUnresolvedTarget)
 				break
 			}
 			it.AbsolutePath = abs
 			if st, serr := os.Stat(abs); serr != nil || st.IsDir() {
 				it.Status = StatusMissing
-				it.Error = "本地文件不存在：" + filepath.Base(abs)
+				it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(abs))
 				break
 			}
 			key := strings.ToLower(abs)
@@ -269,12 +275,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	if ctx.Err() != nil {
 		res.Status = FileFailed
-		res.Error = "已取消"
+		res.Error = i18n.T(r.lang, i18n.KeyConvCancelled)
 		return res
 	}
 	if res.Uploaded == 0 && res.Failed > 0 {
 		res.Status = FileFailed
-		res.Error = "所有本地图片都处理失败，未生成文件"
+		res.Error = i18n.T(r.lang, i18n.KeyConvAllFailed)
 		return res
 	}
 	if res.Uploaded == 0 {
@@ -297,7 +303,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	out, aerr := mdscan.Apply(data, repls)
 	if aerr != nil {
 		res.Status = FileFailed
-		res.Error = "回写失败：" + aerr.Error()
+		res.Error = i18n.T(r.lang, i18n.KeyConvRewriteFailed, aerr)
 		return res
 	}
 
@@ -310,13 +316,13 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	if imgpath.SameFile(target, path) && r.cfg.Backup {
 		if berr := backupFile(path); berr != nil {
 			res.Status = FileFailed
-			res.Error = "备份失败：" + berr.Error()
+			res.Error = i18n.T(r.lang, i18n.KeyConvBackupFailed, berr)
 			return res
 		}
 	}
 	if werr := writeAtomic(target, out); werr != nil {
 		res.Status = FileFailed
-		res.Error = "写入失败：" + werr.Error()
+		res.Error = i18n.T(r.lang, i18n.KeyConvWriteFailed, werr)
 		return res
 	}
 
@@ -429,11 +435,11 @@ func (r *Runner) planOutput(src string, create bool) (string, error) {
 		return src, nil
 	case settings.OutputDirectory:
 		if strings.TrimSpace(r.cfg.OutDir) == "" {
-			return "", errors.New("未设置输出目录")
+			return "", errors.New(i18n.T(r.lang, i18n.KeyConvOutDirRequired))
 		}
 		if create {
 			if err := os.MkdirAll(r.cfg.OutDir, 0o755); err != nil {
-				return "", fmt.Errorf("无法创建输出目录：%w", err)
+				return "", fmt.Errorf("%s: %w", i18n.T(r.lang, i18n.KeyConvOutDirCreateFailed, err), err)
 			}
 		}
 		return r.uniquePath(filepath.Join(r.cfg.OutDir, filepath.Base(src))), nil
