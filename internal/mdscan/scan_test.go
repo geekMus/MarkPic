@@ -165,3 +165,70 @@ func TestReferenceStyleWarns(t *testing.T) {
 		t.Fatal("want warning for reference-style image")
 	}
 }
+
+// 路径里有空格、又没写 <地址> 的写法（CommonMark 不允许，但手写 Windows 路径
+// 和不少编辑器都会这么生成）。解析器要贪心认出来，并打上 Loose 让调用方按
+// 「文件到底存不存在」决定认不认。
+func TestLooseDestWithoutAngleBrackets(t *testing.T) {
+	cases := []struct {
+		name  string
+		src   string
+		want  string
+		loose bool
+	}{
+		{"裸空格路径", "![a](图片 目录/我的 图 (1).png)", "图片 目录/我的 图 (1).png", true},
+		{"双引号标题", `![a](my pic.png "说明")`, "my pic.png", true},
+		{"单引号标题", "![a](my pic.png '说明')", "my pic.png", true},
+		{"括号标题", "![a](my pic.png (说明))", "my pic.png", true},
+		{"后面还有标点", "见 ![a](my pic.png)。", "my pic.png", true},
+		{"严格写法不标", "![a](p.png)", "p.png", false},
+		{"尖括号写法不标", "![a](<my pic.png>)", "my pic.png", false},
+		{"换行就放弃", "![a](my\npic.png)", "", false},
+		{"普通括号路径不标", "![a](a(1).png)", "a(1).png", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := Scan([]byte(c.src))
+			if c.want == "" {
+				if len(d.Refs) != 0 {
+					t.Fatalf("refs = %v, want none", targets(c.src))
+				}
+				return
+			}
+			if len(d.Refs) != 1 {
+				t.Fatalf("refs = %v, want 1", targets(c.src))
+			}
+			got := d.Refs[0]
+			if got.Target != c.want {
+				t.Errorf("Target = %q, want %q", got.Target, c.want)
+			}
+			if got.Loose != c.loose {
+				t.Errorf("Loose = %v, want %v", got.Loose, c.loose)
+			}
+			if got.URLEnd <= got.URLStart || got.End <= got.URLEnd {
+				t.Errorf("区间不合理：URLStart=%d URLEnd=%d End=%d", got.URLStart, got.URLEnd, got.End)
+			}
+		})
+	}
+}
+
+// Loose 解析出的地址区间必须只覆盖地址本身：标题要原样留在文档里。
+func TestLooseApplyKeepsTitle(t *testing.T) {
+	src := []byte("# 标题\n\n![图](my pic.png \"说明\")\n")
+	d := Scan(src)
+	if len(d.Refs) != 1 {
+		t.Fatalf("refs = %d, want 1", len(d.Refs))
+	}
+	ref := d.Refs[0]
+	if !ref.Loose || ref.Target != "my pic.png" {
+		t.Fatalf("ref = %+v", ref)
+	}
+	out, err := Apply(src, []Repl{{Start: ref.URLStart, End: ref.URLEnd, Text: "https://x/a.png"}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	want := "# 标题\n\n![图](https://x/a.png \"说明\")\n"
+	if string(out) != want {
+		t.Errorf("Apply = %q, want %q", out, want)
+	}
+}

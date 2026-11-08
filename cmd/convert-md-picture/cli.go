@@ -165,6 +165,11 @@ func previewBreakdown(r *conv.FileResult) string {
 func (p *printer) detailLines(r *conv.FileResult) []string {
 	var out []string
 	indent := strings.Repeat(" ", p.width+10)
+	// 扫描阶段的提示（引用式图片、路径里有空格…）。以前这些只在界面里显示，
+	// 命令行一个字都不说，用户会以为「所有图片都处理好了」。
+	for _, w := range r.Warnings {
+		out = append(out, indent+"提示  "+w)
+	}
 	for _, it := range r.Items {
 		var label string
 		switch it.Status {

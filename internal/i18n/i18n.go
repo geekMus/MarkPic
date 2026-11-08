@@ -54,6 +54,7 @@ const (
 	KeyConvOutDirRequired     Key = "conv.outDirRequired"
 	KeyConvOutDirCreateFailed Key = "conv.outDirCreateFailed"
 	KeyConvReferenceStyle     Key = "conv.referenceStyle"
+	KeyConvLoosePath          Key = "conv.loosePath"
 
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
@@ -211,6 +212,10 @@ var catalog = map[Key]entry{
 	KeyConvReferenceStyle: {
 		"第 %d 行使用了引用式图片语法 ![alt][id]，本工具暂不处理",
 		"Line %d uses reference-style image syntax (![alt][id]), which this tool does not handle yet",
+	},
+	KeyConvLoosePath: {
+		"第 %d 行：图片路径里有空格，规范写法是 <路径> 或把空格写成 %%20（已按原样处理）",
+		"Line %d: the image path contains a space; the standard form is <path> or %%20 (handled as written)",
 	},
 
 	KeyUpdateBadURL: {

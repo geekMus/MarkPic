@@ -51,6 +51,24 @@ func Classify(raw string) Kind {
 // 支持的写法：相对路径、绝对路径（C:\ 或 / 开头）、百分号编码、file:// URI、
 // Windows 反斜杠、以及 `?raw=1`、`#frag` 之类的后缀。
 func Resolve(docPath, target string) (string, bool) {
+	return resolve(docPath, target, true)
+}
+
+// ResolveAll 给出按优先级排好的候选路径：先按 URL 语义做百分号解码，解码得到的
+// 文件不存在时再退回「文档里逐字写的那一份」——文件名里真的带 `%20` 的图片，
+// 只有逐字那一份能找到文件。绝大多数情况下两个候选是同一个路径。
+func ResolveAll(docPath, target string) []string {
+	decoded, ok := resolve(docPath, target, true)
+	if !ok {
+		return nil
+	}
+	if literal, ok2 := resolve(docPath, target, false); ok2 && !strings.EqualFold(literal, decoded) {
+		return []string{decoded, literal}
+	}
+	return []string{decoded}
+}
+
+func resolve(docPath, target string, unescape bool) (string, bool) {
 	kind := Classify(target)
 	if kind != Local {
 		return "", false
@@ -72,8 +90,10 @@ func Resolve(docPath, target string) (string, bool) {
 		}
 	}
 
-	if unescaped, err := url.PathUnescape(s); err == nil {
-		s = unescaped
+	if unescape {
+		if unescaped, err := url.PathUnescape(s); err == nil {
+			s = unescaped
+		}
 	}
 
 	// 统一成正斜杠再交给 filepath

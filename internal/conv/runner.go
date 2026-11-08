@@ -352,17 +352,32 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	doc := mdscan.ScanLang(data, r.lang)
 	res.Warnings = append(res.Warnings, doc.Warnings...)
-	res.Images = len(doc.Refs)
-	if len(doc.Refs) == 0 {
+
+	// 地址里有空格又没写 <地址> 的写法（CommonMark 不允许，但不少编辑器照样生成）：
+	// 只有「贪心解析出来的那个文件」真的存在时才认它，否则当作没看见 ——
+	// 免得把正文里的 ![说明](见 上文) 之类也报成「找不到文件」。
+	refs := make([]mdscan.Ref, 0, len(doc.Refs))
+	for _, ref := range doc.Refs {
+		if ref.Loose && !r.looseTargetExists(path, ref.Target) {
+			continue
+		}
+		if ref.Loose {
+			res.Warnings = append(res.Warnings, i18n.T(r.lang, i18n.KeyConvLoosePath, ref.Line))
+		}
+		refs = append(refs, ref)
+	}
+
+	res.Images = len(refs)
+	if len(refs) == 0 {
 		res.Status = FileNoImages
 		return res
 	}
 
-	items := make([]Item, len(doc.Refs))
-	groups := make([]*itemGroup, 0, len(doc.Refs))
-	byPath := make(map[string]*itemGroup, len(doc.Refs))
+	items := make([]Item, len(refs))
+	groups := make([]*itemGroup, 0, len(refs))
+	byPath := make(map[string]*itemGroup, len(refs))
 
-	for i, ref := range doc.Refs {
+	for i, ref := range refs {
 		it := Item{Target: ref.Target, Kind: ref.Kind, Line: ref.Line}
 
 		switch imgpath.Classify(ref.Target) {
@@ -372,11 +387,20 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			it.Status = StatusMissing
 			it.Error = i18n.T(r.lang, i18n.KeyConvEmptyTarget)
 		default:
-			abs, ok := imgpath.Resolve(path, ref.Target)
-			if !ok {
+			candidates := imgpath.ResolveAll(path, ref.Target)
+			if len(candidates) == 0 {
 				it.Status = StatusMissing
 				it.Error = i18n.T(r.lang, i18n.KeyConvUnresolvedTarget)
 				break
+			}
+			// 先按 URL 语义解码的那个，不存在再退回文档里逐字写的那个
+			// （文件名里真的带 %20 时只有后者找得到文件）。
+			abs := candidates[0]
+			for _, cand := range candidates {
+				if r.fileExists(cand) {
+					abs = cand
+					break
+				}
 			}
 			it.AbsolutePath = abs
 			if !r.fileExists(abs) {
@@ -447,7 +471,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 
 	repls := make([]mdscan.Repl, 0, res.Uploaded)
-	for i, ref := range doc.Refs {
+	for i, ref := range refs {
 		if items[i].URL == "" {
 			continue
 		}
@@ -494,6 +518,17 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 }
 
 // uploadGroups 并发上传去重后的图片，并把结果写回对应的引用项。
+// looseTargetExists 判断「路径里有空格」这种不规范写法指向的文件是否真的存在。
+// 只有存在时才认这处引用，所以猜错了也不会误报。
+func (r *Runner) looseTargetExists(docPath, target string) bool {
+	for _, cand := range imgpath.ResolveAll(docPath, target) {
+		if r.fileExists(cand) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGroup, items []Item) {
 	total := len(groups)
 	var done int

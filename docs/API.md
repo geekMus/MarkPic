@@ -58,7 +58,8 @@ type FileResult = {
   skipped: number
   outputPath?: string
   error?: string
-  warnings?: string[]   // 例如「检测到引用式图片 ![]\[id\]，暂不支持」
+  warnings?: string[]   // 扫描阶段的提示，例如「检测到引用式图片 ![]\[id\]，暂不支持」
+                        // 以及「图片路径里有空格」；界面和命令行都会显示，命令行缩进成「提示  …」
   items: ImageItem[]    // 逐图明细，任何时候都会返回（失败/预检也带），界面展开靠它
 }
 

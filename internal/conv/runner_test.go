@@ -548,3 +548,41 @@ func TestCancelIsNotFailure(t *testing.T) {
 		t.Errorf("取消后仍写出了 %d 个文件：%v", len(outs), outs)
 	}
 }
+
+// TestLiteralPercentNameResolves：文件名里真的带 %20 时也要能找到它。
+// 按 URL 语义解码得到的名字（「图 片.png」）在磁盘上不存在，得退回文档里逐字写的那一份。
+func TestLiteralPercentNameResolves(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "图%20片.png"), "x")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![字面百分号](img/图%20片.png)\n")
+
+	srv, hitCount := fakePicGo(t, nil)
+
+	results, sum := NewRunner(baseCfg(srv.URL), i18n.ZH, "run-pct", nil).RunCollect(context.Background(), []string{doc})
+
+	if sum.Uploaded != 1 || sum.Failed != 0 {
+		t.Fatalf("汇总不对：uploaded=%d failed=%d，%+v", sum.Uploaded, sum.Failed, sum)
+	}
+	if len(results) != 1 || len(results[0].Items) != 1 {
+		t.Fatalf("结果条数不对：%+v", results)
+	}
+	item := results[0].Items[0]
+	if item.Status != StatusUploaded || !strings.Contains(item.URL, "图%20片.png") {
+		t.Fatalf("逐图结果不对：%+v", item)
+	}
+	if hits := hitCount(); hits["图%20片.png"] != 1 {
+		t.Fatalf("传给图床的文件名不对：%v", hits)
+	}
+
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "https://cdn.example.com/图%20片.png") {
+		t.Fatalf("输出里没有替换后的地址：%s", out)
+	}
+	if strings.Contains(string(out), "(img/图%20片.png)") {
+		t.Fatalf("输出里还留着本地引用：%s", out)
+	}
+}

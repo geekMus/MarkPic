@@ -86,6 +86,39 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestResolveAllKeepsLiteralFallback(t *testing.T) {
+	doc := filepath.FromSlash("D:/docs/note.md")
+	join := func(parts ...string) string { return filepath.Clean(filepath.Join(parts...)) }
+
+	cases := []struct {
+		name   string
+		target string
+		want   []string
+	}{
+		{name: "文件名里真的带 %20", target: "img/a%20b.png",
+			want: []string{join("D:/docs", "img", "a b.png"), join("D:/docs", "img", "a%20b.png")}},
+		{name: "%23 解码出来的 # 属于文件名", target: "img/%231.png",
+			want: []string{join("D:/docs", "img", "#1.png"), join("D:/docs", "img", "%231.png")}},
+		{name: "普通路径只有一个候选", target: "img/a.png",
+			want: []string{join("D:/docs", "img", "a.png")}},
+		{name: "远程地址没有候选", target: "https://cdn.example.com/a.png", want: nil},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveAll(doc, tc.target)
+			if len(got) != len(tc.want) {
+				t.Fatalf("ResolveAll(%q) = %q, 期望 %q", tc.target, got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Fatalf("ResolveAll(%q) 第 %d 个候选 = %q, 期望 %q", tc.target, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestResolveUNC(t *testing.T) {
 	doc := filepath.FromSlash("D:/docs/note.md")
 	got, ok := Resolve(doc, "file://server/share/a.png")

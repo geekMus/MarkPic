@@ -31,6 +31,10 @@ type Ref struct {
 	Line int
 	// Quote 仅对 HTML 有效，记录原始 src 值使用的引号（'"'、'\'' 或 0 表示无引号）。
 	Quote byte
+	// Loose 表示这处引用是靠「贪心解析」猜出来的：地址里有空格又没有写成 <地址>。
+	// CommonMark 不允许这种写法，但不少编辑器照样生成，所以调用方要按
+	// 「那个文件是否真的存在」决定认不认它。
+	Loose bool
 }
 
 // Document 是一次扫描的结果。
@@ -186,10 +190,25 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 		j = skipSpace(src, j)
 	}
 
+	loose := false
+	end := 0
 	if j >= len(src) || src[j] != ')' {
-		return Ref{}, 0, false
+		// 严格解析失败。地址里带空格又没写尖括号时（CommonMark 不允许，但不少
+		// 编辑器、以及手写的 Windows 路径都这么写），贪心取到本行最后一个 ')'，
+		// 记成 Loose 交给调用方按「文件是否真的存在」兜底。
+		closeAt := looseDestEnd(src, urlStart)
+		if closeAt <= urlStart {
+			return Ref{}, 0, false
+		}
+		urlEnd = closeAt
+		if titleAt := looseTitleStart(src, urlStart, closeAt); titleAt > urlStart {
+			urlEnd = titleAt
+		}
+		end = closeAt + 1
+		loose = true
+	} else {
+		end = j + 1
 	}
-	end := j + 1
 
 	raw := string(src[urlStart:urlEnd])
 	if len(raw) >= 2 && raw[0] == '<' && raw[len(raw)-1] == '>' {
@@ -202,7 +221,72 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 		URLEnd:   urlEnd,
 		Target:   raw,
 		Quote:    quote,
+		Loose:    loose,
 	}, end, true
+}
+
+// looseDestEnd 从 start 起贪心扫描，返回本行最后一个顶层 ')' 的位置
+// （也就是不规范写法里地址文本的结束位置）。找不到返回 start。
+func looseDestEnd(src []byte, start int) int {
+	depth := 0
+	end := start
+	for k := start; k < len(src); k++ {
+		c := src[k]
+		if c == '\\' && k+1 < len(src) {
+			k++
+			continue
+		}
+		if c == '\n' {
+			break
+		}
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				end = k
+				continue
+			}
+			depth--
+		}
+	}
+	return end
+}
+
+// looseTitleStart 判断贪心地址的尾部是不是一个标题（"…"、'…' 或 (…)），
+// 是就返回标题前面那个空白的位置，好让替换只覆盖地址、标题原样留着。
+func looseTitleStart(src []byte, start, end int) int {
+	if end-1 < start {
+		return -1
+	}
+	var opener byte
+	switch src[end-1] {
+	case '"':
+		opener = '"'
+	case '\'':
+		opener = '\''
+	case ')':
+		opener = '('
+	default:
+		return -1
+	}
+	k := end - 2
+	for k >= start && src[k] != opener {
+		if src[k] == '\\' && k > start {
+			k--
+		}
+		k--
+	}
+	if k <= start || src[k] != opener {
+		return -1
+	}
+	// 标题前面必须至少有一个空白，否则那只是地址里的一对括号。
+	for p := k - 1; p >= start; p-- {
+		if src[p] == ' ' || src[p] == '\t' {
+			return p
+		}
+	}
+	return -1
 }
 
 // isReferenceStyleImage 判断是否形如 ![alt][id]（本工具不处理）。
