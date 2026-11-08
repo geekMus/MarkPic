@@ -339,7 +339,7 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
       --backup           原地替换前备份（默认 true，用 --backup=false 关闭）
       --dry-run          只检查，不上传、不写文件
   -e, --endpoint string  PicGo 服务地址（默认 http://127.0.0.1:36677）
-  -c, --concurrency int  同时处理的文件数 1-16（默认 4）
+  -c, --concurrency int  同时上传的图片数 1-16（默认 8）
       --retries int      上传失败重试次数 0-5（默认 2）
   -q, --quiet            只输出结果汇总
   -v, --version          显示版本

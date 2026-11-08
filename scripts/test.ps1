@@ -33,8 +33,7 @@ Push-Location $root
 try {
     $goExe = Resolve-GoCommand -Hint $Go
     Write-Host "==> go test $Pattern -count=1" -ForegroundColor Cyan
-    & $goExe test $Pattern -count=1
-    if ($LASTEXITCODE -ne 0) { throw '测试未通过。' }
+    if ((Invoke-Native -Command $goExe -Arguments @('test', $Pattern, '-count=1')) -ne 0) { throw '测试未通过。' }
     Write-Host '测试通过。' -ForegroundColor Green
 }
 finally {

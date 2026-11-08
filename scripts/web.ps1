@@ -77,8 +77,7 @@ try {
 
     if ($NoWatch -or -not (Test-Path $devExe)) {
         Write-Host '==> 编译后端' -ForegroundColor Cyan
-        & $goExe build -o $devExe ./cmd/convert-md-picture
-        if ($LASTEXITCODE -ne 0) { throw '后端编译失败，先看看上面的报错。' }
+        if ((Invoke-Native -Command $goExe -Arguments @('build', '-o', $devExe, './cmd/convert-md-picture')) -ne 0) { throw '后端编译失败，先看看上面的报错。' }
     }
 
     # 上一次没退干净的僵尸进程：端口没响应但进程还在，直接清掉。
@@ -153,8 +152,7 @@ try {
             throw 'web\node_modules 不存在，而 -NoInstall 指定了不安装。请先运行：pnpm --dir web install'
         }
         Write-Host '==> 安装前端依赖（首次运行需要，之后会跳过）' -ForegroundColor Cyan
-        & $pnpmExe --dir web install
-        if ($LASTEXITCODE -ne 0) { throw '前端依赖安装失败。' }
+        if ((Invoke-Native -Command $pnpmExe -Arguments @('--dir', 'web', 'install')) -ne 0) { throw '前端依赖安装失败。' }
     }
 
     # 让 vite.config.ts 知道后端在哪个端口（它读 CMP_API，默认 17860）。
@@ -179,7 +177,16 @@ try {
     }
 
     Write-Host '==> 启动前端 Vite（Ctrl+C 结束；改 .vue/.ts 前端热更新，改 .go 后端自动重启）' -ForegroundColor Cyan
-    & $pnpmExe --dir web dev --port $WebPort --strictPort
+    # 这里不用 Invoke-Native：Vite 是前台长进程，输出要原样接在控制台上
+    # （交互键 r/u/o 也得能用），只把 stderr 不再当异常这一点调好。
+    $previousPref = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $pnpmExe --dir web dev --port $WebPort --strictPort
+    }
+    finally {
+        $ErrorActionPreference = $previousPref
+    }
 }
 finally {
     if ($opener) {

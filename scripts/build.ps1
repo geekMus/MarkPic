@@ -58,11 +58,9 @@ try {
         try {
             if (-not (Test-Path 'node_modules')) {
                 Write-Host '    首次运行，先安装前端依赖' -ForegroundColor DarkGray
-                & $pnpmExe install
-                if ($LASTEXITCODE -ne 0) { throw '前端依赖安装失败。' }
+                if ((Invoke-Native -Command $pnpmExe -Arguments @('install')) -ne 0) { throw '前端依赖安装失败。' }
             }
-            & $pnpmExe build
-            if ($LASTEXITCODE -ne 0) { throw '前端构建失败。' }
+            if ((Invoke-Native -Command $pnpmExe -Arguments @('build')) -ne 0) { throw '前端构建失败。' }
         }
         finally {
             Pop-Location
@@ -71,8 +69,7 @@ try {
 
     if ($Test) {
         Write-Host '==> 运行测试' -ForegroundColor Cyan
-        & $goExe test ./... -count=1
-        if ($LASTEXITCODE -ne 0) { throw '测试未通过。' }
+        if ((Invoke-Native -Command $goExe -Arguments @('test', './...', '-count=1')) -ne 0) { throw '测试未通过。' }
     }
 
     # 图标资源：.syso 生成一次就跟着仓库走，之后无需联网。
@@ -82,19 +79,13 @@ try {
     $syso = Join-Path $root 'cmd\convert-md-picture\rsrc_windows_amd64.syso'
     if ((Test-Path $ico) -and -not (Test-Path $syso)) {
         Write-Host '==> 生成 Windows 图标资源' -ForegroundColor Cyan
-        $prevPref = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
         try {
-            & $goExe run github.com/akavel/rsrc@latest -ico $ico -arch amd64 -o $syso 2>&1 | Out-Host
-            if ($LASTEXITCODE -ne 0) {
+            if ((Invoke-Native -Command $goExe -Arguments @('run', 'github.com/akavel/rsrc@latest', '-ico', $ico, '-arch', 'amd64', '-o', $syso)) -ne 0) {
                 Write-Warning '图标资源生成失败（不影响构建，exe 将使用默认图标）'
             }
         }
         catch {
             Write-Warning "图标资源生成失败（不影响构建）：$_"
-        }
-        finally {
-            $ErrorActionPreference = $prevPref
         }
     }
 
@@ -121,8 +112,7 @@ try {
     $outDir = Split-Path -Parent $Output
     if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
-    & $goExe build -trimpath -ldflags $ldflags -o $Output ./cmd/convert-md-picture
-    if ($LASTEXITCODE -ne 0) { throw '构建失败。' }
+    if ((Invoke-Native -Command $goExe -Arguments @('build', '-trimpath', '-ldflags', $ldflags, '-o', $Output, './cmd/convert-md-picture')) -ne 0) { throw '构建失败。' }
 
     $file = Get-Item $Output
     Write-Host ("完成：{0}（{1:N1} MB）" -f $file.FullName, ($file.Length / 1MB)) -ForegroundColor Green

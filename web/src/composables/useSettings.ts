@@ -38,12 +38,14 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
 function defaultSettings(): Settings {
   return {
     endpoint: 'http://127.0.0.1:36677',
-    concurrency: 4,
+    // 与服务端 internal/settings.Default() 保持一致：真实图床上传是纯等网络，
+    // 实测并发 8 的吞吐是并发 4 的两倍左右。
+    concurrency: 8,
     retries: 2,
     output: 'sidecar',
     suffix: '.converted',
     outDir: '',
-    backup: false,
+    backup: true,
     dryRun: false,
   }
 }

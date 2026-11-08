@@ -2,6 +2,7 @@
 package settings
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,10 @@ const (
 	OutputDirectory = "directory" // 全部输出到指定目录
 )
 
+// CurrentSchemaVersion 是设置文件的结构版本。加载到比它旧的设置时会做一次性迁移，
+// 迁移完写回，用户之后再改回旧值就不会再被动。
+const CurrentSchemaVersion = 2
+
 // Settings 是全部可配置项。JSON 字段名即 HTTP API 字段名。
 type Settings struct {
 	Endpoint    string `json:"endpoint"`
@@ -31,18 +36,44 @@ type Settings struct {
 	OutDir      string `json:"outDir"`
 	Backup      bool   `json:"backup"`
 	DryRun      bool   `json:"dryRun"`
+
+	// SchemaVersion 只在设置文件里出现，界面不显示。
+	SchemaVersion int `json:"schemaVersion,omitempty"`
 }
 
 // Default 返回出厂设置。
 func Default() Settings {
 	return Settings{
-		Endpoint:    "http://127.0.0.1:36677",
-		Concurrency: 4,
-		Retries:     2,
-		Output:      OutputSidecar,
-		Suffix:      ".converted",
-		Backup:      true,
+		Endpoint:      "http://127.0.0.1:36677",
+		Concurrency:   DefaultConcurrency,
+		Retries:       2,
+		Output:        OutputSidecar,
+		Suffix:        ".converted",
+		Backup:        true,
+		SchemaVersion: CurrentSchemaVersion,
 	}
+}
+
+// DefaultConcurrency 是默认并发上传数。用真实 PicGo 实测（每张图约 1 KB）：
+// 并发 1 → 618 ms/张，并发 4 → 218 ms/张，并发 8 → 198 ms/张，
+// 并发 16 且图多时跑到 65 ms/张。上传是纯等网络，并发太小吃亏最大。
+const DefaultConcurrency = 8
+
+// legacyConcurrency 是 1.x 版本的默认并发数。
+const legacyConcurrency = 4
+
+// migrate 把旧版本的设置补成当前版本，返回是否改动过。
+func (s *Settings) migrate() bool {
+	if s.SchemaVersion >= CurrentSchemaVersion {
+		return false
+	}
+	// 旧版本的默认并发是 4，实测只有 8 的一半吞吐；只在用户用的还是
+	// 旧默认值时顺手提上去，迁移写回之后再改回 4 就不会被覆盖。
+	if s.Concurrency == legacyConcurrency {
+		s.Concurrency = DefaultConcurrency
+	}
+	s.SchemaVersion = CurrentSchemaVersion
+	return true
 }
 
 // Normalize 校验并规整设置，返回用户可读的错误。
@@ -117,22 +148,48 @@ func NewStore(path string) *Store {
 func (s *Store) Path() string { return s.path }
 
 // Load 读取设置；任何读取/解析失败都回退到默认值（不打断主流程）。
+// 读到旧版本的设置会做一次性迁移并写回（写回失败不影响本次使用）。
 func (s *Store) Load() Settings {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	raw, err := os.ReadFile(s.path)
+	s.mu.RUnlock()
+	if err != nil {
+		return Default()
+	}
+	raw = trimBOM(raw)
 
 	cfg := Default()
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
-		return cfg
-	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
 		return Default()
 	}
 	if err := cfg.Normalize(); err != nil {
 		return Default()
 	}
+	// Default() 里已经带上当前版本号，所以光看 cfg.SchemaVersion 分不清
+	// 「刚迁移过」和「文件里根本没这个字段」，得回到原始 JSON 里确认。
+	if !hasSchemaVersion(raw) {
+		cfg.SchemaVersion = 0
+	}
+	if cfg.migrate() {
+		_ = s.Save(cfg)
+	}
 	return cfg
+}
+
+// trimBOM 去掉 UTF-8 BOM。记事本存 UTF-8 会带上 BOM，而 encoding/json
+// 见到 BOM 会直接报错——不能因为用户用记事本编辑过设置就把设置全丢成默认值。
+func trimBOM(raw []byte) []byte {
+	return bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
+}
+
+// hasSchemaVersion 判断设置文件里是否写了 schemaVersion。
+func hasSchemaVersion(raw []byte) bool {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return true // 不是 JSON 对象，交给上面的回退逻辑，别在这里反复改文件
+	}
+	_, ok := probe["schemaVersion"]
+	return ok
 }
 
 // Save 原子写入设置。

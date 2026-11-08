@@ -6,6 +6,36 @@
   Windows PowerShell 5.1 会把无 BOM 的 .ps1 当 GBK 读，中文会变乱码并报语法错误。
 #>
 
+# 跑外部命令，把它写到 stderr 的内容也当普通输出看，返回退出码。
+#
+# 为什么需要它：Windows PowerShell 5.1 在 $ErrorActionPreference='Stop' 时，
+# 会把原生命令写到 stderr 的**正常**信息也包成 NativeCommandError 抛出。
+# pnpm 会把「$ vue-tsc --noEmit && vite build」这种横幅打到 stderr，
+# go 的编译报错也在 stderr —— 脚本会在一句话都没说完的地方直接中断。
+# 判断成败请一律看返回的退出码，别依赖异常。
+#
+# 参数要写成数组：Invoke-Native -Command $go -Arguments @('build','-o','x.exe','./cmd/app')
+# 直接摊在命令行上会被 PowerShell 当成**本函数**的参数（`-o` 会和 -OutVariable 等
+# 公共参数撞名，报「参数名称 o 具有二义性」）。
+function Invoke-Native {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [string[]]$Arguments = @()
+    )
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command @Arguments 2>&1 | Out-Host
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+    return $code
+}
+
 # 找 go.exe：先看 -Go 参数，再看 PATH，再看 GOROOT，最后看几个常见安装位置。
 function Resolve-GoCommand {
     [CmdletBinding()]
