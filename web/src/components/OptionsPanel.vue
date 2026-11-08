@@ -81,7 +81,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
             <label class="field">
               <span class="field__label">并发数</span>
               <input
-                class="input num"
+                class="input input--short num"
                 type="number"
                 min="1"
                 max="16"
@@ -94,7 +94,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
             <label class="field">
               <span class="field__label">失败重试</span>
               <input
-                class="input num"
+                class="input input--short num"
                 type="number"
                 min="0"
                 max="5"
@@ -148,7 +148,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.outDir"
                 @input="emit('update', { outDir: textValue($event) })"
               />
-              <button type="button" class="btn btn--secondary btn--sm" @click="emit('pick-dir')">
+              <button type="button" class="btn btn--secondary" @click="emit('pick-dir')">
                 <AppIcon name="folder-open" :size="14" />
                 选择
               </button>
@@ -218,14 +218,5 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 .panel__note--dirty {
   color: var(--warn);
   font-weight: 500;
-}
-
-/* 设置项一段一段往前推，靠留白和细线分组，不嵌套卡片 */
-.section {
-  padding: 16px 18px 18px;
-}
-
-.panel__body {
-  padding-bottom: 6px;
 }
 </style>

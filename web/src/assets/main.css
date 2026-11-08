@@ -438,6 +438,7 @@ select {
   flex: none;
   width: 15px;
   height: 15px;
+  /* 复选框是 15px 的方块，跟 13px 文字的行框对齐要往下压一点，否则看着偏高。 */
   margin: 2px 0 0;
   accent-color: var(--accent);
 }
@@ -546,6 +547,7 @@ select {
 
 .panel__body {
   min-height: 0;
+  padding-bottom: 6px;
   overflow-y: auto;
 }
 
@@ -555,14 +557,14 @@ select {
   justify-content: flex-end;
   gap: 8px;
   height: 56px;
-  padding: 0 14px;
+  padding: 0 18px;
   border-top: 1px solid var(--line);
 }
 
 /* ------------------------------------------------------------------ 表单分组 */
 
 .section {
-  padding: 16px 18px 18px;
+  padding: 18px;
   border-top: 1px solid var(--line);
 }
 
@@ -571,7 +573,7 @@ select {
 }
 
 .section__title {
-  margin-bottom: 11px;
+  margin-bottom: 12px;
   color: var(--ink-2);
   font-size: var(--fs-2);
   font-weight: 600;
@@ -581,13 +583,18 @@ select {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
 .field + .field,
 .field-row + .field {
   margin-top: 12px;
+}
+
+/* 数字字段只放一两位数，拉满整列会显得空；固定成一个克制的宽度。 */
+.input--short {
+  width: 104px;
 }
 
 .field__label {
@@ -613,7 +620,9 @@ select {
 
 .field-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* 两列各自按内容宽度排，整体靠左；数字字段不用去撑满整行。 */
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
   gap: 10px;
 }
 
