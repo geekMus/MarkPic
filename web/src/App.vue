@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
 import FileQueue from './components/FileQueue.vue'
@@ -18,6 +19,7 @@ import { useRun } from './composables/useRun'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
 import { useToasts } from './composables/useToasts'
+import { useUpdate } from './composables/useUpdate'
 import { useWindowControls } from './composables/useWindowControls'
 
 const { toasts, dismiss, warning } = useToasts()
@@ -58,11 +60,14 @@ const {
   clearQueue,
 } = useRun()
 
-// 设置现在是弹窗，默认关着；需要时从标题栏打开
+// 设置与关于都是弹窗，默认关着；需要时从标题栏 / 底栏打开
 const optionsOpen = ref(false)
+const aboutOpen = ref(false)
 const manualOpen = ref(false)
 
-const version = computed(() => health.value?.version ?? null)
+const { hasUpdate, autoCheck, check: checkUpdate, stopPolling } = useUpdate()
+
+const version = computed(() => health.value?.version ?? '')
 const picgo = computed(() => health.value?.picgo ?? null)
 const dryRun = computed(() => settings.dryRun)
 
@@ -138,9 +143,13 @@ async function handlePickDir(): Promise<void> {
   }
 }
 
-/** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。设置是弹窗，优先处理它。 */
+/** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
+    if (aboutOpen.value) {
+      aboutOpen.value = false
+      return
+    }
     if (optionsOpen.value) {
       optionsOpen.value = false
       return
@@ -159,6 +168,7 @@ function handleKeydown(event: KeyboardEvent): void {
       }
       return
     }
+    if (aboutOpen.value) return
     if (canStart.value) {
       event.preventDefault()
       handleRun()
@@ -171,10 +181,15 @@ onMounted(() => {
   void refreshHealth()
   void loadSettings()
   window.addEventListener('keydown', handleKeydown)
+  // 启动后悄悄查一次（可在「关于」里关掉），查到就在底栏版本号旁点个记号。
+  if (autoCheck.value) {
+    window.setTimeout(() => void checkUpdate(true), 1200)
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
+  stopPolling()
   disconnect()
 })
 </script>
@@ -182,7 +197,6 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <AppHeader
-      :version="version"
       :picgo="picgo"
       :health-checking="healthLoading"
       :theme="theme"
@@ -237,12 +251,18 @@ onBeforeUnmount(() => {
       :can-start="canStart"
       :can-reveal="canReveal"
       :dry-run="dryRun"
+      :version="version"
+      :has-update="hasUpdate"
       @run="handleRun"
       @cancel="cancel"
       @reveal="handleReveal"
+      @about="aboutOpen = true"
     />
 
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
+
+    <!-- 关于 / 更新：版本号挪到页面底部后，从那里点开 -->
+    <AboutDialog v-if="aboutOpen" :version="version" @close="aboutOpen = false" />
 
     <!-- 桌面窗口里四条边的缩放热区；浏览器里不需要 -->
     <div v-if="windowChrome" class="rz" aria-hidden="true">

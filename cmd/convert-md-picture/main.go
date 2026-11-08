@@ -12,17 +12,20 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/YiiMus/convert-md-picture/internal/platform"
 	"github.com/YiiMus/convert-md-picture/internal/server"
 	"github.com/YiiMus/convert-md-picture/internal/settings"
+	"github.com/YiiMus/convert-md-picture/internal/update"
 	"github.com/YiiMus/convert-md-picture/internal/version"
 )
 
@@ -49,6 +52,9 @@ type options struct {
 	retries     int
 	quiet       bool
 	showVersion bool
+	// handoverPort 只由自动更新后的重启自己带上：先等旧实例把端口让出来再启动，
+	// 否则新实例会以为「已有实例在运行」而只去开浏览器。
+	handoverPort int
 }
 
 // exitError 让 RunE 把退出码和提示一起交回 main，避免在命令内部直接 os.Exit。
@@ -143,6 +149,9 @@ func newRootCmd(opt *options) *cobra.Command {
 	f.IntVar(&opt.retries, "retries", -1, "上传失败重试次数")
 	f.BoolVarP(&opt.quiet, "quiet", "q", false, "只输出汇总")
 	f.BoolVarP(&opt.showVersion, "version", "v", false, "显示版本")
+	// 自动更新后的重启会带上它，普通用户不需要知道。
+	f.IntVar(&opt.handoverPort, "handover-port", 0, "内部使用")
+	_ = f.MarkHidden("handover-port")
 
 	return cmd
 }
@@ -187,13 +196,40 @@ func runGUI(store *settings.Store, opt options) int {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
+	// 自动更新把自己重启起来时，先等旧实例把端口让出来。
+	if opt.handoverPort > 0 {
+		waitPortFree(opt.handoverPort, 10*time.Second)
+	}
+
 	if url := findRunning(opt.port); url != "" {
 		fmt.Printf("已经有一个实例在运行：%s\n", url)
 		showUI(url, opt, sig)
 		return 0
 	}
 
+	// 上次自动更新留下的 .old 现在没人占用了，顺手清掉。
+	exePath := ""
+	if exe, err := os.Executable(); err == nil {
+		exePath = exe
+		update.Cleanup(exePath)
+	}
+
 	srv := server.New(store)
+	if exePath != "" {
+		// 更新后的重启沿用原来的界面形态：浏览器/无界面就别突然弹一个窗口出来。
+		var restartArgs []string
+		if opt.browser {
+			restartArgs = append(restartArgs, "--browser")
+		}
+		if opt.noOpen {
+			restartArgs = append(restartArgs, "--no-open")
+		}
+		srv.SetUpdate(server.UpdateOptions{
+			ExePath:   exePath,
+			ExtraArgs: restartArgs,
+			Exit:      func() { os.Exit(0) },
+		})
+	}
 	if _, err := srv.Listen(opt.port); err != nil {
 		platform.MessageBox("启动失败", err.Error())
 		fmt.Fprintf(os.Stderr, "启动失败：%v\n", err)
@@ -215,6 +251,23 @@ func runGUI(store *settings.Store, opt options) int {
 	_ = srv.Close()
 	fmt.Println("已退出。")
 	return 0
+}
+
+// waitPortFree 等到该端口不再接受连接为止（最多 timeout）。
+//
+// 自动更新后新版本会带 --handover-port 启动：旧实例刚启动完新进程就退出了，
+// 但套接字要过几十毫秒才真正释放，不等的话新实例会把自己当成「第二次启动」。
+func waitPortFree(port int, timeout time.Duration) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("tcp", addr, 300*time.Millisecond)
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		time.Sleep(80 * time.Millisecond)
+	}
 }
 
 // showUI 把界面呈现给用户：默认开原生窗口，拿不到 WebView2（或显式 --browser）时用系统浏览器。

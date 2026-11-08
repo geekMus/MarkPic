@@ -7,7 +7,6 @@ import type { Health } from '../types'
 import type { RunPhase } from '../composables/useRun'
 
 const props = defineProps<{
-  version: string | null
   picgo: Health['picgo'] | null
   healthChecking: boolean
   theme: 'light' | 'dark'
@@ -24,12 +23,6 @@ const emit = defineEmits<{
 }>()
 
 const { available: windowChrome, maximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
-
-const versionLabel = computed(() => {
-  const value = props.version
-  if (!value) return ''
-  return value.startsWith('v') ? value : `v${value}`
-})
 
 // 字标只写名字，中文说明挂在悬停提示里
 const brandTitle = 'convert-md-picture · Markdown 图片图床化'
@@ -102,7 +95,6 @@ function handleDoubleClick(event: MouseEvent): void {
         <span class="brand__dash" aria-hidden="true">-</span>
         <span class="brand__word" aria-hidden="true">picture</span>
       </span>
-      <span v-if="versionLabel" class="tb__version mono">{{ versionLabel }}</span>
     </div>
 
     <div class="tb__status">
@@ -238,17 +230,6 @@ function handleDoubleClick(event: MouseEvent): void {
   color: var(--accent-ink);
 }
 
-.tb__version {
-  flex: none;
-  padding: 1px 7px;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-pill);
-  background: var(--panel);
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  line-height: 16px;
-}
-
 .tb__status {
   display: flex;
   align-items: center;
@@ -375,9 +356,8 @@ function handleDoubleClick(event: MouseEvent): void {
   color: #fff;
 }
 
-/* 窄窗口：先丢版本号和 PicGo 文字（只留状态点），再窄才丢字标 */
+/* 窄窗口：先丢 PicGo 文字（只留状态点），再窄才丢字标 */
 @media (max-width: 820px) {
-  .tb__version,
   .health__text {
     display: none;
   }

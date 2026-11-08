@@ -88,3 +88,34 @@ export type PreviewResult = { files: FileResult[]; summary: RunSummary }
 export type RunStartResult = { runId: string }
 
 export type OkResult = { ok: boolean }
+
+/** 更新包（清单里给出的地址、校验值与大小）。 */
+export type UpdateAsset = {
+  url: string
+  sha256: string
+  size: number
+}
+
+export type UpdateState =
+  | 'idle'
+  | 'checking'
+  | 'latest'
+  | 'available'
+  | 'downloading'
+  | 'installing'
+  | 'restarting'
+  | 'error'
+
+/** /api/update/status 与 /api/update/check 共用的形状。 */
+export type UpdateStatus = {
+  state: UpdateState
+  current: string
+  latest: string
+  tag: string
+  notes: string
+  published: string
+  asset: UpdateAsset
+  received: number
+  total: number
+  error: string
+}

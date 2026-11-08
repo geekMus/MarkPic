@@ -10,13 +10,25 @@ const props = defineProps<{
   canStart: boolean
   canReveal: boolean
   dryRun: boolean
+  /** 服务端报上来的版本串，例如 1.0.0 (b7fb0d2)。 */
+  version: string
+  /** 已经查到有新版本时，在版本号旁边点一个记号。 */
+  hasUpdate: boolean
 }>()
 
 const emit = defineEmits<{
   run: []
   cancel: []
   reveal: []
+  about: []
 }>()
+
+/** 底栏只放 v1.0.0 这样的短号，提交号留给关于对话框。 */
+const versionShort = computed(() => {
+  const raw = props.version.trim()
+  if (raw === '') return '—'
+  return `v${raw.split(/[\s(]/)[0]}`
+})
 
 type Part = { text: string; tone: 'plain' | 'warn' | 'bad' }
 
@@ -67,6 +79,17 @@ const showShortcut = computed(() => props.canStart && !props.busy)
     </div>
 
     <div class="foot__actions">
+      <!-- 版本号放在页面底部的状态栏里，点开是「关于 / 更新」 -->
+      <button
+        type="button"
+        class="foot__ver"
+        :title="`当前版本 ${version}，点击查看更新`"
+        @click="emit('about')"
+      >
+        <span class="mono">{{ versionShort }}</span>
+        <span v-if="hasUpdate" class="foot__ver-dot" aria-label="有新版本" />
+      </button>
+
       <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
         <kbd class="kbd">Ctrl</kbd>
         <span class="foot__plus">+</span>
@@ -158,6 +181,34 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   align-items: center;
   gap: 10px;
   flex: none;
+}
+
+.foot__ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border: 0;
+  border-radius: var(--r-1);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  cursor: pointer;
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.foot__ver:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
+.foot__ver-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .foot__kbd {

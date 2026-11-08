@@ -566,6 +566,62 @@ select {
   border-top: 1px solid var(--line);
 }
 
+/* ------------------------------------------------------------------ 对话框
+   设置、关于都是弹窗：遮罩从标题栏下面开始铺，弹窗开着时窗口仍可拖动、仍可关闭。 */
+
+.dlg {
+  position: fixed;
+  inset: 44px 0 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px 24px;
+  background: rgba(8, 11, 15, 0.44);
+  backdrop-filter: blur(2px);
+}
+
+.dlg__panel {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--r-4);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  animation: dlg-in 160ms var(--ease);
+}
+
+.dlg__body {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 关于对话框窄一些：内容只有两列读数与一段更新说明 */
+.dlg__panel--about {
+  width: min(440px, 100%);
+}
+
+@keyframes dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@media (max-width: 620px) {
+  .dlg {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dlg__panel {
+    animation: none;
+  }
+}
+
 /* ------------------------------------------------------------------ 表单分组 */
 
 .section {

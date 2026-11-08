@@ -104,6 +104,52 @@ convert-md-picture .\docs --dry-run
 
 界面里修改的设置保存在 `%APPDATA%\convert-md-picture\settings.json`（原子写入，损坏时自动回退默认值）。
 
+## 更新
+
+底栏右下角的版本号是个按钮，点开是「关于」：
+
+- 当前版本、最新版本、更新时间、安装包大小
+- 「检查更新」主动查一次（启动 1.2 秒后也会悄悄查一次，可以在弹窗里关掉）
+- 查到新版本时，显示更新说明并提供「立即更新」
+
+更新过程在一个进程里完成：下载到 `<exe>.new` → 核对清单里的 SHA-256 →
+把正在运行的 exe 改名成 `<exe>.old` → 新 exe 放到原路径 → 启动新进程 → 旧进程退出。
+新进程带着 `--handover-port` 先等端口空出来，所以不会把自己当成「已经在运行的实例」。
+仍然被映射的 `.old` 删不掉，留到下次启动时清理。
+
+检查更新读的是仓库根的静态清单 `version.json`（不是 GitHub Releases API）：
+
+```json
+{
+  "version": "1.0.1",
+  "tag": "v1.0.1",
+  "published": "2026-11-09",
+  "notes": "更新说明，显示在「关于」里",
+  "windows": {
+    "amd64": { "url": "…releases/download/v1.0.1/…exe", "sha256": "…", "size": 9400000 }
+  }
+}
+```
+
+清单里没有给出 SHA-256 时**不会自动安装**（只提示可以去发布页手动下载）。
+需要自建镜像或本地调试时，用 `CMP_UPDATE_MANIFEST` 指向另一份清单：
+
+```powershell
+$env:CMP_UPDATE_MANIFEST = 'http://127.0.0.1:8080/version.json'
+```
+
+### 发版
+
+```powershell
+.\scripts\release.ps1 -Version 1.0.1 -Notes "修了几个对齐问题"
+```
+
+脚本会用这个版本号编译 `bin\convert-md-picture-v1.0.1-windows-amd64.exe`，
+算出 SHA-256 与大小，写进 `version.json`，并打印后续的 `gh release create` / `git tag` 命令。
+
+顺序很重要：**先把 exe 传到 release，再推 `version.json`**。
+反过来的话，老版本会在下载地址还不存在时看到「有新版本」。
+
 ## 开发与打包
 
 前端是 Vue 3 + TypeScript + Vite（在 `web/`），后端是 Go（`chi` 路由 + `cobra` 命令行 +

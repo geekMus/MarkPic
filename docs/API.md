@@ -88,6 +88,40 @@ type RunSummary = {
 | POST | `/api/reveal` | `{ path: string }` | `{ ok: boolean }`（在资源管理器中定位） |
 | POST | `/api/open` | `{ target: string }` | `{ ok: boolean }`（打开文件/目录/URL） |
 | GET | `/api/events` | — | `text/event-stream` |
+| GET | `/api/update/status` | — | `UpdateStatus` |
+| POST | `/api/update/check` | — | `UpdateStatus`（检查失败也返回 200，原因在 `error` 里） |
+| POST | `/api/update/install` | — | `UpdateStatus`；`501` 表示这个运行形态不支持自更新 |
+
+### 更新
+
+```ts
+type UpdateAsset = { url: string; sha256: string; size: number }
+type UpdateState =
+  | 'idle' | 'checking' | 'latest' | 'available'
+  | 'downloading' | 'installing' | 'restarting' | 'error'
+interface UpdateStatus {
+  state: UpdateState
+  current: string          // 当前版本号
+  latest: string           // 清单里的版本号
+  tag: string              // 例如 v1.0.1
+  notes: string            // 更新说明（Markdown 原文）
+  published: string        // 清单里的日期
+  asset: UpdateAsset | null
+  received: number         // 下载已收到字节
+  total: number            // 安装包总字节（未知为 0）
+  error: string
+}
+```
+
+版本清单不调用 GitHub Releases API，而是取仓库根那个静态的 `version.json`
+（`https://raw.githubusercontent.com/YiiMus/convert-md-picture/main/version.json`），
+可用环境变量 `CMP_UPDATE_MANIFEST` 指向别处（自建镜像、本地调试）。
+
+`POST /api/update/install` 会下载安装包、核对清单里的 SHA-256，然后
+把当前 exe 改名成 `.old`、把新 exe 放到原路径、启动新进程、自己退出。
+新进程带 `--handover-port <端口>` 先等端口空出来，避免被当成「已经有实例在运行」。
+`state` 一路变成 `downloading` → `installing` → `restarting`；客户端轮询
+`/api/update/status` 就能看到进度，连不上服务端即说明进程已经退出。
 
 ### `/api/preview` 与 `/api/run` 的 paths
 

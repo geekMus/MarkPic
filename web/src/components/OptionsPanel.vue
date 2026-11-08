@@ -231,42 +231,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 </template>
 
 <style scoped>
-.dlg {
-  position: fixed;
-  /* 上面留出标题栏：弹窗盖住它的话，窗口就没法拖动、也没法关了 */
-  inset: 44px 0 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 16px 24px;
-  background: rgba(8, 11, 15, 0.44);
-  backdrop-filter: blur(2px);
-}
-
-.dlg__panel {
-  display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) auto;
-  width: min(560px, 100%);
-  max-height: 100%;
-  overflow: hidden;
-  border: 1px solid var(--border-panel);
-  border-radius: var(--r-4);
-  background: var(--panel);
-  box-shadow: var(--shadow-pop);
-  animation: dlg-in 160ms var(--ease);
-}
-
-@keyframes dlg-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.985);
-  }
-}
-
-.dlg__body {
-  min-height: 0;
-  overflow-y: auto;
-}
+/* .dlg / .dlg__panel / .dlg__body 是全局原语（见 main.css），这里只留弹窗自己的排版 */
 
 /* 弹窗里不必像侧栏那样松，收紧一点让四个分组尽量一屏放下 */
 .dlg__body > .section {
@@ -297,17 +262,5 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 .panel__note--dirty {
   color: var(--warn);
   font-weight: 500;
-}
-
-@media (max-width: 620px) {
-  .dlg {
-    padding: 14px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dlg__panel {
-    animation: none;
-  }
 }
 </style>

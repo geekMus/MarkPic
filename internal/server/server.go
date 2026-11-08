@@ -41,6 +41,9 @@ type Server struct {
 	runs map[string]context.CancelFunc
 	ln   net.Listener
 	port int
+
+	updOpts UpdateOptions
+	upd     updateTracker
 }
 
 // New 创建服务实例。
@@ -49,7 +52,15 @@ func New(store *settings.Store) *Server {
 		store: store,
 		hub:   newHub(),
 		runs:  make(map[string]context.CancelFunc),
+		upd: updateTracker{
+			status: updateStatus{State: "idle", Current: version.Version},
+		},
 	}
+}
+
+// SetUpdate 告诉服务怎么替换并重启自己；不调用则更新功能只检查、不安装。
+func (s *Server) SetUpdate(opts UpdateOptions) {
+	s.updOpts = opts
 }
 
 // Listen 在 127.0.0.1 上监听，端口被占用时依次向后尝试。
@@ -134,6 +145,9 @@ func (s *Server) routes() http.Handler {
 		api.Post("/run/cancel", s.handleCancel)
 		api.Post("/reveal", s.handleReveal)
 		api.Post("/open", s.handleOpen)
+		api.Get("/update/status", s.handleUpdateStatus)
+		api.Post("/update/check", s.handleUpdateCheck)
+		api.Post("/update/install", s.handleUpdateInstall)
 		api.Get("/events", s.handleEvents)
 		api.Head("/events", s.handleEvents)
 	})

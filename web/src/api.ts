@@ -5,6 +5,7 @@ import type {
   PreviewResult,
   RunStartResult,
   Settings,
+  UpdateStatus,
 } from './types'
 
 /**
@@ -140,4 +141,22 @@ export function revealPath(path: string): Promise<OkResult> {
 
 export function openTarget(target: string): Promise<OkResult> {
   return request<OkResult>('/api/open', { method: 'POST', body: { target } })
+}
+
+/** 当前更新状态（不联网，读的是服务端记住的那份）。 */
+export function getUpdateStatus(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/status')
+}
+
+/**
+ * 检查更新。检查失败不会变成 HTTP 错误：服务端把原因写进 status.error，
+ * 这样对话框可以把它当成一种状态展示，而不是一个红色的请求失败。
+ */
+export function checkUpdate(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/check', { method: 'POST' })
+}
+
+/** 下载、校验、替换并重启。之后用 getUpdateStatus 轮询进度。 */
+export function installUpdate(): Promise<UpdateStatus> {
+  return request<UpdateStatus>('/api/update/install', { method: 'POST' })
 }
