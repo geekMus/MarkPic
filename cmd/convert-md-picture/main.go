@@ -2,7 +2,7 @@
 // 并把文档里的链接替换成图床地址。
 //
 // 两种用法：
-//   - 不带参数运行：启动本地图形界面（内嵌前端，自动打开浏览器）
+//   - 不带参数运行：打开桌面窗口（内嵌前端；拿不到 WebView2 时改用浏览器）
 //   - 带上文件或目录：直接在命令行批量转换
 //
 // 命令行由 cobra 解析：位置参数是待转换的文件或目录，所有参数都是可选的，
@@ -35,6 +35,7 @@ func main() {
 type options struct {
 	port        int
 	noOpen      bool
+	browser     bool
 	output      string
 	outDir      string
 	suffix      string
@@ -127,7 +128,8 @@ func newRootCmd(opt *options) *cobra.Command {
 
 	f := cmd.Flags()
 	f.IntVarP(&opt.port, "port", "p", defaultPort, "图形界面端口")
-	f.BoolVar(&opt.noOpen, "no-open", false, "启动后不自动打开浏览器")
+	f.BoolVar(&opt.noOpen, "no-open", false, "只启动服务，不开窗口也不开浏览器")
+	f.BoolVar(&opt.browser, "browser", false, "改用系统浏览器打开，不开桌面窗口")
 	f.StringVarP(&opt.output, "output", "o", "", "输出方式：sidecar/in-place/directory")
 	f.StringVar(&opt.outDir, "out-dir", "", "directory 模式的输出目录")
 	f.StringVarP(&opt.suffix, "suffix", "s", "", "旁路输出后缀")
@@ -176,12 +178,16 @@ func applyOverrides(cmd *cobra.Command, opt options, cfg *settings.Settings) {
 	}
 }
 
+// appTitle 用作窗口标题、消息框标题，与网页里的标题保持一致。
+const appTitle = "Markdown 图片图床化"
+
 func runGUI(store *settings.Store, opt options) int {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+
 	if url := findRunning(opt.port); url != "" {
 		fmt.Printf("已经有一个实例在运行：%s\n", url)
-		if !opt.noOpen {
-			_ = platform.Open(url)
-		}
+		showUI(url, opt, sig)
 		return 0
 	}
 
@@ -196,19 +202,42 @@ func runGUI(store *settings.Store, opt options) int {
 	url := srv.URL()
 	fmt.Printf("convert-md-picture %s\n", version.String())
 	fmt.Printf("已启动：%s\n", url)
-	fmt.Println("关闭此窗口即可退出。")
-	if !opt.noOpen {
-		if err := platform.Open(url); err != nil {
-			fmt.Fprintf(os.Stderr, "无法自动打开浏览器：%v\n", err)
-		}
+	if opt.noOpen {
+		fmt.Println("按 Ctrl+C 退出。")
+	} else {
+		fmt.Println("关闭界面即可退出。")
 	}
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
+	showUI(url, opt, sig)
+
 	_ = srv.Close()
 	fmt.Println("已退出。")
 	return 0
+}
+
+// showUI 把界面呈现给用户：默认开原生窗口，拿不到 WebView2（或显式 --browser）时用系统浏览器。
+// 函数返回即表示界面已关闭，或用户在终端里按了 Ctrl+C。
+func showUI(url string, opt options, sig <-chan os.Signal) {
+	switch {
+	case opt.noOpen:
+		// 只跑服务，界面由用户自己打开，服务一直跑到收到退出信号。
+		<-sig
+	case opt.browser || !windowSupported():
+		openInBrowser(url)
+		<-sig
+	default:
+		if err := openAppWindow(url, appTitle+" · convert-md-picture", sig); err != nil {
+			fmt.Fprintf(os.Stderr, "%v，改用浏览器打开。\n", err)
+			openInBrowser(url)
+			<-sig
+		}
+	}
+}
+
+func openInBrowser(url string) {
+	if err := platform.Open(url); err != nil {
+		fmt.Fprintf(os.Stderr, "无法自动打开浏览器：%v\n", err)
+	}
 }
 
 // findRunning 检查端口段上是否已有本程序实例在跑。
@@ -233,12 +262,13 @@ func findRunning(port int) string {
 const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接
 
 用法：
-  convert-md-picture                    启动图形界面
+  convert-md-picture                    打开桌面窗口
   convert-md-picture <文件|目录> ...     命令行批量转换
 
 参数：
   -p, --port int         图形界面端口（默认 17860，被占用时自动后移）
-      --no-open          启动后不自动打开浏览器
+      --no-open          只启动服务，不开窗口也不开浏览器
+      --browser          改用系统浏览器打开（不开桌面窗口）
   -o, --output string    输出方式：sidecar（默认）/ in-place / directory
       --out-dir string   directory 模式的输出目录
   -s, --suffix string    旁路输出后缀（默认 .converted）

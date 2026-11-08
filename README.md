@@ -21,9 +21,11 @@
 
 ### 图形界面
 
-直接运行 `convert-md-picture.exe`，程序会在 `127.0.0.1:17860`（被占用时自动后移）启动本地服务并打开浏览器。界面里可以选择文件或文件夹、预览每张图片的处理结果、开始转换、取消、在资源管理器中定位结果文件。
+直接运行 `convert-md-picture.exe`，会弹出一个桌面窗口：程序在 `127.0.0.1:17860`（被占用时自动后移）启动本地服务，窗口里就是完整界面。界面里可以选择文件或文件夹、预览每张图片的处理结果、开始转换、取消、在资源管理器中定位结果文件。
 
-关闭控制台窗口即退出程序。
+窗口用的是系统自带的 WebView2（Windows 11 与装了新版 Edge 的 Windows 10 都有），所以不需要额外装运行时、也不会调用浏览器；万一机器上确实没有 WebView2，程序会自动改用系统浏览器打开同一个地址，并在终端里说明。
+
+关闭窗口即退出程序。从终端启动时控制台窗口会保留（能看到日志）；直接双击 exe 时程序会自己把控制台收起来，看起来就是个普通桌面程序。
 
 ### 命令行
 
@@ -44,7 +46,8 @@ convert-md-picture .\docs --dry-run
 | 参数 | 说明 |
 | --- | --- |
 | `-p, --port <int>` | 图形界面端口，默认 17860，被占用时自动后移 |
-| `--no-open` | 启动后不自动打开浏览器 |
+| `--no-open` | 只启动本地服务，不开窗口也不开浏览器 |
+| `--browser` | 改用系统浏览器打开界面（不开桌面窗口） |
 | `-o, --output <sidecar\|in-place\|directory>` | 输出方式，默认 `sidecar` |
 | `--out-dir <dir>` | `directory` 模式的输出目录 |
 | `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted` |
@@ -101,7 +104,8 @@ convert-md-picture .\docs --dry-run
 
 ## 开发与打包
 
-前端是 Vue 3 + TypeScript + Vite（在 `web/`），后端是 Go（`chi` 路由 + `cobra` 命令行）。
+前端是 Vue 3 + TypeScript + Vite（在 `web/`），后端是 Go（`chi` 路由 + `cobra` 命令行 +
+`jchv/go-webview2` 承载桌面窗口）。全部依赖都是纯 Go，没有 CGO，编译出来仍是单个 exe。
 开发时不需要配跨域：Vite 把 `/api/*` 代理给本机 Go 服务，浏览器只用一个地址。
 
 两条命令概括全部：
@@ -114,7 +118,7 @@ pnpm build   # 打包成单个 exe
 想直接体验打包后的形态（和最终用户双击 exe 一样）：
 
 ```powershell
-pnpm start   # 构建 exe 并运行它，起服务 + 打开浏览器
+pnpm start   # 构建 exe 并运行它，起服务 + 打开桌面窗口
 ```
 
 ### 开发环境
@@ -143,8 +147,9 @@ PicGo 状态）→ 在 `127.0.0.1:5173` 启动 Vite 并把 `/api/*` 代理到后
 | `http://127.0.0.1:17860` | 后端接口本身（可以直接调 `/api/*`，见 `docs/API.md`） |
 
 > 终端里只看到横幅是正常的：本脚本不碰浏览器，自己打开 `http://127.0.0.1:5173` 就行；确认这个
-> 终端还在运行（Ctrl+C 或关掉窗口会把前后端一起带走）。直接双击 `convert-md-picture.exe` 是另一种
-> 形态：它自带界面并会打开浏览器，不想它打开就加 `--no-open`。
+> 终端还在运行（Ctrl+C 或关掉窗口会把前后端一起带走）。`pnpm start` 与双击 `convert-md-picture.exe`
+> 是另一种形态：自带界面（桌面窗口），不需要浏览器；想改成浏览器打开就加 `--browser`，只想跑服务
+> 就加 `--no-open`。
 
 ### 热更新
 
@@ -177,7 +182,7 @@ PicGo 状态）→ 在 `127.0.0.1:5173` 启动 Vite 并把 `/api/*` 代理到后
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm web` | 开发环境：前后端一起启动，都带热更新（不自动开浏览器） |
-| `pnpm start` | 构建并运行打包好的 exe（等于双击 exe，会打开浏览器） |
+| `pnpm start` | 构建并运行打包好的 exe（等于双击 exe，会打开桌面窗口） |
 | `pnpm api` | 只启动后端（另开终端跑 `pnpm ui` 调前端也行） |
 | `pnpm ui` | 只启动 Vite（假定后端已在 17860） |
 | `pnpm build` | 构建前端 + 构建 exe |
@@ -198,13 +203,13 @@ PicGo 状态）→ 在 `127.0.0.1:5173` 启动 Vite 并把 `/api/*` 代理到后
 
 ```powershell
 pnpm build            # 构建前端 + 构建 exe
-pnpm start            # 构建 exe 并运行它（=用户双击 exe，会打开浏览器）
+pnpm start            # 构建 exe 并运行它（=用户双击 exe，会打开桌面窗口）
 ```
 
 `pnpm start` 的常用开关（要传给脚本就写在 `--` 后面）：
 
 ```powershell
-pnpm start -- -NoOpen        # 不自动打开浏览器
+pnpm start -- -NoOpen        # 只起服务，不开窗口（给前端调试用）
 pnpm start -- -Web           # 连前端一起重新构建（改了 web/ 之后用）
 pnpm start -- -NoBuild       # 不重新编译，直接运行现有的 exe
 pnpm start -- -Port 17900    # 换端口

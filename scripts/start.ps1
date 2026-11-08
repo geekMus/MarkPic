@@ -4,7 +4,7 @@
 
 .DESCRIPTION
   · 默认先编译一次 Go，产出 bin\convert-md-picture.exe（前端产物 internal/webui/dist 已提交在仓库里）
-  · 然后以图形界面模式启动它：起本机服务并打开浏览器，界面就是交付给用户的那个
+  · 然后以图形界面模式启动它：起本机服务并打开桌面窗口，界面就是交付给用户的那个
   · 想连前端一起重新构建（改过 web/）就加 -Web
   · 想直接用现有的 exe（不重新编译）就加 -NoBuild
   · 停止：Ctrl+C，或者直接关掉这个窗口
@@ -22,7 +22,10 @@
   跳过构建，直接运行现有的 bin\convert-md-picture.exe。
 
 .PARAMETER NoOpen
-  不自动打开浏览器（等价于给 exe 传 --no-open）。
+  只起服务，不开桌面窗口也不开浏览器（等价于给 exe 传 --no-open）。
+
+.PARAMETER Browser
+  改用系统浏览器打开界面，不开桌面窗口（等价于给 exe 传 --browser）。
 
 .PARAMETER Go
   go.exe 的路径。默认自动查找（PATH → GOROOT → 常见安装位置）。
@@ -45,6 +48,7 @@ param(
     [switch]$Web,
     [switch]$NoBuild,
     [switch]$NoOpen,
+    [switch]$Browser,
     [string]$Go = '',
     [string]$Pnpm = ''
 )
@@ -76,11 +80,12 @@ try {
     # 数组的每个元素就是一个独立参数：写成 "--port $Port" 会被当成一个带空格的参数传给 exe。
     $arguments = @('--port', "$Port")
     if ($NoOpen) { $arguments += '--no-open' }
+if ($Browser) { $arguments += '--browser' }
 
     Write-Host ''
     Write-Host "==> 运行打包版（端口 $Port）" -ForegroundColor Cyan
     if (-not $NoOpen) {
-        Write-Host '    启动后会打开浏览器；不想自动打开就加 -NoOpen' -ForegroundColor DarkGray
+        Write-Host '    启动后会打开桌面窗口；想用浏览器就加 -Browser，只想跑服务就加 -NoOpen' -ForegroundColor DarkGray
     }
     if (-not $Web) {
         Write-Host '    界面用的是仓库里已经构建好的前端产物；改过 web/ 就加 -Web 一起重建' -ForegroundColor DarkGray
