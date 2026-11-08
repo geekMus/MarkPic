@@ -80,7 +80,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           <label class="field">
             <span class="field__label">并发数</span>
             <input
-              class="input input--short num"
+              class="input num"
               type="number"
               min="1"
               max="16"
@@ -93,7 +93,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           <label class="field">
             <span class="field__label">失败重试</span>
             <input
-              class="input input--short num"
+              class="input num"
               type="number"
               min="0"
               max="5"
