@@ -99,11 +99,72 @@ convert-md-picture .\docs --dry-run
 
 界面里修改的设置保存在 `%APPDATA%\convert-md-picture\settings.json`（原子写入，损坏时自动回退默认值）。
 
-## 从源码构建
+## 开发与打包
 
-需要 Go 1.24 或更新版本；只有改动前端界面时才需要 Node 与 pnpm。
-后端只依赖两个第三方库：`github.com/go-chi/chi/v5`（HTTP 路由）和 `github.com/spf13/cobra`（命令行），
-其余全部是标准库，没有 CGO，仍然是单个 exe。
+前端是 Vue 3 + TypeScript + Vite（在 `web/`），后端是 Go（`chi` 路由 + `cobra` 命令行）。
+开发时不需要配跨域：Vite 把 `/api/*` 代理给本机 Go 服务，浏览器只用一个地址。
+
+两条命令概括全部：
+
+```powershell
+pnpm dev     # 起开发环境（Go 服务 + Vite 热更新）
+pnpm build   # 打包成单个 exe
+```
+
+### 开发环境
+
+需要 Go 1.24 或更新版本；只有改前端时才需要 Node 与 pnpm。
+
+```powershell
+pnpm dev
+```
+
+它会依次：编译后端到 `bin/dev-api.exe` 并在 `127.0.0.1:17860` 启动（带 `--no-open`，不抢浏览器）→
+等 `/api/health` 就绪后打印横幅（后端地址、版本、PicGo 状态）→ 在 `127.0.0.1:5173` 启动 Vite 并把
+`/api/*` 代理到后端 → 按 Ctrl+C 时连带把后端一起关掉。前端已有的实例会被复用，不会重复启动。
+
+| 地址 | 是什么 |
+| --- | --- |
+| `http://127.0.0.1:5173` | 带热更新的界面（日常开发用这个） |
+| `http://127.0.0.1:17860` | 后端接口本身（可以直接调 `/api/*`，见 `docs/API.md`） |
+
+其他命令：
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm dev` | 前后端一起启动 |
+| `pnpm dev:api` | 只启动后端（另开终端跑 `pnpm dev:web` 调前端也行） |
+| `pnpm dev:web` | 只启动 Vite（假定后端已在 17860） |
+| `pnpm test` | `go test ./...` |
+| `pnpm typecheck` | 前端类型检查（`vue-tsc --noEmit`） |
+
+端口冲突或工具装在非标准位置时用脚本参数覆盖：
+
+```powershell
+.\scripts\dev.ps1 -ApiPort 17870 -WebPort 5174
+.\scripts\dev.ps1 -Go D:\Env\Go\bin\go.exe -Pnpm D:\Env\node\pnpm.cmd
+```
+
+脚本会自己找 Go 与 pnpm（PATH、`GOROOT`、几个常见安装目录），找不到才报错。
+
+### 打包
+
+```powershell
+pnpm build            # 构建前端 + 构建 exe
+```
+
+等价的脚本调用与更多开关：
+
+```powershell
+.\scripts\build.ps1            # 只构建 exe（前端产物已提交在仓库里）
+.\scripts\build.ps1 -Web       # 先重建前端再构建 exe
+.\scripts\build.ps1 -Web -Test # 再顺手跑一遍测试
+```
+
+产物是 `bin\convert-md-picture.exe`（约 9 MB），双击即可运行。
+版本号从 git 自动注入，`--version` 可以看到（例如 `1.0.0 (5494b24)`）。
+
+### 手动构建（不用脚本）
 
 ```powershell
 # 只构建 Go 部分（前端产物已提交在仓库里）
@@ -117,13 +178,7 @@ go build -o bin\convert-md-picture.exe .\cmd\convert-md-picture
 go test ./...
 ```
 
-或者直接用脚本：
-
-```powershell
-.\scripts\build.ps1            # 构建 exe（不重建前端）
-.\scripts\build.ps1 -Web       # 先重建前端再构建
-.\scripts\build.ps1 -Web -Test # 再顺手跑一遍测试
-```
+前端产物 `internal/webui/dist` 是提交进仓库的，这样 clone 之后只装 Go 就能构建，不必先装 Node。
 
 exe 的图标来自 `assets/icon.ico`，由 `cmd/convert-md-picture/rsrc_windows_amd64.syso` 打进去（已提交，构建时不需要联网）。
 Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
@@ -151,7 +206,9 @@ internal/server/          本地 HTTP API（chi 路由）+ SSE 事件流 + 静�
 internal/webui/           前端构建产物（go:embed 打进二进制）
 internal/platform/        系统原生对话框、打开文件、定位文件
 internal/settings/        设置读写
-web/                      Vue 3 + TypeScript 前端源码
+web/                      Vue 3 + TypeScript 前端源码（Vite 工程）
+scripts/                  开发与构建脚本（dev.ps1 / build.ps1 / test.ps1 / _tools.ps1）
+package.json              根目录的命令入口（pnpm dev、pnpm build 等快捷方式，不是前端工程）
 docs/API.md               前后端接口契约
 ```
 
@@ -168,3 +225,12 @@ PicGo 没运行，或「设置 → 设置 Server」里的服务没开启。开�
 
 **转换后文档里还有没替换的图片**
 看一下界面里该文件的展开明细，每张图都有具体原因（远程图片、文件缺失、上传失败）。
+
+**`pnpm dev` 说找不到 go 或 pnpm**
+用 `-Go` / `-Pnpm` 指定可执行文件的完整路径，例如 `.\scripts\dev.ps1 -Go D:\Env\Go\bin\go.exe`。
+
+**改 `web/vite.config.ts` 之后 Vite 报 `EBUSY: resource busy or locked`**
+Vite 重载配置时会在 `web/` 下写一个临时目录再 watch 它，Windows 上偶发占用冲突。停掉 `pnpm dev` 重新执行即可；配置本身没有问题。
+
+**界面能打开但接口全是 404 / 连不上**
+开发环境下 `http://127.0.0.1:5173/api/health` 应该返回一段 JSON。若返回失败，说明后端没起来或端口不是 17860——用 `.\scripts\dev.ps1 -ApiPort <端口>` 换端口，并确认 `pnpm dev:web` 是在同一个 `CMP_API` 目标下启动的。

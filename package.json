@@ -1,0 +1,17 @@
+{
+  "name": "convert-md-picture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "把 Markdown 里的本地图片上传到 PicGo 图床并替换链接（Go 单文件 exe + Vue 3 界面）",
+  "//": "这里只是任务入口，不是前端工程：真正的依赖在 web/package.json。脚本都放在 scripts/ 下，方便直接用 PowerShell 跑。",
+  "scripts": {
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1",
+    "dev:api": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1 -ApiOnly",
+    "dev:web": "pnpm --dir web dev",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Web",
+    "build:go": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1",
+    "build:web": "pnpm --dir web build",
+    "typecheck": "pnpm --dir web typecheck",
+    "test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1"
+  }
+}

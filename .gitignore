@@ -2,9 +2,18 @@
 /bin/
 *.exe
 
-# 前端依赖
-web/node_modules/
+# 前端依赖（web/node_modules，根目录的 node_modules 由 pnpm 自动生成）
+node_modules/
+
+# Vite 改写配置时留下的临时目录（开发中改 vite.config.ts 可能出现）
+web/.vite.config.ts.*.tmpdir/
+
+# Playwright 等工具留下的临时文件
+.playwright-mcp/
 
 # 日志与编辑器缓存
 *.log
 .eslintcache
+
+# 根目录只是任务入口（scripts/ 的快捷方式），不需要锁文件
+/pnpm-lock.yaml
