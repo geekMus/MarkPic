@@ -101,7 +101,9 @@ convert-md-picture .\docs --dry-run
 
 ## 从源码构建
 
-需要 Go 1.22 或更新版本；只有改动前端界面时才需要 Node 与 pnpm。
+需要 Go 1.24 或更新版本；只有改动前端界面时才需要 Node 与 pnpm。
+后端只依赖两个第三方库：`github.com/go-chi/chi/v5`（HTTP 路由）和 `github.com/spf13/cobra`（命令行），
+其余全部是标准库，没有 CGO，仍然是单个 exe。
 
 ```powershell
 # 只构建 Go 部分（前端产物已提交在仓库里）
@@ -145,7 +147,7 @@ internal/mdscan/          Markdown/HTML 图片引用扫描与按字节替换
 internal/imgpath/         图片地址分类（本地/远程）与相对路径解析
 internal/picgo/           PicGo 上传客户端（重试、去重、错误分类）
 internal/conv/            转换流水线：并发、去重、输出、备份
-internal/server/          本地 HTTP API + SSE 事件流 + 静态资源
+internal/server/          本地 HTTP API（chi 路由）+ SSE 事件流 + 静态资源
 internal/webui/           前端构建产物（go:embed 打进二进制）
 internal/platform/        系统原生对话框、打开文件、定位文件
 internal/settings/        设置读写

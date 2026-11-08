@@ -18,6 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
 	"github.com/YiiMus/convert-md-picture/internal/conv"
 	"github.com/YiiMus/convert-md-picture/internal/picgo"
 	"github.com/YiiMus/convert-md-picture/internal/platform"
@@ -104,23 +107,40 @@ func (s *Server) Close() error {
 	return s.ln.Close()
 }
 
+// routes 用 chi 组织路由：/api 下按 HTTP 方法精确匹配，其余路径交给内嵌前端。
 func (s *Server) routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", s.handleHealth)
-	mux.HandleFunc("/api/settings", s.handleSettings)
-	mux.HandleFunc("/api/dialog/files", s.handleDialogFiles)
-	mux.HandleFunc("/api/dialog/folder", s.handleDialogFolder)
-	mux.HandleFunc("/api/preview", s.handlePreview)
-	mux.HandleFunc("/api/run", s.handleRun)
-	mux.HandleFunc("/api/run/cancel", s.handleCancel)
-	mux.HandleFunc("/api/reveal", s.handleReveal)
-	mux.HandleFunc("/api/open", s.handleOpen)
-	mux.HandleFunc("/api/events", s.handleEvents)
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeErr(w, http.StatusNotFound, "接口不存在")
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer) // 单个请求 panic 不再拖垮整个服务
+
+	r.Route("/api", func(api chi.Router) {
+		// 未匹配到的接口返回 JSON 错误，前端可以统一处理。
+		api.NotFound(func(w http.ResponseWriter, req *http.Request) {
+			writeErr(w, http.StatusNotFound, "接口不存在")
+		})
+		api.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+			writeErr(w, http.StatusMethodNotAllowed, "不支持的请求方法")
+		})
+
+		api.Get("/health", s.handleHealth)
+		api.Head("/health", s.handleHealth)
+		api.Get("/settings", s.handleSettingsGet)
+		api.Head("/settings", s.handleSettingsGet)
+		api.Put("/settings", s.handleSettingsPut)
+		api.Post("/settings", s.handleSettingsPut)
+		api.Post("/dialog/files", s.handleDialogFiles)
+		api.Post("/dialog/folder", s.handleDialogFolder)
+		api.Post("/preview", s.handlePreview)
+		api.Post("/run", s.handleRun)
+		api.Post("/run/cancel", s.handleCancel)
+		api.Post("/reveal", s.handleReveal)
+		api.Post("/open", s.handleOpen)
+		api.Get("/events", s.handleEvents)
+		api.Head("/events", s.handleEvents)
 	})
-	mux.Handle("/", s.staticHandler(webui.FS()))
-	return mux
+
+	// 其余路径交给内嵌前端；单页应用未知路径回退 index.html。
+	r.NotFound(s.staticHandler(webui.FS()).ServeHTTP)
+	return r
 }
 
 // guard 拦截非本机来源的请求。
@@ -198,9 +218,6 @@ type healthResponse struct {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodGet) {
-		return
-	}
 	cfg := s.store.Load()
 	ctx, cancel := context.WithTimeout(r.Context(), 1600*time.Millisecond)
 	defer cancel()
@@ -219,37 +236,31 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		writeJSON(w, http.StatusOK, s.store.Load())
-	case http.MethodPut, http.MethodPost:
-		var cfg settings.Settings
-		if err := decode(r, &cfg); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if cfg.Endpoint == "" {
-			cfg.Endpoint = settings.Default().Endpoint
-		}
-		if err := cfg.Normalize(); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		if err := s.store.Save(cfg); err != nil {
-			writeErr(w, http.StatusInternalServerError, "保存设置失败: "+err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, s.store.Load())
-	default:
-		methodNotAllowed(w)
+func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.Load())
+}
+
+func (s *Server) handleSettingsPut(w http.ResponseWriter, r *http.Request) {
+	// 与 /api/run、/api/preview 一致：只覆盖请求里出现的字段，
+	// 免得前端漏发某个字段就把用户已保存的设置悄悄重置成零值。
+	var patch settingsPatch
+	if err := decode(r, &patch); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
 	}
+	cfg, err := s.configOf(&patch)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.store.Save(cfg); err != nil {
+		writeErr(w, http.StatusInternalServerError, "保存设置失败: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.Load())
 }
 
 func (s *Server) handleDialogFiles(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	paths, err := platform.PickFiles("选择要转换的 Markdown 文件")
 	if errors.Is(err, platform.ErrUnsupported) {
 		writeErr(w, http.StatusNotImplemented, "当前系统不支持原生对话框，请手动输入路径")
@@ -268,9 +279,6 @@ func (s *Server) handleDialogFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDialogFolder(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	dir, err := platform.PickFolder("选择包含 Markdown 文件的文件夹")
 	if errors.Is(err, platform.ErrUnsupported) {
 		writeErr(w, http.StatusNotImplemented, "当前系统不支持原生对话框，请手动输入路径")
@@ -293,9 +301,6 @@ type previewResponse struct {
 }
 
 func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	var req runRequest
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -369,9 +374,6 @@ type runRequest struct {
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	var req runRequest
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -409,9 +411,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	var req struct {
 		RunID string `json:"runId"`
 	}
@@ -436,9 +435,6 @@ type pathRequest struct {
 }
 
 func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	var req pathRequest
 	if err := decode(r, &req); err != nil || strings.TrimSpace(req.Path) == "" {
 		writeErr(w, http.StatusBadRequest, "缺少文件路径")
@@ -452,9 +448,6 @@ func (s *Server) handleReveal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOpen(w http.ResponseWriter, r *http.Request) {
-	if !allowMethod(w, r, http.MethodPost) {
-		return
-	}
 	var req pathRequest
 	if err := decode(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求内容不是合法的 JSON")
@@ -576,18 +569,6 @@ func codeFor(status int) string {
 	default:
 		return "error"
 	}
-}
-
-func methodNotAllowed(w http.ResponseWriter) {
-	writeErr(w, http.StatusMethodNotAllowed, "不支持的请求方法")
-}
-
-func allowMethod(w http.ResponseWriter, r *http.Request, method string) bool {
-	if r.Method == method || (method == http.MethodGet && r.Method == http.MethodHead) {
-		return true
-	}
-	methodNotAllowed(w)
-	return false
 }
 
 func decode(r *http.Request, v any) error {

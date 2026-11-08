@@ -79,7 +79,7 @@ type RunSummary = {
 | --- | --- | --- | --- |
 | GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string } }` |
 | GET | `/api/settings` | — | `Settings` |
-| PUT | `/api/settings` | `Settings` | `Settings`（校验失败 400） |
+| PUT | `/api/settings` | `Partial<Settings>` | `Settings`（校验失败 400） |
 | POST | `/api/dialog/files` | — | `{ paths: string[] }`；不支持原生对话框时 `501` |
 | POST | `/api/dialog/folder` | — | `{ paths: string[] }`；不支持时 `501` |
 | POST | `/api/preview` | `{ paths: string[], settings?: Partial<Settings> }` | `{ files: FileResult[], summary: RunSummary }` |
@@ -95,6 +95,7 @@ type RunSummary = {
 去重规则：同一绝对路径只处理一次；同一张图片（按绝对路径）在一轮里只上传一次。
 
 `settings` 可以只给需要覆盖的字段，服务端会把它们叠加到已保存的设置上再校验；
+`PUT /api/settings`、`/api/run` 和 `/api/preview` 都是这个规则，漏发字段不会把已保存的设置重置成零值。
 `/api/preview` 会强制 `dryRun = true`（不上传、不写文件）。
 
 ### `/api/events`（SSE）

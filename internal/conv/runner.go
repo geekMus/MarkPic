@@ -261,7 +261,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	if r.cfg.DryRun {
 		res.Status = FilePreview
-		if p, perr := r.planOutput(path); perr == nil {
+		if p, perr := r.planOutput(path, false); perr == nil {
 			res.OutputPath = p
 		}
 		return res
@@ -301,7 +301,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		return res
 	}
 
-	target, perr := r.planOutput(path)
+	target, perr := r.planOutput(path, true)
 	if perr != nil {
 		res.Status = FileFailed
 		res.Error = perr.Error()
@@ -421,7 +421,9 @@ func (r *Runner) closeEntry(e *cacheEntry, url string, err error) {
 	close(e.done)
 }
 
-func (r *Runner) planOutput(src string) (string, error) {
+// planOutput 算出输出路径。create 为 false 时只算路径不落盘，
+// 供预检使用——试运行承诺「不写文件」，就不该顺手把输出目录建出来。
+func (r *Runner) planOutput(src string, create bool) (string, error) {
 	switch r.cfg.Output {
 	case settings.OutputInPlace:
 		return src, nil
@@ -429,8 +431,10 @@ func (r *Runner) planOutput(src string) (string, error) {
 		if strings.TrimSpace(r.cfg.OutDir) == "" {
 			return "", errors.New("未设置输出目录")
 		}
-		if err := os.MkdirAll(r.cfg.OutDir, 0o755); err != nil {
-			return "", fmt.Errorf("无法创建输出目录：%w", err)
+		if create {
+			if err := os.MkdirAll(r.cfg.OutDir, 0o755); err != nil {
+				return "", fmt.Errorf("无法创建输出目录：%w", err)
+			}
 		}
 		return r.uniquePath(filepath.Join(r.cfg.OutDir, filepath.Base(src))), nil
 	default:

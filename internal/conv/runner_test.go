@@ -367,16 +367,29 @@ func TestImageUploadedOnceAcrossFiles(t *testing.T) {
 		if sum.Uploaded != 3 {
 			t.Fatalf("uploaded = %d, want 3：%+v", sum.Uploaded, sum)
 		}
-		reused := 0
+		// 谁先抢到就由谁上传：赢的文件里每条都是「已上传」，输的文件里每条都是「已复用」。
+		// 两个文件都可能赢，所以不能断言固定的复用条数。
+		uploaders, reusers := 0, 0
 		for _, res := range results {
+			allUploaded := true
 			for _, item := range res.Items {
-				if item.Status == StatusReused {
-					reused++
+				if item.Status != StatusUploaded {
+					allUploaded = false
+				}
+			}
+			if allUploaded {
+				uploaders++
+				continue
+			}
+			reusers++
+			for _, item := range res.Items {
+				if item.Status != StatusReused {
+					t.Errorf("%s 的引用 = %s, want %s", res.Name, item.Status, StatusReused)
 				}
 			}
 		}
-		if reused != 1 {
-			t.Fatalf("复用 %d 条，want 1（两个文件抢同一张图时后者复用）", reused)
+		if uploaders != 1 || reusers != 1 {
+			t.Fatalf("上传方 %d 个文件、复用方 %d 个文件，want 1/1", uploaders, reusers)
 		}
 	})
 }
