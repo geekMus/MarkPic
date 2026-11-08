@@ -81,7 +81,7 @@ convert-md-picture .\docs --dry-run
 | --- | --- |
 | `sidecar`（默认） | 生成 `note.converted.md`，原文件不动 |
 | `in-place` | 直接改写原文件，先备份为 `note.md.bak` |
-| `directory` | 全部结果写到 `--out-dir` 指定目录，同名文件自动加序号 |
+| `directory` | 全部结果写到 `--out-dir` 指定目录，同名文件按加入顺序自动加序号（`post.md`、`post-2.md`…），每次跑结果一致 |
 
 ## 前置条件
 

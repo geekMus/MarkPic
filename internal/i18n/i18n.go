@@ -46,6 +46,7 @@ const (
 	KeyConvEmptyTarget        Key = "conv.emptyTarget"
 	KeyConvUnresolvedTarget   Key = "conv.unresolvedTarget"
 	KeyConvFileMissing        Key = "conv.fileMissing"
+	KeyConvPathIsDir          Key = "conv.pathIsDir"
 	KeyConvCancelled          Key = "conv.cancelled"
 	KeyConvAllFailed          Key = "conv.allFailed"
 	KeyConvRewriteFailed      Key = "conv.rewriteFailed"
@@ -179,6 +180,10 @@ var catalog = map[Key]entry{
 	KeyConvUnresolvedTarget: {
 		"无法解析地址",
 		"Could not resolve the address",
+	},
+	KeyConvPathIsDir: {
+		"这是一个目录，不是图片文件",
+		"That path is a directory, not an image file",
 	},
 	KeyConvFileMissing: {
 		"本地文件不存在：%s",

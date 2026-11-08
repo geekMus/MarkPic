@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -754,5 +755,70 @@ func TestReadOnlyTargetExplainsItself(t *testing.T) {
 	}
 	if !strings.Contains(files[0].Error, "只读") {
 		t.Errorf("错误文案应说明是只读文件，实际是 %q", files[0].Error)
+	}
+}
+
+// TestOutputNamesAreDeterministic 覆盖「同名文件落到同一个输出目录」时的命名：
+// 谁得 post.md、谁得 post-2.md 必须按输入顺序来，两次跑的结果要一样，
+// 预检给用户看的路径也要跟真正写出去的一致。
+func TestOutputNamesAreDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	// 十几个同名文件：不预先定名字的话，它们会按工作协程抢到的顺序领后缀，
+	// 每次跑出来的对应关系都不一样。
+	const count = 12
+	paths := make([]string, 0, count)
+	want := make([]string, 0, count)
+	outDir := filepath.Join(dir, "out")
+	for i := 1; i <= count; i++ {
+		p := filepath.Join(dir, fmt.Sprintf("d%02d", i), "post.md")
+		writeFile(t, p, fmt.Sprintf("# 第 %d 篇\n\n![x](../img/a.png)\n", i))
+		paths = append(paths, p)
+		name := "post.md"
+		if i > 1 {
+			name = fmt.Sprintf("post-%d.md", i)
+		}
+		want = append(want, filepath.ToSlash(filepath.Join(outDir, name)))
+	}
+
+	srv, _ := fakePicGo(t, nil)
+	newCfg := func(dryRun bool) settings.Settings {
+		cfg := baseCfg(srv.URL)
+		cfg.Output = settings.OutputDirectory
+		cfg.OutDir = outDir
+		cfg.DryRun = dryRun
+		return cfg
+	}
+
+	names := func(dryRun bool) []string {
+		t.Helper()
+		r := NewRunner(newCfg(dryRun), i18n.ZH, "run", func(Event) {})
+		files, _ := r.RunCollect(context.Background(), paths)
+		if len(files) != count {
+			t.Fatalf("结果数量不对：%d", len(files))
+		}
+		got := make([]string, 0, len(files))
+		for _, f := range files {
+			got = append(got, filepath.ToSlash(f.OutputPath))
+		}
+		return got
+	}
+
+	// 预检两次：既要按输入顺序、每次一样，也要跟下面真正写出去的一致
+	for round := 0; round < 2; round++ {
+		if got := names(true); !slices.Equal(got, want) {
+			t.Fatalf("第 %d 次预检的输出路径不对：\n得到 %v\n想要 %v", round+1, got, want)
+		}
+	}
+	// 真跑两遍：命名不能因为工作协程抢名字而换人
+	for round := 0; round < 2; round++ {
+		if got := names(false); !slices.Equal(got, want) {
+			t.Fatalf("第 %d 轮真正写出的路径不对：\n得到 %v\n想要 %v", round+1, got, want)
+		}
+	}
+	for _, p := range want {
+		if _, err := os.Stat(filepath.FromSlash(p)); err != nil {
+			t.Errorf("输出文件没写出来：%s（%v）", p, err)
+		}
 	}
 }

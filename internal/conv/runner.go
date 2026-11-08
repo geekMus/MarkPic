@@ -51,6 +51,13 @@ type Runner struct {
 	cache   map[string]*cacheEntry
 	usedOut map[string]bool
 
+	// outPlan 是这一轮「源文件 → 输出路径」的定稿：开工前按输入顺序一次算好。
+	// 以前是每个文件在各自的工作协程里当场去抢名字，同一批文件两次跑出来的
+	// 名字会互相串（谁得 post.md、谁得 post-2.md 看谁先跑到），预检显示的名字
+	// 也未必就是真正写出去的那个。
+	outMu   sync.Mutex
+	outPlan map[string]string
+
 	// stamps 记住「某个绝对路径是不是一个可用的文件」，以及它的大小与修改时间。
 	// 一篇文档里同一张图常被引用几十次，同一张图又常被多篇文档引用；
 	// 不缓存的话每处引用都要发一次 stat，而 Windows 上每次 stat 都是系统调用。
@@ -166,6 +173,7 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 		sem:     make(chan struct{}, conc),
 		cache:   make(map[string]*cacheEntry),
 		usedOut: make(map[string]bool),
+		outPlan: make(map[string]string),
 
 		stamps:   make(map[string]stamp),
 		scanDocs: make(map[string]*mdscan.Document),
@@ -315,6 +323,11 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	}
 	close(prescan)
 	pwg.Wait()
+
+	// 输出路径在开工前按输入顺序一次定好，谁得 post.md、谁得 post-2.md 每次跑都一样，
+	// 预检算出来的路径也就是真正会写出去的路径。
+	r.planOutputs(files)
+
 	r.notify(Event{Type: EventRunStarted, Files: tasks})
 
 	results := make([]FileResult, len(files))
@@ -467,7 +480,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			it.AbsolutePath = abs
 			if !r.fileExists(abs) {
 				it.Status = StatusMissing
-				it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(abs))
+				// 目录不是文件，但「这个文件夹明明在」和「文件不存在」得说清楚区别。
+				if st, serr := os.Stat(abs); serr == nil && st.IsDir() {
+					it.Error = i18n.T(r.lang, i18n.KeyConvPathIsDir)
+				} else {
+					it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(abs))
+				}
 				break
 			}
 			key := strings.ToLower(abs)
@@ -750,11 +768,37 @@ func (r *Runner) planOutput(src string, create bool) (string, error) {
 				return "", fmt.Errorf("%s: %w", i18n.T(r.lang, i18n.KeyConvOutDirCreateFailed), err)
 			}
 		}
-		return r.uniquePath(filepath.Join(r.cfg.OutDir, filepath.Base(src))), nil
+		return r.reserveOutput(src, filepath.Join(r.cfg.OutDir, filepath.Base(src))), nil
 	default:
 		ext := filepath.Ext(src)
-		return r.uniquePath(strings.TrimSuffix(src, ext) + r.cfg.Suffix + ".md"), nil
+		return r.reserveOutput(src, strings.TrimSuffix(src, ext)+r.cfg.Suffix+".md"), nil
 	}
+}
+
+// planOutputs 按输入顺序把这一轮所有文件的输出路径定下来。
+// 出错（比如输出目录是个文件）留给 processFile 去报，那里才有每个文件的错误栏。
+func (r *Runner) planOutputs(files []string) {
+	for _, f := range files {
+		_, _ = r.planOutput(f, false)
+	}
+}
+
+// reserveOutput 返回 src 这一轮该写到哪里：优先用开工前定好的计划，
+// 计划里没有（例如单文件直接调用）就当场占一个名字。
+func (r *Runner) reserveOutput(src, candidate string) string {
+	key := strings.ToLower(src)
+	r.outMu.Lock()
+	if p, ok := r.outPlan[key]; ok {
+		r.outMu.Unlock()
+		return p
+	}
+	r.outMu.Unlock()
+
+	p := r.uniquePath(candidate)
+	r.outMu.Lock()
+	r.outPlan[key] = p
+	r.outMu.Unlock()
+	return p
 }
 
 func (r *Runner) uniquePath(p string) string {
