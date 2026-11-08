@@ -1,4 +1,4 @@
-import { computed, reactive, ref } from 'vue'
+import { computed, markRaw, reactive, ref } from 'vue'
 import {
   cancelRun as requestCancelRun,
   describeError,
@@ -29,11 +29,21 @@ export interface RunRow {
   total: number
   /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
   missing?: boolean
+  /**
+   * 这一行的转换结果（或预检结果）。
+   *
+   * 结果直接挂在行上，行对象自己就是响应式的：某一行完成时只有那一行重渲染，
+   * 不必重建整张列表。预检结果也用同一个字段，展开一行才有逐图明细可看。
+   */
+  result: FileResult | null
+  /** 服务端为这次运行分配的 id（事件里的 id）。队列行的 id 由本地生成，两者都要能查到行。 */
+  serverId?: string
+  /** 内部记账：这份结果是否已经算进 live 统计（预检结果只贡献图片数）。 */
+  scored?: boolean
 }
 
-export interface RunRowView extends RunRow {
-  result: FileResult | null
-}
+/** 列表拿到的行就带着结果。保留这个别名，免得每个组件都改一遍类型。 */
+export type RunRowView = RunRow
 
 export interface RunStats {
   files: number
@@ -62,11 +72,41 @@ const KNOWN_EVENT_TYPES = new Set<string>([
 
 const phase = ref<RunPhase>('idle')
 const rows = ref<RunRow[]>([])
-const results = reactive(new Map<string, FileResult>())
+/**
+ * id → 行下标。
+ *
+ * 1000 篇文档一轮会推来几千条事件，而每条事件都要按 id 找到对应行；
+ * 用 `rows.findIndex` 就是每次 O(n)（1000 行 × 几千次事件 = 几百万次比较）。
+ */
+const rowIndex = new Map<string, number>()
+/** 服务端 id → 下标。事件里的 id 是服务端给的，队列行的 id 是本地的，两张表各查各的。 */
+const eventIndex = new Map<string, number>()
 const summary = ref<RunSummary | null>(null)
 const runId = ref<string | null>(null)
 const connected = ref(false)
 const reconnecting = ref(false)
+
+/**
+ * 运行中的统计用增量维护，不再「每来一条事件就把所有行重算一遍」。
+ *
+ * 旧实现把统计写成 computed：任一事件动了行它就失效，然后遍历上千行、并对每份结果
+ * 过滤上万条图片明细。1000 篇 × 12 张图那一轮里，这是界面卡顿（最长一帧 489ms）的主因。
+ */
+const live = reactive({
+  images: 0,
+  uploaded: 0,
+  reused: 0,
+  failed: 0,
+  ok: 0,
+  partial: 0,
+  failedFiles: 0,
+  noImages: 0,
+  settled: 0,
+})
+
+/** 「打开输出目录」的目标：按队列顺序最后一个成功的产物。 */
+let lastRevealIndex = -1
+const lastReveal = ref<string | null>(null)
 
 let source: EventSource | null = null
 let reconnectTimer: number | null = null
@@ -79,15 +119,17 @@ const busy = computed(
   () => phase.value === 'preparing' || phase.value === 'running' || phase.value === 'cancelling',
 )
 
-const rowViews = computed<RunRowView[]>(() =>
-  rows.value.map(row => ({ ...row, result: results.get(row.id) ?? null })),
-)
+/**
+ * 传给列表的行数组。
+ *
+ * 这里只做一次浅拷贝（数组元素还是那些行对象，不复制行）：所以它只在队列结构变化
+ * （增行、删行、开始一轮）时才重新计算，行内属性的变化由每一行自己触发重渲染。
+ */
+const rowViews = computed<RunRowView[]>(() => rows.value.slice())
 
 const totalCount = computed(() => rows.value.length)
 
-const completedCount = computed(
-  () => rowViews.value.filter(row => row.phase === 'settled' || row.phase === 'cancelled').length,
-)
+const completedCount = computed(() => live.settled)
 
 const stats = computed<RunStats>(() => {
   const finished = summary.value
@@ -105,58 +147,22 @@ const stats = computed<RunStats>(() => {
     }
   }
 
-  let images = 0
-  let uploaded = 0
-  let reused = 0
-  let failed = 0
-  let ok = 0
-  let partial = 0
-  let failedFiles = 0
-  let noImages = 0
-
-  for (const row of rowViews.value) {
-    const result = row.result
-    if (result) {
-      images += result.images
-      uploaded += result.uploaded
-      reused += result.items.filter(
-        item => item.status === 'reused' || item.status === 'cached',
-      ).length
-      failed += result.failed
-      if (result.status === 'ok') ok += 1
-      else if (result.status === 'partial') partial += 1
-      else if (result.status === 'failed') failedFiles += 1
-      else if (result.status === 'no-images') noImages += 1
-    } else {
-      images += row.images ?? row.total
-      uploaded += row.uploaded
-    }
-  }
-
   return {
     files: rows.value.length,
-    images,
-    uploaded,
-    reused,
-    failed,
-    ok,
-    partial,
-    failedFiles,
-    noImages,
+    images: live.images,
+    uploaded: live.uploaded,
+    reused: live.reused,
+    failed: live.failed,
+    ok: live.ok,
+    partial: live.partial,
+    failedFiles: live.failedFiles,
+    noImages: live.noImages,
   }
 })
 
-/** 转换结束后「打开输出目录」的目标：最后一个成功文件的产物，否则首行所在目录。 */
-const revealTarget = computed<string | null>(() => {
-  for (let index = rows.value.length - 1; index >= 0; index -= 1) {
-    const result = results.get(rows.value[index].id)
-    if (result && (result.status === 'ok' || result.status === 'partial') && result.outputPath) {
-      return result.outputPath
-    }
-  }
-  const first = rows.value[0]
-  return first ? first.dir : null
-})
+const revealTarget = computed<string | null>(
+  () => lastReveal.value ?? rows.value[0]?.dir ?? null,
+)
 
 function pathKey(value: string): string {
   return value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
@@ -193,52 +199,192 @@ function matches(eventRunId: string): boolean {
   return runId.value !== null && runId.value === eventRunId
 }
 
+function liveReset(): void {
+  live.images = 0
+  live.uploaded = 0
+  live.reused = 0
+  live.failed = 0
+  live.ok = 0
+  live.partial = 0
+  live.failedFiles = 0
+  live.noImages = 0
+  live.settled = 0
+  lastReveal.value = null
+  lastRevealIndex = -1
+}
+
+/** 队列刚建好时，用每行预估的图片数垫上总数，别让页脚在跑之前显示「0 张图」。 */
+function seedImagesFromRows(): void {
+  let images = 0
+  for (const row of rows.value) images += row.images ?? row.total
+  live.images = images
+}
+
+function reusedInResult(result: FileResult): number {
+  // 服务端会在结果里直接给出复用张数；老版本没有这个字段时就退回自己数明细。
+  if (typeof result.reused === 'number') return result.reused
+  return result.items.filter(item => item.status === 'reused' || item.status === 'cached').length
+}
+
+function scoreStatus(status: FileResult['status'], sign: number): void {
+  if (status === 'ok') live.ok += sign
+  else if (status === 'partial') live.partial += sign
+  else if (status === 'failed') live.failedFiles += sign
+  else if (status === 'no-images') live.noImages += sign
+}
+
+function rowAt(id: string): RunRow | null {
+  const index = eventIndex.get(id) ?? rowIndex.get(id)
+  if (index === undefined) return null
+  return rows.value[index] ?? null
+}
+
+function reindexRows(): void {
+  rowIndex.clear()
+  eventIndex.clear()
+  rows.value.forEach((row, index) => {
+    rowIndex.set(row.id, index)
+    if (row.serverId) eventIndex.set(row.serverId, index)
+  })
+}
+
+function pushRow(row: RunRow): void {
+  rowIndex.set(row.id, rows.value.length)
+  if (row.serverId) eventIndex.set(row.serverId, rows.value.length)
+  rows.value.push(row)
+}
+
 function updateRow(
   id: string,
   patch: Partial<Pick<RunRow, 'phase' | 'uploaded' | 'total' | 'images'>>,
 ): void {
-  const index = rows.value.findIndex(row => row.id === id)
-  if (index < 0) return
-  rows.value[index] = { ...rows.value[index], ...patch }
+  const row = rowAt(id)
+  if (!row) return
+  Object.assign(row, patch)
 }
 
-function ensureRowFromResult(result: FileResult): void {
-  if (rows.value.some(row => row.id === result.id)) return
-  rows.value.push({
+function rowFromResult(result: FileResult): RunRow {
+  return {
     id: result.id,
     path: result.path,
     name: result.name,
     dir: result.dir,
     images: result.images,
-    phase: 'settled',
-    uploaded: result.uploaded,
+    phase: 'queued',
+    uploaded: 0,
     total: result.images,
-  })
+    result: null,
+  }
+}
+
+/**
+ * 把一份文件结果记到行上，并把增量写进 live 统计。
+ *
+ * 「图片总数」这一项要把该行原先的贡献换掉（排队时是预估、预检时是预检结果、
+ * 完成后是真实结果），所以先减旧值再加新值。
+ */
+function absorbResult(row: RunRow, result: FileResult): void {
+  if (row.scored && row.result) {
+    live.images -= row.result.images
+    live.reused -= reusedInResult(row.result)
+    live.failed -= row.result.failed
+    scoreStatus(row.result.status, -1)
+  } else {
+    live.images -= row.images ?? row.total
+  }
+
+  live.images += result.images
+  live.uploaded += result.uploaded - row.uploaded
+  live.reused += reusedInResult(result)
+  live.failed += result.failed
+  scoreStatus(result.status, 1)
+  if (!row.scored && row.phase !== 'cancelled') live.settled += 1
+
+  const index = rowIndex.get(row.id) ?? (row.serverId ? eventIndex.get(row.serverId) : undefined) ?? -1
+  row.result = markRaw(result)
+  row.scored = true
+  row.phase = 'settled'
+  row.uploaded = result.uploaded
+  row.total = result.images
+  row.images = result.images
+
+  if (
+    index > lastRevealIndex &&
+    (result.status === 'ok' || result.status === 'partial') &&
+    result.outputPath
+  ) {
+    lastRevealIndex = index
+    lastReveal.value = result.outputPath
+  }
 }
 
 function applyStarted(files: RunFileInfo[]): void {
-  const started = files.map(file => ({
-    id: file.id,
-    path: file.path,
-    name: file.name,
-    dir: file.dir,
-    images: file.images,
-    phase: 'queued' as const,
-    uploaded: 0,
-    total: file.images,
-  }))
   // 后端只会回传真正找到的文件。用户加进来、但一个文件都没匹配上的路径要留在队列里，
   // 否则一点「开始转换」它就凭空消失，用户无从知道这条路径被忽略了。
+  //
+  // 匹配上的行按路径复用同一个对象（只改字段），组件 key（row.id）因此保持不变：
+  // 1000 行不会因为「本地 id 换成服务端 id」而整批卸载重挂，展开的明细也不会被收起。
+  const byPath = new Map<string, RunRow>()
+  for (const row of rows.value) {
+    const key = pathKey(row.path)
+    if (!byPath.has(key)) byPath.set(key, row)
+  }
+
   const known = new Set(files.map(file => pathKey(file.path)))
-  const kept = rows.value.filter(row => row.missing && !known.has(pathKey(row.path)))
+  const used = new Set<RunRow>()
+  const started: RunRow[] = files.map(file => {
+    const existing = byPath.get(pathKey(file.path))
+    if (existing && !used.has(existing)) {
+      used.add(existing)
+      existing.serverId = file.id
+      existing.path = file.path
+      existing.name = file.name
+      existing.dir = file.dir
+      existing.images = file.images
+      existing.phase = 'queued'
+      existing.uploaded = 0
+      existing.total = file.images
+      existing.missing = false
+      existing.result = null
+      existing.scored = false
+      return existing
+    }
+    return {
+      id: file.id,
+      serverId: file.id,
+      path: file.path,
+      name: file.name,
+      dir: file.dir,
+      images: file.images,
+      phase: 'queued',
+      uploaded: 0,
+      total: file.images,
+      result: null,
+    }
+  })
+  const kept = rows.value
+    .filter(row => row.missing && !known.has(pathKey(row.path)))
+    .map(row => ({
+      ...row,
+      serverId: undefined,
+      phase: 'queued' as const,
+      uploaded: 0,
+      total: row.images ?? 0,
+      result: null,
+      scored: false,
+    }))
+
   rows.value = [...started, ...kept]
-  results.clear()
+  reindexRows()
+  liveReset()
+  seedImagesFromRows()
 }
 
 function markUnsettledCancelled(): void {
-  rows.value = rows.value.map(row =>
-    row.phase === 'settled' ? row : { ...row, phase: 'cancelled' },
-  )
+  for (const row of rows.value) {
+    if (row.phase !== 'settled') row.phase = 'cancelled'
+  }
+  live.settled = rows.value.length
 }
 
 function onSignal(event: RunEvent): void {
@@ -259,24 +405,24 @@ function onSignal(event: RunEvent): void {
     }
     case 'file.progress': {
       if (!matches(event.runId)) return
-      updateRow(event.id, {
-        phase: 'running',
-        uploaded: event.uploaded,
-        total: event.total,
-        images: event.total,
-      })
+      const row = rowAt(event.id)
+      if (!row) return
+      live.images += event.total - (row.images ?? row.total)
+      live.uploaded += event.uploaded - row.uploaded
+      row.phase = 'running'
+      row.uploaded = event.uploaded
+      row.total = event.total
+      row.images = event.total
       return
     }
     case 'file.finished': {
       if (!matches(event.runId)) return
-      results.set(event.id, event.result)
-      ensureRowFromResult(event.result)
-      updateRow(event.id, {
-        phase: 'settled',
-        uploaded: event.result.uploaded,
-        total: event.result.images,
-        images: event.result.images,
-      })
+      let row = rowAt(event.id)
+      if (!row) {
+        row = rowFromResult(event.result)
+        pushRow(row)
+      }
+      absorbResult(row, event.result)
       return
     }
     case 'run.finished': {
@@ -423,12 +569,24 @@ function disconnect(): void {
   reconnecting.value = false
 }
 
+/** 把每一行恢复到「还没跑」的样子（行对象原地改，不重建数组）。 */
+function resetRowsForRun(): void {
+  for (const row of rows.value) {
+    row.phase = 'queued'
+    row.uploaded = 0
+    row.total = row.images ?? 0
+    row.result = null
+    row.scored = false
+  }
+  liveReset()
+  seedImagesFromRows()
+}
+
 function resetOutcome(): void {
   phase.value = 'idle'
   summary.value = null
   runId.value = null
-  results.clear()
-  rows.value = rows.value.map(row => ({ ...row, phase: 'queued', uploaded: 0, total: row.images ?? 0 }))
+  resetRowsForRun()
 }
 
 /** 加入队列；返回真正新增的路径，供调用方做预览。 */
@@ -451,7 +609,7 @@ function addPaths(input: string[]): string[] {
     known.add(key)
     added.push(path)
     const { name, dir } = splitPath(path)
-    rows.value.push({
+    pushRow({
       id: `local-${++localSeq}`,
       path,
       name,
@@ -460,6 +618,7 @@ function addPaths(input: string[]): string[] {
       phase: 'queued',
       uploaded: 0,
       total: 0,
+      result: null,
     })
   }
 
@@ -470,13 +629,16 @@ function addPaths(input: string[]): string[] {
 function applyPreview(result: PreviewResult): void {
   const byPath = new Map(result.files.map(file => [pathKey(file.path), file]))
 
-  rows.value = rows.value.map(row => {
+  for (const row of rows.value) {
     const exact = byPath.get(pathKey(row.path))
     if (exact) {
-      // 预检结果也存进 results：行的 images 有了，逐图明细（L 行）才有出处，
+      // 预检结果也留在行上：行的 images 有了，逐图明细（L 行）才有出处，
       // 否则展开一行 8 张图的文件会得到「没有可处理的本地图片」这种自相矛盾的话。
-      if (!results.has(row.id)) results.set(row.id, exact)
-      return { ...row, images: exact.images, total: exact.images, missing: false }
+      if (!row.result) row.result = markRaw(exact)
+      row.images = exact.images
+      row.total = exact.images
+      row.missing = false
+      continue
     }
 
     const prefix = `${pathKey(row.path)}\\`
@@ -490,8 +652,16 @@ function applyPreview(result: PreviewResult): void {
     }
     // 预览返回的是「真正找到的文件」；什么都没匹配上说明这个路径不存在，
     // 或者目录里没有 Markdown —— 明确说出来，别让行停在「待统计」。
-    return matched ? { ...row, images: sum, total: sum, missing: false } : { ...row, missing: true }
-  })
+    if (matched) {
+      row.images = sum
+      row.total = sum
+      row.missing = false
+    } else {
+      row.missing = true
+    }
+  }
+
+  seedImagesFromRows()
 }
 
 async function start(paths: string[], settings: Settings): Promise<boolean> {
@@ -505,8 +675,7 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
   phase.value = 'preparing'
   runId.value = null
   summary.value = null
-  results.clear()
-  rows.value = rows.value.map(row => ({ ...row, phase: 'queued', uploaded: 0, total: row.images ?? 0 }))
+  resetRowsForRun()
 
   if (!connected.value) {
     warning(t('toast.eventsNotReady'))
@@ -561,11 +730,12 @@ async function cancel(): Promise<void> {
 function removeRow(id: string): void {
   if (busy.value) return
   rows.value = rows.value.filter(row => row.id !== id)
-  results.delete(id)
+  reindexRows()
   if (rows.value.length === 0) {
     phase.value = 'idle'
     summary.value = null
     runId.value = null
+    liveReset()
   }
 }
 
@@ -576,7 +746,8 @@ function clearQueue(): void {
   }
   clearCancelTimer()
   rows.value = []
-  results.clear()
+  reindexRows()
+  liveReset()
   summary.value = null
   runId.value = null
   phase.value = 'idle'

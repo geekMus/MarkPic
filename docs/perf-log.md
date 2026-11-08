@@ -262,5 +262,71 @@ CPU 剖析（`go tool pprof -top`）显示：`runtime.cgocall` 占 78%（Windows
 `CurrentSchemaVersion = 3`，`migrate()` 把「还是上一版默认值」（4 或 8）的旧设置
 提到 16（迁移写回后再改回去就不会被动）；CLI 帮助、界面输入上限、`docs/API.md`
 与 `README.md` 的参数表同步。
+## 第 7 轮：把界面拖进快车道（1000 篇不再卡顿）
 
+前面几轮量的都是「解析 + 上传 + 写盘」，从第 5 轮开始发现：**图形界面下，浏览器那一侧
+才是整条链路的瓶颈**。这轮专门量它、改它。
 
+### 夹具与跑法
+
+`%TEMP%\cmp-gui-1000`：1000 篇文档 / 每篇 12 处引用 / 共 12000 张图（`tools/bench -files 1000
+-refs 10 -pool 60 -kb 4 -prose 2 -dryrun -keep`）。假图床 `tools/mockpicgo`（每张 5 ms），
+界面用打包版 exe 起在 17982 端口，数据目录另给（`CMP_DATA_DIR`），
+探针脚本 `tools/perf/gui-1000.mjs`（用 Playwright 的 `browser_run_code_unsafe` 跑：
+把文件放到 MCP 允许的目录、脚本写成 `async (page) => {...}` 表达式）。
+
+### 改之前
+
+一次运行：**settle 1586 ms**，浏览器侧收到 4612 条 SSE，最长帧间隔 **489 ms**，5 帧超过 100 ms，
+JS 堆 38.1 → 60.5 MB。卡顿的根源在 `web/src/composables/useRun.ts`：
+
+- 每个事件都会让 `rowViews` 重算（`rows.map` 重建 1000 元素数组 + 1000 次对象展开）；
+- `stats` 每次失效要遍历 1000 行、并对每行的 `result.items` 做 `filter` —— 一轮下来扫 12000 张图；
+- `completedCount` 又一次 O(n) 遍历；`revealTarget` 依赖每一行的结果；
+- `updateRow` 用 `findIndex` 找行（O(n)），`ensureRowFromResult` 用 `some` 再 O(n)；
+- 点「开始转换」时行 id 从本地 `local-N` 换成服务端 id → **1000 个行组件整批卸载重挂**
+  （顺带把用户展开的明细也收起来了）。
+
+### 改了什么
+
+- **结果直接挂在行上**：`RunRow.result`（`markRaw` 包住，避免把上万条明细变成响应式代理），
+  行对象自己就是响应式单元 —— 某一行完成只重渲染那一行。
+- `rowViews` 退化成 `rows.value.slice()`（只有增删行才重算）；页脚统计改成 `live` **增量计数器**
+  （`file.progress`/`file.finished` 时增量加减，收到最终 `summary` 就直接用服务端的数字）。
+- `rowIndex` + `eventIndex` 两张下标表：行 id（本地）与服务端 id 各查各的，`updateRow`/`absorbResult`
+  都变成 O(1)。
+- `applyStarted` 按路径复用已有行对象（只改字段），组件 key 保持稳定 →
+  开始转换时不再整批重挂，展开的明细也不会被收起。
+- Go 侧 `FileResult` 新增 `Reused` 字段（`runner.go` 的计数分支拆开，
+  `StatusReused`/`StatusCached` 同样算「替换成功」但单独记 `Reused`），
+  界面不必再为了显示「复用几张」去数上万条明细。
+
+### 改之后
+
+| 指标 | 改之前 | 改之后 |
+| --- | --- | --- |
+| settle（点开始 → 界面安定） | 1586 ms | **588 ms** |
+| 最长帧间隔 | 489 ms | **162 ms** |
+| 超过 100 ms 的帧 | 5 | **2** |
+| 一轮收到的 SSE | 4612 | 4054（事件没少，只是不再逐条重算列表） |
+| JS 堆峰值 | 60.5 MB | 39.6 MB |
+
+页脚数字与命令行基准逐项一致（1000 个文件 · 12000 张图 · 替换 9837 · 失败 1163），
+夹具里 1000 个 `.converted.md` 全部就位。
+
+### 一条走不通的路（记下来别再试）
+
+给行加 `content-visibility: auto` + `contain-intrinsic-size: auto 56px`，想让屏幕外的行
+不参与布局绘制 —— 结果 **settle 从 746 ms 劣化到 3126 ms**（最差帧 1.6 s）。
+原因是「56px」这个估计值离真实行高（约 90px）差太多，1000 个被 contain 的盒子让每次内容变化
+都要重算包含块布局。回滚后恢复原值（同一个构建产物哈希）。要真省，得做虚拟滚动
+（只挂可见的十几行），那是另一件事，目前 1000 篇 588 ms 的往返已经够用。
+
+### 顺带记一笔测量口径
+
+用 Playwright/CDP 采 CPU profile 时，**无障碍树的开销被算进来了**（自动化本身会常驻一棵
+accessibility tree）：一轮 1.26 s 的 profile 里 `getTextAlternativeInternal` 117 ms、
+`getCSSContent` 10 ms、若干 ARIA 计算合计约 145 ms；`(program)` 449 ms（样式/布局/绘制）、
+`(idle)` 432 ms、GC 12 ms，而**我们自己的 JS 自耗时合计只有 50 ms 左右**。
+真实用户在 WebView2 里跑（没有屏幕阅读器、没有自动化）时，这部分开销会小得多 ——
+所以真机手感应当好于上表，上表是「带自动化开销」的偏悲观值。

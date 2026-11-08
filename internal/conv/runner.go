@@ -400,8 +400,13 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	for _, it := range items {
 		switch it.Status {
-		case StatusUploaded, StatusReused, StatusCached:
+		case StatusUploaded:
 			res.Uploaded++
+		case StatusReused, StatusCached:
+			// 复用也算「这一处替换成功」，但不占上传次数；Reused 单独记账，
+			// 界面就不用为了显示「复用几张」再把上万条明细数一遍。
+			res.Uploaded++
+			res.Reused++
 		case StatusFailed, StatusMissing:
 			res.Failed++
 		default:

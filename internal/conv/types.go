@@ -41,6 +41,7 @@ type FileResult struct {
 	Status     string   `json:"status"`
 	Images     int      `json:"images"`
 	Uploaded   int      `json:"uploaded"`
+	Reused     int      `json:"reused"`
 	Failed     int      `json:"failed"`
 	Skipped    int      `json:"skipped"`
 	OutputPath string   `json:"outputPath,omitempty"`

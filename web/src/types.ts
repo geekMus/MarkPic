@@ -44,6 +44,8 @@ export type FileResult = {
   status: FileStatus
   images: number
   uploaded: number
+  /** 这一处替换是靠复用（本轮去重或上次的缓存）拿到的地址。 */
+  reused?: number
   failed: number
   skipped: number
   outputPath?: string
