@@ -166,6 +166,10 @@ $env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\convert-md-picture.exe
 新进程带着 `--handover-port` 先等端口空出来，所以不会把自己当成「已经在运行的实例」。
 仍然被映射的 `.old` 删不掉，留到下次启动时清理。
 
+装完之后界面会自己刷新到新版本（桌面窗口形态是新开一个窗口；用 `--browser`/`--no-open`
+在浏览器里看的那种，页面会盯着端口，等到报上来的版本号变了就自动刷新一次），
+不需要用户手动按 F5。
+
 检查更新读的是仓库根的静态清单 `version.json`（不是 GitHub Releases API）：
 
 ```json
