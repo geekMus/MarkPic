@@ -5,6 +5,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -105,6 +106,11 @@ func (s *Server) Serve() error {
 	srv := &http.Server{
 		Handler:           s.guard(s.routes()),
 		ReadHeaderTimeout: 10 * time.Second,
+		// 请求体很小（界面上最多几百 KB），60 秒还没传完说明对端有问题：
+		// 不设这个上限，一个只发头不发体的连接能一直占着协程。
+		// 只读超时不影响 SSE：那是「写」方向的长连接。
+		ReadTimeout: 60 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 	err := srv.Serve(s.ln)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -635,6 +641,8 @@ func codeFor(status int) string {
 		return "method_not_allowed"
 	case http.StatusConflict:
 		return "conflict"
+	case http.StatusRequestEntityTooLarge:
+		return "too_large"
 	case http.StatusNotImplemented:
 		return "unsupported"
 	case http.StatusInternalServerError:
@@ -644,26 +652,44 @@ func codeFor(status int) string {
 	}
 }
 
-// decode 的两个哨兵错误：交给调用方按请求语言翻译。
+// decode 的三个哨兵错误：交给调用方按请求语言翻译。
 var (
-	errEmptyBody = errors.New("decode: empty body")
-	errBadJSON   = errors.New("decode: invalid json")
+	errEmptyBody    = errors.New("decode: empty body")
+	errBadJSON      = errors.New("decode: invalid json")
+	errBodyTooLarge = errors.New("decode: body too large")
 )
+
+// maxRequestBody 是请求体的上限。按路径算，一条 Windows 路径带 JSON 引号大约 60 字节，
+// 4 MB 能装六万多条 —— 远超界面上真会用到的量（5000 篇也只有 300 KB）。
+const maxRequestBody = 4 << 20
 
 // writeDecodeErr 把 decode 的失败按请求语言翻成一句可展示的文案。
 func writeDecodeErr(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, errEmptyBody) {
+	switch {
+	case errors.Is(err, errEmptyBody):
 		errKey(w, r, http.StatusBadRequest, i18n.KeyServerEmptyBody)
-		return
+	case errors.Is(err, errBodyTooLarge):
+		// 以前这里会报「请求内容格式不对：unexpected EOF」—— 因为超限的body被截断成半截
+		// JSON，用户完全看不出是「太多了」，只会以为自己的 JSON 写坏了。
+		errKey(w, r, http.StatusRequestEntityTooLarge, i18n.KeyServerBodyTooLarge, maxRequestBody>>20)
+	default:
+		errKey(w, r, http.StatusBadRequest, i18n.KeyServerBadJSON)
 	}
-	errKey(w, r, http.StatusBadRequest, i18n.KeyServerBadJSON)
 }
 
 func decode(r *http.Request, v any) error {
 	defer func() { _, _ = io.Copy(io.Discard, r.Body) }()
-	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<20))
-	if err := dec.Decode(v); err != nil {
-		if errors.Is(err, io.EOF) {
+	// 多读一个字节就能分清「刚好到上限」和「超过了」：超限时 json 解出来的
+	// 只是 unexpected EOF，那个错误对用户没有意义。
+	raw, rerr := io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))
+	if rerr != nil {
+		return errBadJSON
+	}
+	if len(raw) > maxRequestBody {
+		return errBodyTooLarge
+	}
+	if err := json.Unmarshal(raw, v); err != nil {
+		if errors.Is(err, io.EOF) || len(bytes.TrimSpace(raw)) == 0 {
 			return errEmptyBody
 		}
 		return errBadJSON

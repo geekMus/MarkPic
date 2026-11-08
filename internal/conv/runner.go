@@ -585,6 +585,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			res.Error = perr.Error()
 		} else {
 			res.OutputPath = p
+			r.warnIfOverwritesSource(&res, p, path)
 		}
 		return res
 	}
@@ -642,6 +643,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		res.Error = perr.Error()
 		return res
 	}
+	// 目录模式的输出目录正好就是源文件所在的目录时，输出路径会等于源文件路径 ——
+	// 于是「输出到目录」悄悄变成了「原地覆盖」。这不算错（有人就是想要这个效果，
+	// 备份也照做），但和用户在界面上选的那个模式不是一回事，得说一声。
+	r.warnIfOverwritesSource(&res, target, path)
 	if imgpath.SameFile(target, path) && r.cfg.Backup {
 		if berr := backupFile(path); berr != nil {
 			res.Status = FileFailed
@@ -832,6 +837,19 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 func (r *Runner) closeEntry(e *cacheEntry, url string, err error) {
 	e.url, e.err = url, err
 	close(e.done)
+}
+
+// warnIfOverwritesSource 在「输出位置其实就是源文件」时补一条提示。
+// 只有目录模式会意外走到这里：旁挂副本永远换个名字，原地模式本来就是那个意思、
+// 用户点的时候就知道。试运行也要说 —— 那正是最该提前知道的时候。
+func (r *Runner) warnIfOverwritesSource(res *FileResult, target, src string) {
+	if r.cfg.Output != settings.OutputDirectory {
+		return
+	}
+	if !imgpath.SameFile(target, src) {
+		return
+	}
+	res.Warnings = append(res.Warnings, i18n.T(r.lang, i18n.KeyConvOutDirIsSourceDir))
 }
 
 // planOutput 算出输出路径。create 为 false 时只算路径不落盘，

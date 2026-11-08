@@ -1431,3 +1431,45 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 **回归测试**：`TestAttachmentReferencesAreSkipped`（一篇文档里放真图、`.ps`、`.pdf`、大写 `.PS`、
 远程 `https://…/remote.ps`：断言只上传 1 张、0 失败、3 条附件提示、四处引用该留的都留着）、
 `TestAttachmentSkippedInPreview`（预检同样计数、同样带提示）。
+## 第 30 轮：两个「用户按了按钮却没反应/反应过头」的边角
+
+**（一）请求体超过 4 MB 时，报的是「JSON 写坏了」**
+
+`decode` 原来是 `json.NewDecoder(io.LimitReader(r.Body, 4<<20))`：超限的请求体被截成半截 JSON，
+解出来是 `unexpected EOF`，于是界面/命令行显示「请求内容格式不对」—— 用户完全看不出是「太多了」。
+
+改成先 `io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))`（多读一个字节就能分清「刚好到上限」和「超过」），
+超限返回 `413` + `error.code = "too_large"` + 「请求内容太大（超过 4 MB），请分成几次提交」。
+真机核对（`curl --data-binary`，6.68 MB 的请求体）：
+
+| | 改之前 | 改之后 |
+| --- | --- | --- |
+| 状态码 | 400 | **413** |
+| error.code | `bad_request` | **`too_large`** |
+| 文案 | 请求内容不是合法的 JSON | 请求内容太大（超过 4 MB），请分成几次提交 |
+| 正常体积（3.78 MB / 6 万条路径） | 200 | 200（不变） |
+
+顺带给 `http.Server` 补了 `ReadTimeout: 60s` / `IdleTimeout: 120s`：只设 `ReadHeaderTimeout` 时，
+一个只发头不发体的连接能一直占着协程。只读超时不影响 SSE（那是写方向的长连接）。
+
+**（二）「输出到目录」的输出目录正好是源目录时，悄悄变成原地覆盖**
+
+夹具：一篇 `doc.md` + 一张图，`-o directory --out-dir <源目录>`。
+
+| | 改之前 | 改之后 |
+| --- | --- | --- |
+| 源文件 | **被覆盖**（SHA 从 `2E207EBF…` 变成 `69672841…`） | 仍然被覆盖（这是用户选的目录，不算错） |
+| 提示 | 无 | 「输出目录就是文档所在的目录，因此这份文档会被原地覆盖」 |
+| 备份 | 有 `.bak` | 有 `.bak`（不变） |
+| 预检 | 不提示 | **预检就提示**（最该提前知道的时候） |
+
+只加提示、不改行为：有人确实是想「就地处理」才这么填的，把行为改掉反而会打破他的脚本；
+但「我选了输出到目录，为什么源文件被改了」这个疑问必须在预检阶段就回答掉。
+新增 `warnIfOverwritesSource`（只对目录模式生效，旁挂副本和原地模式不重复唠叨），
+预检与真跑两条路径共用；回归测试 `TestDirectoryModeIntoSourceDirWarns`、
+`TestDirectoryModeIntoSourceDirWarnsInPreview`（后者还断言预检不留 `.bak`）。
+
+**顺带记一条环境事实**：这一轮真机 PicGo 仍然不可用 —— `picgo.log` 里是
+`PUT https://openlist.rt.mus.pp.ua:100/api/fs/form → AggregateError [ETIMEDOUT]`，
+`curl` 直连 36677 19 ms 就回 `{"success":false,"message":"File upload failed"}`。
+所以本轮所有端到端数字仍来自进程内假图床（`tools/mockpicgo`），真机验证等存储恢复。

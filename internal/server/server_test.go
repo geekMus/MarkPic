@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -404,4 +405,54 @@ func TestRunRejectsConcurrentRun(t *testing.T) {
 	}
 
 	open() // 放行第一次运行，让它正常收尾
+}
+
+func TestOversizedBodyIsRejectedClearly(t *testing.T) {
+	_, base := newTestServer(t, "http://127.0.0.1:1")
+
+	// 超过 4 MB 的请求体。以前会被截断成半截 JSON，报「请求内容格式不对：unexpected EOF」，
+	// 用户完全看不出是「太多了」，只会以为自己 JSON 写坏了。
+	huge := `{"paths":["` + strings.Repeat("a", maxRequestBody) + `"]}`
+	resp, err := http.Post(base+"/api/run", "application/json", strings.NewReader(huge))
+	if err != nil {
+		t.Fatalf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("状态码 = %d，期望 413", resp.StatusCode)
+	}
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		t.Fatalf("解析错误响应失败: %v", err)
+	}
+	if payload.Error.Code != "too_large" {
+		t.Fatalf("错误码 = %q，期望 too_large", payload.Error.Code)
+	}
+	if !strings.Contains(payload.Error.Message, "4 MB") {
+		t.Fatalf("错误文案没说清上限：%s", payload.Error.Message)
+	}
+}
+
+func TestDecodeBodyLimitBoundary(t *testing.T) {
+	// 刚好到上限：不算超限（内容不是 JSON，所以归类为「格式不对」）。
+	exact := httptest.NewRequest(http.MethodPost, "/api/run", strings.NewReader(strings.Repeat("x", maxRequestBody)))
+	if err := decode(exact, &struct{}{}); errors.Is(err, errBodyTooLarge) {
+		t.Fatalf("刚好到上限不该判成超限：%v", err)
+	}
+	// 多一个字节就该是超限。
+	over := httptest.NewRequest(http.MethodPost, "/api/run", strings.NewReader(strings.Repeat("x", maxRequestBody+1)))
+	if err := decode(over, &struct{}{}); !errors.Is(err, errBodyTooLarge) {
+		t.Fatalf("多一个字节应该判成超限，实际 %v", err)
+	}
+	// 空体仍然是「内容为空」，不能被归到超限。
+	empty := httptest.NewRequest(http.MethodPost, "/api/run", nil)
+	if err := decode(empty, &struct{}{}); !errors.Is(err, errEmptyBody) {
+		t.Fatalf("空体应该报 emptyBody，实际 %v", err)
+	}
 }

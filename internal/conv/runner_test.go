@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/convert-md-picture/internal/imgpath"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 )
 
@@ -554,6 +555,78 @@ func TestCancelIsNotFailure(t *testing.T) {
 
 // TestLiteralPercentNameResolves：文件名里真的带 %20 时也要能找到它。
 // 按 URL 语义解码得到的名字（「图 片.png」）在磁盘上不存在，得退回文档里逐字写的那一份。
+func TestDirectoryModeIntoSourceDirWarns(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "x")
+	doc := filepath.Join(dir, "note.md")
+	writeFile(t, doc, "![a](a.png)\n")
+
+	srv, _ := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = dir // 输出目录 = 源目录：输出路径会等于源路径
+
+	results, sum := NewRunner(cfg, i18n.ZH, "run-samedir", nil).RunCollect(context.Background(), []string{doc})
+
+	if sum.Uploaded != 1 || sum.Failed != 0 {
+		t.Fatalf("汇总不对：%+v", sum)
+	}
+	if len(results) != 1 {
+		t.Fatalf("结果条数不对：%+v", results)
+	}
+	res := results[0]
+	if res.OutputPath == "" || !imgpath.SameFile(res.OutputPath, doc) {
+		t.Fatalf("输出路径应该就是源文件：%q", res.OutputPath)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "原地覆盖") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("原地覆盖应该有提示，实际 warnings=%v", res.Warnings)
+	}
+	// 备份照做，原件还在 .bak 里。
+	bak, err := os.ReadFile(doc + ".bak")
+	if err != nil {
+		t.Fatalf("应该留下备份：%v", err)
+	}
+	if !strings.Contains(string(bak), "(a.png)") {
+		t.Fatalf("备份里应该是原件：%s", bak)
+	}
+}
+
+func TestDirectoryModeIntoSourceDirWarnsInPreview(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "x")
+	doc := filepath.Join(dir, "note.md")
+	writeFile(t, doc, "![a](a.png)\n")
+
+	cfg := baseCfg("http://127.0.0.1:1")
+	cfg.DryRun = true
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = dir
+
+	results, _ := NewRunner(cfg, i18n.ZH, "run-samedir-preview", nil).RunCollect(context.Background(), []string{doc})
+	if len(results) != 1 || results[0].Status != FilePreview {
+		t.Fatalf("预检结果不对：%+v", results)
+	}
+	found := false
+	for _, w := range results[0].Warnings {
+		if strings.Contains(w, "原地覆盖") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("预检就该提示会被原地覆盖，实际 warnings=%v", results[0].Warnings)
+	}
+	// 预检绝不落盘。
+	if _, err := os.Stat(doc + ".bak"); err == nil {
+		t.Fatalf("预检不该留下备份文件")
+	}
+}
+
 func TestAttachmentReferencesAreSkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "img", "real.png"), "x")

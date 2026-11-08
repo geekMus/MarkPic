@@ -64,6 +64,7 @@ const (
 	KeyConvWriteLocked        Key = "conv.writeLocked"
 	KeyConvReadLocked         Key = "conv.readLocked"
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
+	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
 
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
@@ -118,6 +119,7 @@ const (
 	KeyServerMissingPath       Key = "server.missingPath"
 	KeyServerBadJSON           Key = "server.badJSON"
 	KeyServerEmptyBody         Key = "server.emptyBody"
+	KeyServerBodyTooLarge      Key = "server.bodyTooLarge"
 	KeyServerNoEventStream     Key = "server.noEventStream"
 	KeyServerUpdateUnsupported Key = "server.updateUnsupported"
 	KeyServerCheckFirst        Key = "server.checkFirst"
@@ -233,6 +235,10 @@ var catalog = map[Key]entry{
 	KeyConvOutDirIsFile: {
 		"输出目录是一个文件，不是目录：%s",
 		"The output directory is a file, not a directory: %s",
+	},
+	KeyConvOutDirIsSourceDir: {
+		"输出目录就是文档所在的目录，因此这份文档会被原地覆盖",
+		"The output directory is the document's own folder, so this document is overwritten in place",
 	},
 	KeyConvWriteReadOnly: {
 		"目标文件是只读的，覆盖不了：%s（去掉只读属性后重试，或换个输出位置）",
@@ -466,6 +472,10 @@ var catalog = map[Key]entry{
 	KeyServerEmptyBody: {
 		"请求内容为空",
 		"The request body is empty",
+	},
+	KeyServerBodyTooLarge: {
+		"请求内容太大（超过 %d MB），请分成几次提交",
+		"The request body is too large (over %d MB); split it into several requests",
 	},
 	KeyServerNoEventStream: {
 		"当前连接不支持事件流",

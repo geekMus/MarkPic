@@ -94,7 +94,7 @@ type RunSummary = {
 | POST | `/api/dialog/files` | — | `{ paths: string[] }`；不支持原生对话框时 `501` |
 | POST | `/api/dialog/folder` | — | `{ paths: string[] }`；不支持时 `501` |
 | POST | `/api/preview` | `{ paths: string[], settings?: Partial<Settings> }` | `{ files: FileResult[], summary: RunSummary }` |
-| POST | `/api/run` | `{ paths: string[], settings?: Partial<Settings> }` | `{ runId: string }`；已经有一次转换在跑时返回 `409`（`error.code = "conflict"`） |
+| POST | `/api/run` | `{ paths: string[], settings?: Partial<Settings> }` | `{ runId: string }`；已经有一次转换在跑时返回 `409`（`error.code = "conflict"`）；请求体超过 4 MB 返回 `413`（`error.code = "too_large"`） |
 | POST | `/api/run/cancel` | `{ runId: string }` | `{ ok: boolean }` |
 | POST | `/api/reveal` | `{ path: string }` | `{ ok: boolean }`（在资源管理器中定位） |
 | POST | `/api/open` | `{ target: string }` | `{ ok: boolean }`（打开文件/目录/URL） |
