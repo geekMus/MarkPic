@@ -1,0 +1,5 @@
+# pnpm 11 起项目级配置从 package.json 的 "pnpm" 字段迁移到本文件。
+# esbuild 的安装脚本用于校验平台二进制，允许执行；否则 install 会以
+# ERR_PNPM_IGNORED_BUILDS 退出（pnpm 11 的 strictDepBuilds 默认开启）。
+allowBuilds:
+  esbuild: true

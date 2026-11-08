@@ -1,0 +1,382 @@
+package conv
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/YiiMus/convert-md-picture/internal/settings"
+)
+
+// fakePicGo 起一个假的 PicGo 服务。failOnce 中的文件名第一次上传会失败。
+func fakePicGo(t *testing.T, fail map[string]bool) (*httptest.Server, func() map[string]int) {
+	t.Helper()
+	var mu sync.Mutex
+	hits := map[string]int{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			List []string `json:"list"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.List) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		name := filepath.Base(req.List[0])
+		mu.Lock()
+		hits[name]++
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if fail[name] {
+			_, _ = w.Write([]byte(`{"success":false,"message":"图床拒绝"}`))
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result":  []string{"https://cdn.example.com/" + name},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	return srv, func() map[string]int {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make(map[string]int, len(hits))
+		for k, v := range hits {
+			out[k] = v
+		}
+		return out
+	}
+}
+
+func writeFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func baseCfg(endpoint string) settings.Settings {
+	cfg := settings.Default()
+	cfg.Endpoint = endpoint
+	cfg.Retries = 0
+	cfg.Concurrency = 2
+	return cfg
+}
+
+// TestNoDoubleReplace 是那个线上 bug 的端到端回归：
+// 一行两张图，其中一张上传失败时，另一张的 URL 绝不能被写到失败的位置。
+func TestNoDoubleReplace(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	writeFile(t, filepath.Join(dir, "img", "b.png"), "b")
+
+	src := "# 标题\n\n![a](img/a.png) ![b](img/b.png)\n\n![missing](img/none.png)\n\n![remote](https://example.com/x.png)\n\n<img src=\"img/a.png\" alt=\"重复引用\">\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	srv, hitCount := fakePicGo(t, map[string]bool{"b.png": true})
+
+	cfg := baseCfg(srv.URL)
+	var events []Event
+	r := NewRunner(cfg, "run1", func(ev Event) { events = append(events, ev) })
+
+	sum := r.Run(context.Background(), []string{doc})
+
+	if sum.Files != 1 {
+		t.Fatalf("files = %d", sum.Files)
+	}
+	if sum.Uploaded != 2 { // a.png 的两个引用都替换成功
+		t.Fatalf("uploaded = %d, want 2 (summary %+v)", sum.Uploaded, sum)
+	}
+	if sum.FailedImages != 2 { // b.png + 缺失文件
+		t.Fatalf("failedImages = %d, want 2", sum.FailedImages)
+	}
+
+	out := filepath.Join(dir, "doc.converted.md")
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("读取输出失败: %v", err)
+	}
+	text := string(got)
+
+	if strings.Contains(text, "https://cdn.example.com/b.png") {
+		t.Fatalf("失败的图片被写入了 URL:\n%s", text)
+	}
+	if strings.Count(text, "https://cdn.example.com/a.png") != 2 {
+		t.Fatalf("a.png 应替换 2 处，实际文本:\n%s", text)
+	}
+	if !strings.Contains(text, "![b](img/b.png)") {
+		t.Fatalf("失败项原文应保留:\n%s", text)
+	}
+	if !strings.Contains(text, "![missing](img/none.png)") {
+		t.Fatalf("缺失项原文应保留:\n%s", text)
+	}
+	if !strings.Contains(text, "https://example.com/x.png") {
+		t.Fatalf("网络图片不应被改动:\n%s", text)
+	}
+	if !strings.Contains(text, `<img src="https://cdn.example.com/a.png" alt="重复引用">`) {
+		t.Fatalf("HTML 图片替换错误:\n%s", text)
+	}
+
+	// 同一张图只上传一次
+	if n := hitCount()["a.png"]; n != 1 {
+		t.Fatalf("a.png 上传了 %d 次，期望去重为 1 次", n)
+	}
+
+	// 有失败项 → partial
+	found := false
+	for _, ev := range events {
+		if ev.Type == EventFileFinished && ev.Result != nil {
+			found = true
+			if ev.Result.Status != FilePartial {
+				t.Fatalf("status = %s, want partial", ev.Result.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("没有收到 file.finished 事件")
+	}
+}
+
+func TestInPlaceWithBackup(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p.png"), "p")
+	doc := filepath.Join(dir, "a.md")
+	original := "![](p.png)\n"
+	writeFile(t, doc, original)
+
+	srv, _ := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	cfg.Output = settings.OutputInPlace
+	cfg.Backup = true
+
+	r := NewRunner(cfg, "run2", nil)
+	sum := r.Run(context.Background(), []string{doc})
+	if sum.OK != 1 {
+		t.Fatalf("summary = %+v", sum)
+	}
+
+	now, _ := os.ReadFile(doc)
+	if string(now) != "![](https://cdn.example.com/p.png)\n" {
+		t.Fatalf("原地写入结果错误: %q", string(now))
+	}
+	bak, err := os.ReadFile(doc + ".bak")
+	if err != nil || string(bak) != original {
+		t.Fatalf("备份文件错误: %q, %v", string(bak), err)
+	}
+}
+
+func TestAllUploadsFailWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p.png"), "p")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![](p.png)\n")
+
+	srv, _ := fakePicGo(t, map[string]bool{"p.png": true})
+	cfg := baseCfg(srv.URL)
+	r := NewRunner(cfg, "run3", nil)
+	sum := r.Run(context.Background(), []string{doc})
+
+	if sum.Failed != 1 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.converted.md")); !os.IsNotExist(err) {
+		t.Fatal("全部失败时不应生成输出文件")
+	}
+}
+
+func TestCRLFAndBOMPreserved(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p.png"), "p")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "\xEF\xBB\xBF第一行\r\n![](p.png)\r\n第三行\r\n")
+
+	srv, _ := fakePicGo(t, nil)
+	r := NewRunner(baseCfg(srv.URL), "run4", nil)
+	r.Run(context.Background(), []string{doc})
+
+	got, err := os.ReadFile(filepath.Join(dir, "a.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "\xEF\xBB\xBF第一行\r\n![](https://cdn.example.com/p.png)\r\n第三行\r\n"
+	if string(got) != want {
+		t.Fatalf("\n got %q\nwant %q", string(got), want)
+	}
+}
+
+func TestDryRunUploadsNothing(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p.png"), "p")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![](p.png)\n")
+
+	srv, hitCount := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	cfg.DryRun = true
+	r := NewRunner(cfg, "run5", nil)
+	sum := r.Run(context.Background(), []string{doc})
+
+	if len(hitCount()) != 0 {
+		t.Fatal("预检模式不应发起上传")
+	}
+	if sum.OK != 1 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.converted.md")); !os.IsNotExist(err) {
+		t.Fatal("预检模式不应写文件")
+	}
+}
+
+// 逐图明细必须一路带回给调用方：界面靠它展开每一行，命令行靠它提示哪里出错。
+func TestItemsAreReported(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "p.png"), "p")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![好图](p.png)\n![没有](gone.png)\n![网络](https://example.com/x.png)\n")
+
+	srv, _ := fakePicGo(t, nil)
+
+	// 预检模式：明细也要在，状态是 pending / missing / remote。
+	cfg := baseCfg(srv.URL)
+	cfg.DryRun = true
+	results, _ := NewRunner(cfg, "run-items-1", nil).RunCollect(context.Background(), []string{doc})
+	if len(results) != 1 {
+		t.Fatalf("期望 1 个文件结果，实际 %d", len(results))
+	}
+	items := results[0].Items
+	if len(items) != 3 {
+		t.Fatalf("预检应带回 3 条明细，实际 %d 条: %+v", len(items), items)
+	}
+	wantPreview := []string{StatusPending, StatusMissing, StatusRemote}
+	for i, want := range wantPreview {
+		if items[i].Status != want {
+			t.Errorf("预检第 %d 条状态 = %q，期望 %q（%+v）", i+1, items[i].Status, want, items[i])
+		}
+		if items[i].Line != i+1 {
+			t.Errorf("预检第 %d 条行号 = %d", i+1, items[i].Line)
+		}
+	}
+
+	// 正式模式：状态变成 uploaded / missing / remote，且带回了图床 URL。
+	cfg.DryRun = false
+	results, _ = NewRunner(cfg, "run-items-2", nil).RunCollect(context.Background(), []string{doc})
+	items = results[0].Items
+	if len(items) != 3 {
+		t.Fatalf("正式运行应带回 3 条明细，实际 %d 条", len(items))
+	}
+	if items[0].Status != StatusUploaded || items[0].URL == "" {
+		t.Errorf("第 1 条应为已上传且带 URL：%+v", items[0])
+	}
+	if items[1].Status != StatusMissing || items[1].Error == "" {
+		t.Errorf("第 2 条应为缺失且带原因：%+v", items[1])
+	}
+	if items[2].Status != StatusRemote {
+		t.Errorf("第 3 条应为网络图片：%+v", items[2])
+	}
+}
+
+func TestExpandPathsSkipsOutputs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.md"), "x")
+	writeFile(t, filepath.Join(dir, "a.converted.md"), "x")
+	writeFile(t, filepath.Join(dir, "sub", "b.md"), "x")
+	writeFile(t, filepath.Join(dir, "node_modules", "c.md"), "x")
+
+	files, _, err := ExpandPaths([]string{dir}, ".converted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("got %v", files)
+	}
+}
+
+// TestImageUploadedOnceAcrossFiles 验证「同一张图在一轮里只上传一次」。
+// 两个文件引用同一张图时只应发出一次上传请求，后处理的那个文件标记为复用。
+func TestImageUploadedOnceAcrossFiles(t *testing.T) {
+	run := func(t *testing.T, concurrency int) ([]FileResult, Summary, map[string]int) {
+		t.Helper()
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "shared.png"), "s")
+		writeFile(t, filepath.Join(dir, "a.md"), "![s](shared.png)\n![s 又一次](shared.png)\n")
+		writeFile(t, filepath.Join(dir, "b.md"), "![s](shared.png)\n")
+
+		srv, hitCount := fakePicGo(t, nil)
+		cfg := baseCfg(srv.URL)
+		cfg.Concurrency = concurrency
+
+		results, sum := NewRunner(cfg, "run-dedup", nil).RunCollect(context.Background(),
+			[]string{filepath.Join(dir, "a.md"), filepath.Join(dir, "b.md")})
+
+		for _, name := range []string{"a", "b"} {
+			out, err := os.ReadFile(filepath.Join(dir, name+".converted.md"))
+			if err != nil {
+				t.Fatalf("读取 %s 输出失败：%v", name, err)
+			}
+			if got := strings.Count(string(out), "https://cdn.example.com/shared.png"); got == 0 {
+				t.Errorf("%s.converted.md 没有换成图床地址：%q", name, out)
+			}
+		}
+		return results, sum, hitCount()
+	}
+
+	t.Run("顺序处理", func(t *testing.T) {
+		results, sum, hits := run(t, 1)
+		if hits["shared.png"] != 1 {
+			t.Fatalf("shared.png 上传了 %d 次，want 1", hits["shared.png"])
+		}
+		if sum.Uploaded != 3 {
+			t.Fatalf("uploaded = %d, want 3（a.md 两处 + b.md 一处）：%+v", sum.Uploaded, sum)
+		}
+		if len(results) != 2 {
+			t.Fatalf("results = %d", len(results))
+		}
+		// a.md 里的两个引用属于同一张图，同一个分组内都算「已上传」
+		for i, item := range results[0].Items {
+			if item.Status != StatusUploaded {
+				t.Errorf("a.md 第 %d 条 = %s, want %s", i+1, item.Status, StatusUploaded)
+			}
+		}
+		// b.md 处理时这张图已经上传过，应当复用它
+		if results[1].Items[0].Status != StatusReused {
+			t.Errorf("b.md 的引用 = %s, want %s", results[1].Items[0].Status, StatusReused)
+		}
+		if results[0].Items[0].URL != results[1].Items[0].URL {
+			t.Errorf("两个文件拿到的地址不一致：%q vs %q",
+				results[0].Items[0].URL, results[1].Items[0].URL)
+		}
+	})
+
+	t.Run("并发处理", func(t *testing.T) {
+		results, sum, hits := run(t, 4)
+		if hits["shared.png"] != 1 {
+			t.Fatalf("并发下 shared.png 上传了 %d 次，want 1", hits["shared.png"])
+		}
+		if sum.Uploaded != 3 {
+			t.Fatalf("uploaded = %d, want 3：%+v", sum.Uploaded, sum)
+		}
+		reused := 0
+		for _, res := range results {
+			for _, item := range res.Items {
+				if item.Status == StatusReused {
+					reused++
+				}
+			}
+		}
+		if reused != 1 {
+			t.Fatalf("复用 %d 条，want 1（两个文件抢同一张图时后者复用）", reused)
+		}
+	})
+}

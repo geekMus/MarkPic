@@ -2,38 +2,27 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Main Process",
-            "type": "node",
+            "name": "运行（图形界面）",
+            "type": "go",
             "request": "launch",
-            "cwd": "${workspaceRoot}",
-            "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron-vite",
-            "windows": {
-                "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/electron-vite.cmd"
-            },
-            "runtimeArgs": ["--sourcemap"],
-            "env": {
-                "REMOTE_DEBUGGING_PORT": "9222"
-            }
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/convert-md-picture",
+            "args": ["--no-open"]
         },
         {
-            "name": "Debug Renderer Process",
-            "port": 9222,
-            "request": "attach",
-            "type": "chrome",
-            "webRoot": "${workspaceFolder}/src/renderer",
-            "timeout": 60000,
-            "presentation": {
-                "hidden": true
-            }
+            "name": "调试（命令行）",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/convert-md-picture",
+            "args": ["--dry-run", "${input:targetPath}"]
         }
     ],
-    "compounds": [
+    "inputs": [
         {
-            "name": "Debug All",
-            "configurations": ["Debug Main Process", "Debug Renderer Process"],
-            "presentation": {
-                "order": 1
-            }
+            "id": "targetPath",
+            "type": "promptString",
+            "description": "要转换的 Markdown 文件或目录"
         }
     ]
 }
