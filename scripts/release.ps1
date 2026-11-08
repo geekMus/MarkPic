@@ -68,7 +68,7 @@ try {
     $item = Get-Item $file
     $hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
     $asset = $item.Name
-    $url = "https://github.com/YiiMus/convert-md-picture/releases/download/$tag/$asset"
+    $url = "https://github.com/geekMus/convert-md-picture/releases/download/$tag/$asset"
 
     $manifest = [ordered]@{
         version   = $Version

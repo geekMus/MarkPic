@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YiiMus/convert-md-picture/internal/conv"
-	"github.com/YiiMus/convert-md-picture/internal/picgo"
-	"github.com/YiiMus/convert-md-picture/internal/settings"
-	"github.com/YiiMus/convert-md-picture/internal/version"
+	"github.com/geekMus/convert-md-picture/internal/conv"
+	"github.com/geekMus/convert-md-picture/internal/picgo"
+	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/version"
 )
 
 // runCLI 在命令行完成一轮转换，返回进程退出码。

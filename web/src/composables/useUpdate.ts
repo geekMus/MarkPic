@@ -13,9 +13,6 @@ import type { UpdateStatus } from '../types'
  * 都要读同一份状态，分成几份会互相打架。
  */
 
-/** 发布页：检查失败，或用户想自己下载时打开它。 */
-export const RELEASE_PAGE = 'https://github.com/YiiMus/convert-md-picture/releases'
-
 const AUTO_CHECK_KEY = 'cmp.autoCheckUpdate'
 const POLL_MS = 500
 
@@ -31,6 +28,7 @@ function blank(): UpdateStatus {
     received: 0,
     total: 0,
     error: '',
+    releasePage: '',
   }
 }
 
@@ -113,8 +111,14 @@ async function install(): Promise<void> {
 }
 
 async function openReleasePage(): Promise<void> {
+  // 发布页地址由服务端给（和后端那份清单地址是同一个来源），前端不写死。
+  const url = status.value.releasePage
+  if (!url) {
+    error.value = '还不知道发布页地址'
+    return
+  }
   try {
-    await openTarget(RELEASE_PAGE)
+    await openTarget(url)
   } catch (e) {
     error.value = describeError(e, '打不开浏览器')
   }

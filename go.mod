@@ -1,4 +1,4 @@
-module github.com/YiiMus/convert-md-picture
+module github.com/geekMus/convert-md-picture
 
 go 1.24
 

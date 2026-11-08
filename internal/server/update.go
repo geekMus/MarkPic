@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YiiMus/convert-md-picture/internal/update"
-	"github.com/YiiMus/convert-md-picture/internal/version"
+	"github.com/geekMus/convert-md-picture/internal/update"
+	"github.com/geekMus/convert-md-picture/internal/version"
 )
 
 // UpdateOptions 告诉服务怎么替换并重启自己。
@@ -25,16 +25,17 @@ type UpdateOptions struct {
 
 // updateStatus 会被原样发给前端，字段名与 web/src/types.ts 保持一致。
 type updateStatus struct {
-	State     string       `json:"state"` // idle/checking/latest/available/downloading/installing/restarting/error
-	Current   string       `json:"current"`
-	Latest    string       `json:"latest"`
-	Tag       string       `json:"tag"`
-	Notes     string       `json:"notes"`
-	Published string       `json:"published"`
-	Asset     update.Asset `json:"asset"`
-	Received  int64        `json:"received"`
-	Total     int64        `json:"total"`
-	Error     string       `json:"error"`
+	State       string       `json:"state"` // idle/checking/latest/available/downloading/installing/restarting/error
+	Current     string       `json:"current"`
+	Latest      string       `json:"latest"`
+	Tag         string       `json:"tag"`
+	Notes       string       `json:"notes"`
+	Published   string       `json:"published"`
+	Asset       update.Asset `json:"asset"`
+	Received    int64        `json:"received"`
+	Total       int64        `json:"total"`
+	Error       string       `json:"error"`
+	ReleasePage string       `json:"releasePage"` // 发布页地址，前端不自己写死
 }
 
 // updateTracker 串行化「检查」与「安装」，并把进度暴露给前端轮询。

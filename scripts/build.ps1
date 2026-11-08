@@ -114,7 +114,7 @@ try {
     $commit = (git rev-parse --short HEAD 2>$null)
     if (-not $commit) { $commit = 'none' }
 
-    $module = 'github.com/YiiMus/convert-md-picture/internal/version'
+    $module = 'github.com/geekMus/convert-md-picture/internal/version'
     $ldflags = "-s -w -X $module.Version=$Version -X $module.Commit=$commit"
 
     Write-Host "==> 编译 exe（版本 $Version，提交 $commit）" -ForegroundColor Cyan

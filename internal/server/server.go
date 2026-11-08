@@ -21,12 +21,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/YiiMus/convert-md-picture/internal/conv"
-	"github.com/YiiMus/convert-md-picture/internal/picgo"
-	"github.com/YiiMus/convert-md-picture/internal/platform"
-	"github.com/YiiMus/convert-md-picture/internal/settings"
-	"github.com/YiiMus/convert-md-picture/internal/version"
-	"github.com/YiiMus/convert-md-picture/internal/webui"
+	"github.com/geekMus/convert-md-picture/internal/conv"
+	"github.com/geekMus/convert-md-picture/internal/picgo"
+	"github.com/geekMus/convert-md-picture/internal/platform"
+	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/update"
+	"github.com/geekMus/convert-md-picture/internal/version"
+	"github.com/geekMus/convert-md-picture/internal/webui"
 )
 
 // AppName 用于识别「已有实例在运行」。
@@ -53,7 +54,7 @@ func New(store *settings.Store) *Server {
 		hub:   newHub(),
 		runs:  make(map[string]context.CancelFunc),
 		upd: updateTracker{
-			status: updateStatus{State: "idle", Current: version.Version},
+			status: updateStatus{State: "idle", Current: version.Version, ReleasePage: update.ReleasePage},
 		},
 	}
 }

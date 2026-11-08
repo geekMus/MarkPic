@@ -32,10 +32,10 @@ import (
 
 const (
 	// DefaultManifestURL 是版本清单的默认地址。
-	DefaultManifestURL = "https://raw.githubusercontent.com/YiiMus/convert-md-picture/main/version.json"
+	DefaultManifestURL = "https://raw.githubusercontent.com/geekMus/convert-md-picture/main/version.json"
 
 	// ReleasePage 是发布页，检查失败时让用户自己去看看。
-	ReleasePage = "https://github.com/YiiMus/convert-md-picture/releases"
+	ReleasePage = "https://github.com/geekMus/convert-md-picture/releases"
 
 	// ManifestEnv 可以覆盖清单地址，用于自建镜像或本地调试。
 	ManifestEnv = "CMP_UPDATE_MANIFEST"

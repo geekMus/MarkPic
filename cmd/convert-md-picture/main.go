@@ -22,11 +22,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/YiiMus/convert-md-picture/internal/platform"
-	"github.com/YiiMus/convert-md-picture/internal/server"
-	"github.com/YiiMus/convert-md-picture/internal/settings"
-	"github.com/YiiMus/convert-md-picture/internal/update"
-	"github.com/YiiMus/convert-md-picture/internal/version"
+	"github.com/geekMus/convert-md-picture/internal/platform"
+	"github.com/geekMus/convert-md-picture/internal/server"
+	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/update"
+	"github.com/geekMus/convert-md-picture/internal/version"
 )
 
 const defaultPort = 17860

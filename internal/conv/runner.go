@@ -12,10 +12,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/YiiMus/convert-md-picture/internal/imgpath"
-	"github.com/YiiMus/convert-md-picture/internal/mdscan"
-	"github.com/YiiMus/convert-md-picture/internal/picgo"
-	"github.com/YiiMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/imgpath"
+	"github.com/geekMus/convert-md-picture/internal/mdscan"
+	"github.com/geekMus/convert-md-picture/internal/picgo"
+	"github.com/geekMus/convert-md-picture/internal/settings"
 )
 
 // Emit 是事件回调，可以为 nil（CLI 模式）。

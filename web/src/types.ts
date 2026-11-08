@@ -118,4 +118,5 @@ export type UpdateStatus = {
   received: number
   total: number
   error: string
+  releasePage: string
 }

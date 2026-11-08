@@ -114,7 +114,7 @@ interface UpdateStatus {
 ```
 
 版本清单不调用 GitHub Releases API，而是取仓库根那个静态的 `version.json`
-（`https://raw.githubusercontent.com/YiiMus/convert-md-picture/main/version.json`），
+（`https://raw.githubusercontent.com/geekMus/convert-md-picture/main/version.json`），
 可用环境变量 `CMP_UPDATE_MANIFEST` 指向别处（自建镜像、本地调试）。
 
 `POST /api/update/install` 会下载安装包、核对清单里的 SHA-256，然后
