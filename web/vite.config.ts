@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 开发时后端端口由 scripts/dev.ps1 通过环境变量 CMP_API 传进来，默认 17860。
+// 开发时后端端口由 scripts/web.ps1 通过环境变量 CMP_API 传进来，默认 17860。
 // 打包后前端与 API 同源（都由 exe 提供），不经过这个代理。
 const apiTarget = process.env.CMP_API ?? 'http://127.0.0.1:17860'
 

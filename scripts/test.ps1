@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  跑 Go 测试（和 build.ps1 / dev.ps1 用同一套 Go 查找逻辑）。
+  跑 Go 测试（和 build.ps1 / web.ps1 用同一套 Go 查找逻辑）。
 
 .DESCRIPTION
   默认跑全部包的测试：go test ./... -count=1。

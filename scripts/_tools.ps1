@@ -1,6 +1,6 @@
 ﻿<#
   脚本之间共用的小工具：定位工具链、探测本地服务。
-  单独成文件是为了让 build.ps1 / dev.ps1 / test.ps1 报一样的错、用一样的查找顺序。
+  单独成文件是为了让 build.ps1 / web.ps1 / test.ps1 报一样的错、用一样的查找顺序。
 
   注意：本文件必须存成「UTF-8 with BOM」。
   Windows PowerShell 5.1 会把无 BOM 的 .ps1 当 GBK 读，中文会变乱码并报语法错误。

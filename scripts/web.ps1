@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  启动开发环境：Go 后端 + Vite 前端（Vue 热更新）。
+  启动开发环境：Go 后端 + Vite 前端（两边都带热更新）。
 
 .DESCRIPTION
   本脚本会拉起两条进程：
@@ -38,13 +38,13 @@
   后端不监视源码（默认改 Go 代码会自动重新编译并重启后端）。
 
 .EXAMPLE
-  pnpm dev
+  pnpm web
 
 .EXAMPLE
-  .\scripts\dev.ps1 -ApiPort 17860 -WebPort 5173
+  .\scripts\web.ps1 -ApiPort 17860 -WebPort 5173
 
 .EXAMPLE
-  .\scripts\dev.ps1 -ApiOnly
+  .\scripts\web.ps1 -ApiOnly
 #>
 [CmdletBinding()]
 param(
@@ -70,13 +70,16 @@ try {
     $goExe = Resolve-GoCommand -Hint $Go
 
     # 收尾时按住的是这个 exe，而不是 go run 那层包装，所以先把后端编译出来。
+    # 用监视器（默认）时它会自己先编译一次，这里就不重复编译了，省一两秒。
     $devExe = Join-Path $root 'bin\dev-api.exe'
     $binDir = Split-Path -Parent $devExe
     if (-not (Test-Path $binDir)) { New-Item -ItemType Directory -Path $binDir | Out-Null }
 
-    Write-Host '==> 编译后端' -ForegroundColor Cyan
-    & $goExe build -o $devExe ./cmd/convert-md-picture
-    if ($LASTEXITCODE -ne 0) { throw '后端编译失败，先看看上面的报错。' }
+    if ($NoWatch -or -not (Test-Path $devExe)) {
+        Write-Host '==> 编译后端' -ForegroundColor Cyan
+        & $goExe build -o $devExe ./cmd/convert-md-picture
+        if ($LASTEXITCODE -ne 0) { throw '后端编译失败，先看看上面的报错。' }
+    }
 
     # 上一次没退干净的僵尸进程：端口没响应但进程还在，直接清掉。
     $stale = @(Get-Process -Name 'dev-api' -ErrorAction SilentlyContinue)
