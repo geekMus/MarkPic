@@ -5,6 +5,7 @@ package platform
 
 import (
 	"errors"
+	"io/fs"
 	"os/exec"
 	"runtime"
 	"syscall"
@@ -12,6 +13,29 @@ import (
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
+
+// Windows 的两个「文件被别的程序占着」错误码。syscall 包只定义了 Errno 类型，
+// 没给这两个常量（golang.org/x/sys/windows 里有，但本包不引第三方库）。
+const (
+	errSharingViolation = syscall.Errno(32) // ERROR_SHARING_VIOLATION
+	errLockViolation    = syscall.Errno(33) // ERROR_LOCK_VIOLATION
+)
+
+// IsBusy 判断一个文件错误是不是「被别的程序占用，或者没有权限」。
+//
+// 这两种情况在 Windows 上都只表现为一句系统原话（「Access is denied」/
+// 「being used by another process」），用户分不出区别，调用方按同一种说法
+// 解释就行：关掉占用它的程序再试。注意 Go 的 errors.Is(err, fs.ErrPermission)
+// 只认 ERROR_ACCESS_DENIED(5)，共享冲突(32)/锁冲突(33) 得自己判。
+func IsBusy(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, fs.ErrPermission) {
+		return true
+	}
+	return errors.Is(err, errSharingViolation) || errors.Is(err, errLockViolation)
+}
 
 var (
 	user32           = syscall.NewLazyDLL("user32.dll")

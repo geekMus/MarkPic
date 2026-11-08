@@ -842,3 +842,48 @@ README 的「退出码」一行同步改写。
 `internal/server` 的 `TestRunRejectsConcurrentRun`（图床卡住不返回时，第二次 `/api/run` 得到 409
 且带 `conflict` 消息）。实测也各跑了一遍：`/api/health` 给出 `settingsNote`，慢图床下第二次
 `/api/run` 得到 `HTTP 409`。
+## 第 20 轮：文件被别的程序占着时，别再打印系统原话
+
+顺着第 14 轮「失败说法」那条线继续往下查，这次盯的是**文件被占用**——真实场景很常见：
+用户把 `.converted.md` 开着看、或者在 Typora / Word 里开着源文档，又点了一次转换。实测两种：
+
+| 情况 | 改之前的说法 |
+| --- | --- |
+| 输出文件被占着（生成副本模式） | `写入失败：rename …\.cmp-2853839841.tmp …\a.converted.md: Access is denied.` |
+| 源文件被占着（原地模式） | `无法读取文件：open …\b.md: The process cannot access the file because it is being used by another process.` |
+
+第一句尤其糟：它把**随机命名的临时文件**摆到用户面前，还只说「Access is denied」——
+用户根本不知道是谁在拒绝什么。两句现在都换成了：
+
+```
+[失败]  a.md   写不进去：文件正被别的程序占用，或者没有权限：…\a.converted.md（关掉占用它的程序再试）
+[失败]  b.md   读不出来：文件正被别的程序占用，或者没有读取权限：…\b.md（关掉占用它的程序再试）
+```
+
+### 一个 Go 的坑：共享冲突不在 fs.ErrPermission 里
+
+写不进去那条容易修：`writeAtomic` 的 rename 失败后已经会 stat 目标，加一条
+`errors.Is(err, fs.ErrPermission)` 就够了。但**读**那条光靠 `fs.ErrPermission` 抓不到——
+Windows 给的是 `ERROR_SHARING_VIOLATION(32)`，而 Go 的 `syscall.Errno.Is` 只把
+`ERROR_ACCESS_DENIED(5)` 映射到 `fs.ErrPermission`。实测（直接构造 Errno）：
+
+```
+Errno(5)  -> fs.ErrPermission=true    # Access is denied
+Errno(32) -> fs.ErrPermission=false   # 文件被别的程序占着
+Errno(33) -> fs.ErrPermission=false   # 区域被锁
+```
+
+所以新增了 `platform.IsBusy(err)`：Windows 上认 5 / 32 / 33，其它平台就是权限错误。
+（`syscall` 包没给这两个常量，`golang.org/x/sys/windows` 里有，但 `internal/platform`
+一直坚持「不引 cgo、不引第三方库」，所以按数值定义并用注释标明出处。）
+
+### 回归测试
+
+`internal/conv/runner_windows_test.go`（新增，`//go:build windows`）两条用例：用
+`syscall.CreateFile(..., dwShareMode=0, ...)` 把文件锁住（`os.OpenFile` 不行，Go 默认
+允许共享读写删除），再跑一轮，断言错误文案里有「占用」且**不含 `.tmp`**。
+把 `platform.IsBusy` 换回 `errors.Is(err, fs.ErrPermission)` 之后 `TestLockedSourceExplainsItself`
+立刻失败，说明它确实守着这个修复，不是空跑。
+
+顺带复核：只读目标仍然走第 14 轮那句「目标文件是只读的，覆盖不了」；内容没变时
+「跳过写入」的快路径也仍然不报错（只读目标只有在新内容确实不同时才会被写）。

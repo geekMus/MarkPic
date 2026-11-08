@@ -5,11 +5,17 @@
 package platform
 
 import (
+	"errors"
+	"io/fs"
 	"os/exec"
 	"runtime"
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
+
+// IsBusy 判断一个文件错误是不是「被别的程序占用，或者没有权限」。
+// 非 Windows 平台上就是权限错误（共享冲突只在 Windows 上单列错误码）。
+func IsBusy(err error) bool { return errors.Is(err, fs.ErrPermission) }
 
 // PickFiles 在非 Windows 平台返回 ErrUnsupported。
 func PickFiles(title string, lang i18n.Lang) ([]string, error) { return nil, ErrUnsupported }

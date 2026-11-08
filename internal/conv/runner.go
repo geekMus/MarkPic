@@ -18,6 +18,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/imgpath"
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
+	"github.com/geekMus/convert-md-picture/internal/platform"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 	"github.com/geekMus/convert-md-picture/internal/uploadcache"
 )
@@ -416,7 +417,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		res.Status = FileFailed
-		res.Error = i18n.T(r.lang, i18n.KeyConvReadFailed, err)
+		// 「being used by another process」这种系统原话用户得猜，直接说该怎么办。
+		if platform.IsBusy(err) {
+			res.Error = i18n.T(r.lang, i18n.KeyConvReadLocked, path)
+		} else {
+			res.Error = i18n.T(r.lang, i18n.KeyConvReadFailed, err)
+		}
 		return res
 	}
 	if !utf8.Valid(data) {
@@ -593,9 +599,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 	if werr := writeOutput(target, out); werr != nil {
 		res.Status = FileFailed
-		if errors.Is(werr, errTargetReadOnly) {
+		switch {
+		case errors.Is(werr, errTargetReadOnly):
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteReadOnly, target)
-		} else {
+		case errors.Is(werr, errTargetLocked):
+			res.Error = i18n.T(r.lang, i18n.KeyConvWriteLocked, target)
+		default:
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteFailed, werr)
 		}
 		return res
@@ -919,6 +928,11 @@ func writeAtomic(path string, data []byte) error {
 		if st, serr := os.Stat(path); serr == nil && st.Mode().Perm()&0o222 == 0 {
 			return fmt.Errorf("%w: %s", errTargetReadOnly, path)
 		}
+		// 文件被别的程序打开着（编辑器、Word、杀毒扫描）时同样是一句
+		// 「Access is denied」，但那跟只读是两回事：关掉占用它的程序就行。
+		if platform.IsBusy(err) {
+			return fmt.Errorf("%w: %s", errTargetLocked, path)
+		}
 		return err
 	}
 	renamed = true
@@ -928,6 +942,9 @@ func writeAtomic(path string, data []byte) error {
 // errTargetReadOnly 表示目标文件被标了只读，覆盖不了。
 // 调用方用它换成一句人话（见 processFile）。
 var errTargetReadOnly = errors.New("target file is read-only")
+
+// errTargetLocked 表示目标文件被别的程序占着（或没有权限），写不进去。
+var errTargetLocked = errors.New("target file is locked")
 
 // wrapURL 在地址里含有空格或括号时把它包进尖括号，
 // 否则 ![a](x y.png) 这种写法会被解析成「地址 + 标题」。

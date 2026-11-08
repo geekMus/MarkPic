@@ -58,6 +58,8 @@ const (
 	KeyConvLoosePath          Key = "conv.loosePath"
 	KeyConvEndpointDead       Key = "conv.endpointDead"
 	KeyConvWriteReadOnly      Key = "conv.writeReadOnly"
+	KeyConvWriteLocked        Key = "conv.writeLocked"
+	KeyConvReadLocked         Key = "conv.readLocked"
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 
 	KeyUpdateBadURL           Key = "update.badURL"
@@ -228,6 +230,14 @@ var catalog = map[Key]entry{
 	KeyConvWriteReadOnly: {
 		"目标文件是只读的，覆盖不了：%s（去掉只读属性后重试，或换个输出位置）",
 		"The target file is read-only and cannot be replaced: %s (clear the read-only attribute or write somewhere else)",
+	},
+	KeyConvWriteLocked: {
+		"写不进去：文件正被别的程序占用，或者没有权限：%s（关掉占用它的程序再试）",
+		"Could not write: the file is in use by another program, or you lack permission: %s (close whatever is using it and try again)",
+	},
+	KeyConvReadLocked: {
+		"读不出来：文件正被别的程序占用，或者没有读取权限：%s（关掉占用它的程序再试）",
+		"Could not read: the file is in use by another program, or you lack read permission: %s (close whatever is using it and try again)",
 	},
 	KeyConvReferenceStyle: {
 		"第 %d 行：引用式图片的标签在文档里找不到对应定义，已跳过",
