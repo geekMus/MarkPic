@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -52,6 +53,10 @@ func openAppWindow(url, title string, stop <-chan os.Signal) error {
 	}
 	defer w.Destroy()
 
+	// 去掉系统标题栏，标题栏交给前端画（Magpie 风格）。
+	installWindowChrome(w)
+	bindWindowCommands(w)
+
 	if stop != nil {
 		go func() {
 			<-stop
@@ -63,6 +68,29 @@ func openAppWindow(url, title string, stop <-chan os.Signal) error {
 	w.Navigate(url)
 	w.Run()
 	return nil
+}
+
+// bindWindowCommands 把自绘标题栏要用的窗口命令暴露给前端。
+// 前端只有在检测到 window.cmpWinDrag 存在时才显示最小化 / 最大化 / 关闭按钮，
+// 所以在浏览器里打开同一个界面时这些按钮会自动消失。
+func bindWindowCommands(w webview2.WebView) {
+	binds := []struct {
+		name string
+		fn   any
+	}{
+		{"cmpWinMinimize", func() { minimizeWindow() }},
+		{"cmpWinToggleMaximize", func() { toggleMaximizeWindow() }},
+		{"cmpWinMaximized", func() bool { return windowMaximized() }},
+		{"cmpWinClose", func() { closeWindow() }},
+		{"cmpWinDrag", func() { beginCaptionDrag() }},
+		{"cmpWinResize", func(edge string) { beginResize(edge) }},
+		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
+	}
+	for _, b := range binds {
+		if err := w.Bind(b.name, b.fn); err != nil {
+			log.Printf("绑定窗口命令 %s 失败：%v", b.name, err)
+		}
+	}
 }
 
 // windowSupported 表示当前平台支持原生窗口。

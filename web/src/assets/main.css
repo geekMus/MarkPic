@@ -17,6 +17,10 @@
   --fs-4: 15px;
   --fs-5: 19px;
 
+  /* 页面左右留白。标题栏用负外边距抵消它，好让窗口按钮贴到窗口边缘，
+     所以这个值只能从这里改。 */
+  --gutter: 20px;
+
   --canvas: #e9ecf0;
   --canvas-2: #f3f5f8;
   --panel: #ffffff;
@@ -681,6 +685,12 @@ select {
 }
 
 /* ------------------------------------------------------------------ 动效降级 */
+
+@media (max-width: 900px) {
+  :root {
+    --gutter: 12px;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *,

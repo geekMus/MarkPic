@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
+import { useWindowControls } from '../composables/useWindowControls'
 import type { Health } from '../types'
 import type { RunPhase } from '../composables/useRun'
 
@@ -21,6 +22,8 @@ const emit = defineEmits<{
   'toggle-theme': []
   'toggle-settings': []
 }>()
+
+const { available: windowChrome, maximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
 
 const versionLabel = computed(() => {
   const value = props.version
@@ -54,12 +57,20 @@ const runLabel = computed(() => {
 })
 
 const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'))
+
+// 双击标题栏空白处 = 最大化 / 还原，和系统标题栏一致。
+function handleDoubleClick(event: MouseEvent): void {
+  if (!windowChrome.value) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('[data-no-drag]')) return
+  toggleMaximize()
+}
 </script>
 
 <template>
-  <header class="bar">
-    <div class="bar__brand">
-      <span class="bar__mark" aria-hidden="true">
+  <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
+    <div class="tb__brand">
+      <span class="tb__mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none">
           <rect x="1.5" y="1.5" width="21" height="21" rx="6.5" fill="var(--mark)" />
           <path
@@ -79,18 +90,15 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
           />
         </svg>
       </span>
-
-      <span class="bar__names">
-        <span class="bar__title">Markdown 图片图床化</span>
-        <span class="bar__sub">本地图片经 PicGo 上传，回写为图床链接</span>
-      </span>
-
-      <span v-if="versionLabel" class="bar__version mono">{{ versionLabel }}</span>
+      <span class="tb__title">Markdown 图片图床化</span>
+      <span v-if="versionLabel" class="tb__version mono">{{ versionLabel }}</span>
     </div>
 
-    <div class="bar__tools">
+    <div class="tb__status">
       <StatusPill v-if="runVisible" :label="runLabel" tone="accent" pulse />
+    </div>
 
+    <div class="tb__tools" data-no-drag>
       <button
         type="button"
         class="health"
@@ -102,7 +110,7 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
         <span class="health__text">{{ picgoLabel }}</span>
       </button>
 
-      <span class="bar__sep" aria-hidden="true" />
+      <span class="tb__sep" aria-hidden="true" />
 
       <button
         type="button"
@@ -126,66 +134,86 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
         <AppIcon name="settings" :size="16" />
       </button>
     </div>
+
+    <!-- 窗口按钮只在桌面窗口里出现；浏览器里没有系统标题栏可替代，直接隐藏 -->
+    <div v-if="windowChrome" class="tb__win" data-no-drag>
+      <button type="button" class="wbtn" title="最小化" aria-label="最小化" @click="minimize">
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0.5 5.5h9" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="wbtn"
+        :title="maximized ? '向下还原' : '最大化'"
+        :aria-label="maximized ? '向下还原' : '最大化'"
+        @click="toggleMaximize"
+      >
+        <svg v-if="maximized" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M2.5 2.5V0.5h7v7h-2" />
+          <rect x="0.5" y="2.5" width="7" height="7" rx="1.5" />
+        </svg>
+        <svg v-else viewBox="0 0 10 10" aria-hidden="true">
+          <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
+        </svg>
+      </button>
+      <button type="button" class="wbtn wbtn--close" title="关闭" aria-label="关闭" @click="close">
+        <svg viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
+        </svg>
+      </button>
+    </div>
   </header>
 </template>
 
 <style scoped>
-.bar {
+/* 这一条就是窗口的标题栏：整块可拖动，上面的按钮用 data-no-drag 排除 */
+.tb {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  height: 44px;
+  /* 抵消 .app 的左右留白，让窗口按钮贴到窗口右边缘 */
+  margin: 0 calc(var(--gutter) * -1);
+  padding: 0 var(--gutter);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tb__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   min-width: 0;
 }
 
-.bar__brand {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  min-width: 0;
-}
-
-.bar__mark {
+.tb__mark {
   display: grid;
   place-items: center;
   flex: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.18), 0 8px 18px -12px rgba(13, 17, 23, 0.7);
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.16), 0 6px 14px -10px rgba(13, 17, 23, 0.7);
 }
 
-.bar__mark svg {
-  width: 32px;
-  height: 32px;
+.tb__mark svg {
+  display: block;
+  width: 22px;
+  height: 22px;
 }
 
-.bar__names {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.bar__title {
+.tb__title {
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--fs-4);
+  font-size: var(--fs-3);
   font-weight: 600;
   letter-spacing: -0.005em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.bar__sub {
-  overflow: hidden;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.bar__version {
+.tb__version {
   flex: none;
   padding: 1px 7px;
   border: 1px solid var(--line-2);
@@ -193,17 +221,25 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
   background: var(--panel);
   color: var(--ink-3);
   font-size: var(--fs-1);
-  line-height: 17px;
+  line-height: 16px;
 }
 
-.bar__tools {
+.tb__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.tb__tools {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
 }
 
-.bar__sep {
+.tb__sep {
   width: 1px;
   height: 20px;
   margin: 0 4px;
@@ -215,7 +251,7 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 30px;
+  height: 28px;
   padding: 0 11px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-pill);
@@ -265,18 +301,58 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
   color: var(--bad);
 }
 
-@media (max-width: 940px) {
-  .bar__sub {
-    display: none;
-  }
+/* 自绘的窗口按钮：46×44 的整块热区，只有悬停才浮起来，关闭键悬停变红 */
+.tb__win {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+  margin-left: 6px;
+  margin-right: calc(var(--gutter) * -1);
+}
+
+.wbtn {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: default;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.wbtn svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+}
+
+.wbtn:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.wbtn:active {
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+
+.wbtn--close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.wbtn--close:active {
+  background: #b1271b;
+  color: #fff;
 }
 
 @media (max-width: 720px) {
-  .bar__names {
-    display: none;
-  }
-
-  .bar__version {
+  .tb__title,
+  .tb__version {
     display: none;
   }
 }

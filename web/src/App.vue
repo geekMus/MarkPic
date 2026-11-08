@@ -18,9 +18,12 @@ import { useRun } from './composables/useRun'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
 import { useToasts } from './composables/useToasts'
+import { useWindowControls } from './composables/useWindowControls'
 
 const { toasts, dismiss, warning } = useToasts()
 const { resolved: theme, toggle: toggleTheme } = useTheme()
+// 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
+const { available: windowChrome, startResize } = useWindowControls()
 const { health, loading: healthLoading, refresh: refreshHealth } = useHealth()
 
 const {
@@ -222,6 +225,18 @@ onBeforeUnmount(() => {
     />
 
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
+
+    <!-- 桌面窗口里四条边的缩放热区；浏览器里不需要 -->
+    <div v-if="windowChrome" class="rz" aria-hidden="true">
+      <span class="rz__zone rz__zone--n" @mousedown.prevent="startResize('top')" />
+      <span class="rz__zone rz__zone--s" @mousedown.prevent="startResize('bottom')" />
+      <span class="rz__zone rz__zone--w" @mousedown.prevent="startResize('left')" />
+      <span class="rz__zone rz__zone--e" @mousedown.prevent="startResize('right')" />
+      <span class="rz__zone rz__zone--nw" @mousedown.prevent="startResize('top-left')" />
+      <span class="rz__zone rz__zone--ne" @mousedown.prevent="startResize('top-right')" />
+      <span class="rz__zone rz__zone--sw" @mousedown.prevent="startResize('bottom-left')" />
+      <span class="rz__zone rz__zone--se" @mousedown.prevent="startResize('bottom-right')" />
+    </div>
   </div>
 </template>
 
@@ -229,9 +244,9 @@ onBeforeUnmount(() => {
 .app {
   position: relative;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr) 64px;
+  grid-template-rows: 44px minmax(0, 1fr) 64px;
   height: 100vh;
-  padding: 0 20px;
+  padding: 0 var(--gutter);
   color: var(--ink);
 }
 
@@ -260,8 +275,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 900px) {
   .app {
-    grid-template-rows: 56px minmax(0, 1fr) auto;
-    padding: 0 12px;
+    grid-template-rows: 44px minmax(0, 1fr) auto;
   }
 
   .app__main {
@@ -272,5 +286,84 @@ onBeforeUnmount(() => {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh);
   }
+}
+
+/* 窗口缩放热区：平时不吃事件，只在这几条边上有反应 */
+.rz {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.rz__zone {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.rz__zone--n,
+.rz__zone--s {
+  right: 10px;
+  left: 10px;
+  height: 5px;
+}
+
+.rz__zone--n {
+  top: 0;
+  cursor: ns-resize;
+}
+
+.rz__zone--s {
+  bottom: 0;
+  cursor: ns-resize;
+}
+
+.rz__zone--w,
+.rz__zone--e {
+  top: 10px;
+  bottom: 10px;
+  width: 5px;
+}
+
+.rz__zone--w {
+  left: 0;
+  cursor: ew-resize;
+}
+
+.rz__zone--e {
+  right: 0;
+  cursor: ew-resize;
+}
+
+.rz__zone--nw,
+.rz__zone--ne,
+.rz__zone--sw,
+.rz__zone--se {
+  width: 12px;
+  height: 12px;
+}
+
+.rz__zone--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.rz__zone--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.rz__zone--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.rz__zone--se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
 }
 </style>
