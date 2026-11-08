@@ -100,9 +100,31 @@ convert-md-picture .\docs --dry-run
 
 文档必须是 UTF-8 编码。
 
-## 设置存储位置
+## 数据放在哪
 
-界面里修改的设置保存在 `%APPDATA%\convert-md-picture\settings.json`（原子写入，损坏时自动回退默认值）。
+程序不往系统目录里塞东西，所有数据都在 **exe 旁边的 `data` 目录**里：
+
+```
+convert-md-picture.exe
+data/
+  settings.json   界面里改的设置（原子写入，损坏时自动回退默认值）
+  webview2/       内嵌浏览器的缓存，删掉会自动重建
+```
+
+这么做的好处是绿色的：整个文件夹拷到 U 盘或另一台机器就能用，设置跟着走；不想用了删掉
+`data` 目录就等于清干净；自动更新只替换 exe，`data` 原样留着。
+
+只有一种情况会放到系统目录：**exe 所在目录写不进去**（比如装进了 `Program Files`，或者放在
+只读介质上），这时会退回 `%APPDATA%\convert-md-picture\`，并在「关于」弹窗里说明原因。
+从旧版本升级过来时，原来写在 `%APPDATA%` 的设置会自动搬到 `data` 目录，不会丢。
+
+想指定别的位置，设环境变量 `CMP_DATA_DIR` 即可（多开、把数据放移动硬盘上都用得上）：
+
+```powershell
+$env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\convert-md-picture.exe
+```
+
+「关于」弹窗里能看到当前的数据目录，点「打开」直接在资源管理器里定位过去。
 
 ## 更新
 

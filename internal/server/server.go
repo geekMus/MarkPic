@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/geekMus/convert-md-picture/internal/appdata"
 	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/platform"
@@ -230,6 +231,10 @@ type healthResponse struct {
 	Version  string      `json:"version"`
 	Endpoint string      `json:"endpoint"`
 	Picgo    picgoHealth `json:"picgo"`
+	// DataDir 是设置与 WebView 缓存所在的位置（默认 exe 旁边的 data）。
+	DataDir string `json:"dataDir"`
+	// DataNote 只在没能放到 exe 旁边时说明原因。
+	DataNote string `json:"dataNote,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -248,6 +253,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Version:  version.String(),
 		Endpoint: cfg.Endpoint,
 		Picgo:    picgoHealth{Online: online, Detail: detail},
+		DataDir:  appdata.Dir(),
+		DataNote: appdata.Note(),
 	})
 }
 

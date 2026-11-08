@@ -69,6 +69,8 @@ const { hasUpdate, autoCheck, check: checkUpdate, stopPolling } = useUpdate()
 
 const version = computed(() => health.value?.version ?? '')
 const picgo = computed(() => health.value?.picgo ?? null)
+const dataDir = computed(() => health.value?.dataDir ?? '')
+const dataNote = computed(() => health.value?.dataNote ?? '')
 const dryRun = computed(() => settings.dryRun)
 
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
@@ -262,7 +264,13 @@ onBeforeUnmount(() => {
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
 
     <!-- 关于 / 更新：版本号挪到页面底部后，从那里点开 -->
-    <AboutDialog v-if="aboutOpen" :version="version" @close="aboutOpen = false" />
+    <AboutDialog
+      v-if="aboutOpen"
+      :version="version"
+      :data-dir="dataDir"
+      :data-note="dataNote"
+      @close="aboutOpen = false"
+    />
 
     <!-- 桌面窗口里四条边的缩放热区；浏览器里不需要 -->
     <div v-if="windowChrome" class="rz" aria-hidden="true">

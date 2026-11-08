@@ -7,11 +7,12 @@ import (
 	"log"
 	"math"
 	"os"
-	"path/filepath"
 	"syscall"
 	"unsafe"
 
 	webview2 "github.com/jchv/go-webview2"
+
+	"github.com/geekMus/convert-md-picture/internal/appdata"
 )
 
 // 图形界面的窗口尺寸：按界面「左台账 + 右设置轨」的舒适宽度取，窄于 900 会切成上下堆叠。
@@ -103,17 +104,10 @@ func bindWindowCommands(w webview2.WebView) {
 // windowSupported 表示当前平台支持原生窗口。
 func windowSupported() bool { return true }
 
-// webviewDataPath 返回 WebView2 的用户数据目录；建不出来就交给运行时自己决定。
+// webviewDataPath 返回 WebView2 的用户数据目录，放在程序数据目录下的 webview2 里，
+// 这样整个 data 目录就是程序留下的全部痕迹；建不出来就交给运行时自己决定。
 func webviewDataPath() string {
-	dir, err := os.UserCacheDir()
-	if err != nil || dir == "" {
-		return ""
-	}
-	path := filepath.Join(dir, "convert-md-picture", "webview2")
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return ""
-	}
-	return path
+	return appdata.WebViewDir()
 }
 
 // hideOwnedConsole 在「双击运行」时把控制台窗口收起来，让界面看起来就是个桌面程序。

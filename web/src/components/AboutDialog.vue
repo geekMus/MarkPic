@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import { describeError, revealPath } from '../api'
 import { useUpdate } from '../composables/useUpdate'
 
 const props = defineProps<{
   /** 服务端报上来的版本串，例如 1.0.0 (b7fb0d2)。 */
   version: string
+  /** 设置与 WebView 缓存所在的位置。 */
+  dataDir?: string
+  /** 没能放到 exe 旁边时的原因。 */
+  dataNote?: string
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -79,6 +84,20 @@ const sizeLabel = computed(() => {
 function onAutoCheck(event: Event): void {
   setAutoCheck((event.target as HTMLInputElement).checked)
 }
+
+const dirOpenError = ref('')
+
+/** 在资源管理器里打开数据目录，方便用户备份或清空。 */
+async function openDataDir(): Promise<void> {
+  const dir = props.dataDir?.trim()
+  if (!dir) return
+  dirOpenError.value = ''
+  try {
+    await revealPath(dir)
+  } catch (error) {
+    dirOpenError.value = describeError(error, '打不开数据目录')
+  }
+}
 </script>
 
 <template>
@@ -121,7 +140,17 @@ function onAutoCheck(event: Event): void {
             <dt>安装包</dt>
             <dd class="mono">{{ sizeLabel }}</dd>
           </div>
+          <div v-if="dataDir" class="about__fact">
+            <dt>数据目录</dt>
+            <dd class="about__path">
+              <span class="about__path-text mono" :title="dataDir">{{ dataDir }}</span>
+              <button type="button" class="btn btn--ghost btn--sm" @click="openDataDir">打开</button>
+            </dd>
+          </div>
         </dl>
+
+        <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>
+        <p v-if="dirOpenError" class="about__hint about__hint--bad">{{ dirOpenError }}</p>
 
         <div
           v-if="state === 'downloading'"
@@ -193,6 +222,8 @@ function onAutoCheck(event: Event): void {
 
 .about__fact dd {
   margin: 0;
+  /* 路径这类长内容要能省略号截断，min-width 不能是 auto */
+  min-width: 0;
   font-size: var(--fs-3);
   word-break: break-all;
 }
@@ -206,6 +237,33 @@ function onAutoCheck(event: Event): void {
 }
 
 .about__fact dd[data-tone='bad'] {
+  color: var(--bad);
+}
+
+/* 数据目录：路径一行显示不下就用省略号，鼠标悬停能看全（title） */
+.about__path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about__path-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.about__hint {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+}
+
+.about__hint--bad {
   color: var(--bad);
 }
 

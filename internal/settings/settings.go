@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/geekMus/convert-md-picture/internal/appdata"
 )
 
 // 输出方式。
@@ -95,14 +97,12 @@ type Store struct {
 	mu   sync.RWMutex
 }
 
-// NewStore 创建存储。path 为空时使用 %APPDATA%\convert-md-picture\settings.json。
+// NewStore 创建存储。path 为空时放在程序数据目录（默认是 exe 旁边的 data 目录，
+// 详见 internal/appdata）。旧版本把设置写在 %APPDATA%，这里会顺手搬过来。
 func NewStore(path string) *Store {
 	if path == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil || dir == "" {
-			dir = "."
-		}
-		path = filepath.Join(dir, "convert-md-picture", "settings.json")
+		path = appdata.SettingsPath()
+		appdata.AdoptLegacySettings(path)
 	}
 	return &Store{path: path}
 }

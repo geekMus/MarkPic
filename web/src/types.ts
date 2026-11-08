@@ -79,6 +79,10 @@ export type Health = {
   version: string
   endpoint: string
   picgo: { online: boolean; detail: string }
+  /** 设置与 WebView 缓存所在的位置（默认是 exe 旁边的 data 目录）。 */
+  dataDir: string
+  /** 没能放到 exe 旁边时的原因，正常情况下是空。 */
+  dataNote?: string
 }
 
 export type DialogResult = { paths: string[] }

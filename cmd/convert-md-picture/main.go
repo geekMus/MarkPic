@@ -22,6 +22,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/geekMus/convert-md-picture/internal/appdata"
 	"github.com/geekMus/convert-md-picture/internal/platform"
 	"github.com/geekMus/convert-md-picture/internal/server"
 	"github.com/geekMus/convert-md-picture/internal/settings"
@@ -240,6 +241,10 @@ func runGUI(store *settings.Store, opt options) int {
 	url := srv.URL()
 	fmt.Printf("convert-md-picture %s\n", version.String())
 	fmt.Printf("已启动：%s\n", url)
+	fmt.Printf("数据目录：%s\n", appdata.Dir())
+	if note := appdata.Note(); note != "" {
+		fmt.Printf("　（%s）\n", note)
+	}
 	if opt.noOpen {
 		fmt.Println("按 Ctrl+C 退出。")
 	} else {
