@@ -96,7 +96,7 @@ try {
     Write-Host ''
     Write-Host '接下来把它发出去（先传 exe，再推清单）：' -ForegroundColor Cyan
     Write-Host "    gh release create $tag `"$file`" --title $tag --notes `"$Notes`""
-    Write-Host '    git add version.json ; git commit -m "release ' + $tag + '"'
+    Write-Host ('    git add version.json ; git commit -m "release {0}"' -f $tag)
     Write-Host "    git tag $tag ; git push --follow-tags"
 }
 finally {
