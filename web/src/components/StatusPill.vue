@@ -21,61 +21,79 @@ withDefaults(
 </template>
 
 <style scoped>
-/* 读数而不是徽章：圆点带颜色，文字保持安静，省掉一圈边框噪声 */
+/* 读数而不是徽章：一个点 + 一句话，颜色只带在点上 */
 .pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--ink-3);
-  font-size: var(--fs-data);
+  gap: 7px;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
   font-weight: 500;
   white-space: nowrap;
 }
 
 .pill--compact {
-  gap: 5px;
-  font-size: var(--fs-label);
+  gap: 6px;
+  font-size: var(--fs-2);
 }
 
 .pill__dot {
-  width: 6px;
-  height: 6px;
   flex: none;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--ink-3);
+  box-shadow: 0 0 0 3px rgba(138, 148, 163, 0.14);
 }
 
-.pill__dot--pulse {
-  animation: pill-pulse 1.4s var(--ease) infinite;
+.pill[data-tone='accent'] .pill__dot {
+  background: var(--accent-vivid);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.pill__label {
-  line-height: 1;
+.pill[data-tone='success'] .pill__dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
 }
 
-.pill[data-tone='accent'] {
+.pill[data-tone='warning'] .pill__dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+.pill[data-tone='danger'] .pill__dot {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px var(--bad-soft);
+}
+
+.pill[data-tone='accent'] .pill__label {
   color: var(--accent-ink);
 }
 
-.pill[data-tone='success'] {
+.pill[data-tone='success'] .pill__label {
   color: var(--ok);
 }
 
-.pill[data-tone='warning'] {
+.pill[data-tone='warning'] .pill__label {
   color: var(--warn);
 }
 
-.pill[data-tone='danger'] {
+.pill[data-tone='danger'] .pill__label {
   color: var(--bad);
 }
 
-@keyframes pill-pulse {
+.pill__dot--pulse {
+  animation: pulse 1.6s var(--ease) infinite;
+}
+
+@keyframes pulse {
   0%,
   100% {
     opacity: 1;
   }
+
   50% {
-    opacity: 0.3;
+    opacity: 0.35;
   }
 }
 </style>

@@ -176,7 +176,7 @@ onBeforeUnmount(() => {
     />
 
     <main class="app__main">
-      <div class="shell" :class="{ 'shell--rail': optionsOpen }">
+      <div class="workspace" :class="{ 'workspace--rail': optionsOpen }">
         <FileQueue
           :rows="rowViews"
           :phase="phase"
@@ -227,50 +227,50 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app {
+  position: relative;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr) 44px;
+  grid-template-rows: 64px minmax(0, 1fr) 64px;
   height: 100vh;
-  background: var(--bg);
+  padding: 0 20px;
   color: var(--ink);
 }
 
 .app__main {
   min-height: 0;
-  padding: 14px 16px;
+  padding-bottom: 2px;
 }
 
-/* 一体外壳：左台账与右设置轨共用一层边框，读起来是一台仪表，而不是两张卡片 */
-.shell {
+/* 两块面板浮在画布上，间隙由 grid 栅格给出，不画外框 */
+.workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
   height: 100%;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--r-3);
-  background: var(--surface);
 }
 
-.shell--rail {
-  grid-template-columns: minmax(0, 1fr) 320px;
+.workspace--rail {
+  grid-template-columns: minmax(0, 1fr) 344px;
 }
 
-.shell--rail > :last-child {
-  border-left: 1px solid var(--line);
+@media (max-width: 1040px) {
+  .workspace--rail {
+    grid-template-columns: minmax(0, 1fr) 312px;
+  }
 }
 
 @media (max-width: 900px) {
+  .app {
+    grid-template-rows: 56px minmax(0, 1fr) auto;
+    padding: 0 12px;
+  }
+
   .app__main {
-    padding: 12px;
+    padding-bottom: 8px;
   }
 
-  .shell--rail {
+  .workspace--rail {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(240px, 42vh);
-  }
-
-  .shell--rail > :last-child {
-    border-top: 1px solid var(--line);
-    border-left: none;
+    grid-template-rows: minmax(0, 1fr) minmax(220px, 38vh);
   }
 }
 </style>

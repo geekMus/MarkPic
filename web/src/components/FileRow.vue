@@ -73,7 +73,11 @@ const indeterminate = computed(
   () => props.row.phase === 'running' && props.row.total === 0 && props.row.result === null,
 )
 
-const barVisible = computed(() => props.row.phase !== 'queued' || props.row.result !== null)
+/**
+ * 进度轨只在「还没跑完」的时候出现。跑完之后整行宽的一条彩色细线会被误读成
+ * 分隔线，结论交给状态列的那颗点就够了。
+ */
+const barVisible = computed(() => props.row.phase === 'running' || props.row.phase === 'queued')
 
 const items = computed<ImageItem[]>(() => props.row.result?.items ?? [])
 
@@ -84,11 +88,27 @@ const items = computed<ImageItem[]>(() => props.row.result?.items ?? [])
  */
 const reusedCount = computed(() => items.value.filter(item => item.status === 'reused').length)
 
+/** 预检模式下所有待上传的引用都还没有真正上传，单独数一遍，别混进「跳过」。 */
+const pendingCount = computed(() => items.value.filter(item => item.status === 'pending').length)
+
+/** 后端把 pending 也算进 skipped（那是给命令行汇总用的），展示时要把它们剥离出来。 */
+const skippedOnly = computed(() => Math.max(0, (props.row.result?.skipped ?? 0) - pendingCount.value))
+
+/**
+ * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
+ * （路径根本没匹配到文件的行不展开，见 noDetails，所以这里只剩「没有本地图片」一种情况。）
+ */
+const emptyDetailsText = computed(() => '这个文件里没有可处理的本地图片。')
+
+/** 没有逐图明细的行（例如路径下压根没有 Markdown）就不该给一个能点的展开箭头。 */
+const noDetails = computed(() => Boolean(props.row.missing) && !props.row.result)
+
 function itemDetail(item: ImageItem): string {
   if (item.status === 'failed') return item.error ?? '上传失败'
   if (item.status === 'missing') return item.error ?? '本地文件不存在'
   if (item.status === 'remote') return '已是远程地址，跳过'
-  if (item.status === 'pending') return '本地文件存在，尚未上传'
+  // 待上传的引用：状态列已经写了「待上传」，这里再重复一句就是噪音
+  if (item.status === 'pending') return ''
   return item.url ?? ''
 }
 
@@ -99,389 +119,468 @@ function replaced(status: ImageStatus): boolean {
 </script>
 
 <template>
-  <li class="row" :data-tone="statusMeta.tone">
-    <div class="row__head">
+  <li class="item" :data-tone="statusMeta.tone">
+    <div class="item__main">
       <button
         type="button"
-        class="row__toggle"
-        :aria-expanded="expanded"
-        :aria-controls="detailsId"
-        :title="expanded ? '收起图片明细' : '展开图片明细'"
+        class="item__toggle"
+        :disabled="noDetails"
+        :aria-expanded="noDetails ? undefined : expanded"
+        :aria-controls="noDetails ? undefined : detailsId"
+        :title="noDetails ? row.path : expanded ? '收起图片明细' : '展开图片明细'"
         @click="expanded = !expanded"
       >
-        <span class="row__chev" :class="{ 'row__chev--open': expanded }" aria-hidden="true">
+        <span
+          v-if="!noDetails"
+          class="item__chev"
+          :class="{ 'item__chev--on': expanded }"
+          aria-hidden="true"
+        >
           <AppIcon name="chevron-down" :size="14" />
         </span>
 
-        <span class="row__id">
-          <span class="row__name">{{ row.name }}</span>
-          <span class="row__dir mono" :title="row.path">{{ row.dir }}</span>
+        <span class="item__id">
+          <span class="item__name">{{ row.name }}</span>
+          <span class="item__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
       </button>
 
-      <span class="row__count num">{{ countLabel }}</span>
+      <span class="item__count num">{{ countLabel }}</span>
 
-      <span class="row__status">
+      <span class="item__status">
         <StatusPill :label="statusMeta.label" :tone="statusMeta.tone" compact />
       </span>
 
       <button
-        v-if="!busy"
         type="button"
-        class="icon-btn row__remove"
-        :aria-label="`从队列移除 ${row.name}`"
+        class="icon-btn icon-btn--sm icon-btn--danger item__remove"
         title="从队列移除"
+        aria-label="从队列移除"
+        :disabled="busy"
         @click="emit('remove', row.id)"
       >
-        <AppIcon name="trash" :size="15" />
+        <AppIcon name="x" :size="13" />
       </button>
     </div>
 
-    <p v-if="reason" class="row__reason">{{ reason }}</p>
+    <p v-if="reason" class="item__reason">{{ reason }}</p>
 
-    <div v-if="barVisible" class="row__rail" :class="{ 'row__rail--indeterminate': indeterminate }">
-      <div v-if="!indeterminate" class="row__rail-fill" :style="{ width: `${percent}%` }" />
-      <div v-else class="row__rail-slide" />
+    <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
+      <span :style="indeterminate ? undefined : { width: percent + '%' }" />
     </div>
 
-    <div v-if="expanded" :id="detailsId" class="row__details">
-      <template v-if="row.result">
-        <p class="row__stats num">
-          替换 {{ row.result.uploaded }} · 其中复用 {{ reusedCount }} · 跳过 {{ row.result.skipped }} ·
-          失败 {{ row.result.failed }}
-        </p>
+    <div v-if="expanded && !noDetails" :id="detailsId" class="details">
+      <div class="details__stats">
+        <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
+        <span v-if="(row.result?.uploaded ?? 0) > 0 || pendingCount === 0" class="stat">
+          <span class="stat__n num">{{ row.result?.uploaded ?? 0 }}</span>
+          <span class="stat__k">替换</span>
+        </span>
+        <span v-if="reusedCount > 0" class="stat">
+          <span class="stat__n num">{{ reusedCount }}</span>
+          <span class="stat__k">其中复用</span>
+        </span>
+        <span v-if="pendingCount > 0" class="stat">
+          <span class="stat__n num">{{ pendingCount }}</span>
+          <span class="stat__k">待上传</span>
+        </span>
+        <span v-if="skippedOnly > 0" class="stat">
+          <span class="stat__n num">{{ skippedOnly }}</span>
+          <span class="stat__k">跳过</span>
+        </span>
+        <span v-if="(row.result?.failed ?? 0) > 0" class="stat">
+          <span class="stat__n num stat__n--bad">{{ row.result?.failed }}</span>
+          <span class="stat__k">失败</span>
+        </span>
+      </div>
 
-        <ul v-if="items.length" class="items">
-          <li v-for="(item, index) in items" :key="`${item.line}-${index}`" class="item">
-            <span class="item__line num">L{{ item.line }}</span>
-            <span class="item__status" :data-tone="IMAGE_STATUS_META[item.status].tone">
-              {{ IMAGE_STATUS_META[item.status].label }}
-            </span>
-            <span class="item__target mono" :title="item.absolutePath">{{ item.target }}</span>
-            <span
-              class="item__arrow"
-              :class="{ 'item__arrow--on': replaced(item.status) }"
-              aria-hidden="true"
-            >
-              →
-            </span>
-            <span class="item__detail mono" :class="{ 'item__detail--muted': !replaced(item.status) }">
-              {{ itemDetail(item) }}
-            </span>
-          </li>
-        </ul>
-        <p v-else class="row__note">该文件未引用本地图片</p>
+      <ul v-if="items.length > 0" class="items">
+        <li v-for="(item, index) in items" :key="index" class="items__row" :data-status="item.status">
+          <span class="items__line mono">L{{ item.line }}</span>
+          <span class="items__status">{{ IMAGE_STATUS_META[item.status].label }}</span>
+          <span class="items__target mono" :title="item.absolutePath || item.target">
+            {{ item.target }}
+          </span>
+          <span v-if="replaced(item.status)" class="items__arrow items__arrow--on" aria-hidden="true">
+            <AppIcon name="chevron-down" :size="12" class="items__arrow-icon" />
+          </span>
+          <!-- 没被改写的引用不给箭头：单独一个灰箭头飘在那里只会被当成噪点 -->
+          <span v-else class="items__arrow" aria-hidden="true" />
+          <span class="items__result mono" :title="itemDetail(item)">{{ itemDetail(item) }}</span>
+        </li>
+      </ul>
 
-        <p v-if="row.result.outputPath" class="row__note">
-          输出 <span class="mono">{{ row.result.outputPath }}</span>
-        </p>
+      <p v-else class="details__empty">{{ emptyDetailsText }}</p>
 
-        <ul v-if="row.result.warnings?.length" class="warnings">
-          <li v-for="(warning, index) in row.result.warnings" :key="index" class="warning">
-            <AppIcon name="alert" :size="13" />
-            <span>{{ warning }}</span>
-          </li>
-        </ul>
-      </template>
+      <p v-if="row.result?.outputPath" class="details__out">
+        <span>输出</span>
+        <span class="mono">{{ row.result.outputPath }}</span>
+      </p>
 
-      <p v-else class="row__note">转换结束后显示图片明细</p>
+      <ul v-if="row.result?.warnings?.length" class="warnings">
+        <li v-for="(warning, index) in row.result.warnings" :key="index">{{ warning }}</li>
+      </ul>
     </div>
   </li>
 </template>
 
 <style scoped>
-/* 台账的列宽必须与 FileQueue 的列头保持一致：
-   文件 minmax(0,1fr) / 引用 64px / 状态 92px / 移除 30px */
-.row {
+.item {
   position: relative;
+  padding-left: 10px;
   border-bottom: 1px solid var(--line);
-  background: var(--surface);
-  --tone: var(--ink-3);
+  transition: background var(--t-fast) var(--ease);
 }
 
-.row:last-child {
-  border-bottom: none;
+.item:last-child {
+  border-bottom: 0;
 }
 
-.row[data-tone='accent'] {
-  --tone: var(--accent);
+.item:hover {
+  background: color-mix(in srgb, var(--panel-2) 60%, transparent);
 }
 
-.row[data-tone='success'] {
-  --tone: var(--ok);
-}
-
-.row[data-tone='warning'] {
-  --tone: var(--warn);
-}
-
-.row[data-tone='danger'] {
-  --tone: var(--bad);
-}
-
-/* 状态脊线：整份台账左边缘连续的一列颜色，扫一眼就知道哪几行没走通 */
-.row::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: var(--tone);
-}
-
-.row__head {
+.item__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 92px 30px;
+  grid-template-columns: minmax(0, 1fr) 76px 96px 34px;
   align-items: center;
-  column-gap: 8px;
-  padding-right: 6px;
+  column-gap: 10px;
+  min-height: 62px;
+  padding-right: 10px;
 }
 
-.row__toggle {
+/* 展开箭头绝对定位在轨道左侧，名字文字和列头的「文件」严格对齐 */
+.item__toggle:disabled {
+  cursor: default;
+}
+
+.item__toggle {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
   min-width: 0;
-  padding: 9px 0 9px 13px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font: inherit;
+  padding: 8px 0 8px 26px;
+  border: 0;
+  background: none;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--t-fast) var(--ease);
 }
 
-.row__toggle:hover {
-  background: var(--sunk);
-}
-
-.row__chev {
+.item__chev {
+  position: absolute;
+  left: 4px;
+  top: 50%;
   display: grid;
   place-items: center;
   width: 16px;
   height: 16px;
-  flex: none;
+  margin-top: -8px;
   color: var(--ink-3);
-  transition:
-    transform var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
+  transition: transform var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 
-.row__chev--open {
+.item__chev--on {
   transform: rotate(180deg);
   color: var(--ink-2);
 }
 
-.row__id {
+.item__toggle:hover .item__chev {
+  color: var(--ink);
+}
+
+.item__id {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  flex: 1;
+  gap: 1px;
   min-width: 0;
 }
 
-.row__name {
+.item__name {
+  overflow: hidden;
   color: var(--ink);
-  font-size: var(--fs-body);
-  font-weight: 550;
-  line-height: 1.35;
-  overflow: hidden;
+  font-size: var(--fs-3);
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.row__dir {
-  color: var(--ink-3);
-  font-size: var(--fs-label);
-  line-height: 1.35;
+.item__dir {
   overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.row__count {
-  color: var(--ink-3);
-  font-size: var(--fs-label);
+.item__count {
+  color: var(--ink-2);
+  font-size: var(--fs-2);
   text-align: right;
   white-space: nowrap;
 }
 
-.row__status {
-  display: flex;
-  justify-content: flex-end;
+.item__status {
+  min-width: 0;
 }
 
-.row__remove {
+.item__remove {
+  justify-self: end;
   opacity: 0;
-  transition: opacity var(--t-fast) var(--ease);
 }
 
-.row:hover .row__remove,
-.row__remove:focus-visible {
+.item:hover .item__remove,
+.item__remove:focus-visible {
   opacity: 1;
 }
 
-.row__reason {
-  padding: 0 13px 8px 39px;
-  color: var(--tone);
-  font-size: var(--fs-label);
+.item__reason {
+  padding: 0 10px 8px 36px;
+  color: var(--warn);
+  font-size: var(--fs-2);
   line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
-.row__rail {
+.item[data-tone='danger'] .item__reason {
+  color: var(--bad);
+}
+
+.item__rail {
   position: relative;
   height: 2px;
+  margin: 0 10px 0 36px;
   overflow: hidden;
-  background: var(--track);
+  border-radius: var(--r-pill);
+  background: var(--line);
 }
 
-.row__rail-fill {
+.item__rail span {
+  display: block;
   height: 100%;
-  background: var(--tone);
+  border-radius: inherit;
+  background: var(--tone-line, var(--accent-vivid));
   transition: width var(--t-slow) var(--ease);
 }
 
-.row__rail-slide {
-  width: 30%;
-  height: 100%;
-  background: var(--tone);
-  animation: rail-slide 1.1s var(--ease) infinite;
+.item[data-tone='success'] .item__rail span {
+  background: var(--ok);
 }
 
-.row__details {
-  padding: 10px 13px 12px 39px;
-  border-top: 1px solid var(--line);
-  background: var(--sunk);
+.item[data-tone='warning'] .item__rail span {
+  background: var(--warn);
+}
+
+.item[data-tone='danger'] .item__rail span {
+  background: var(--bad);
+}
+
+.item__rail--wait span {
+  width: 32%;
+  animation: rail-wait 1.4s var(--ease) infinite;
+}
+
+@keyframes rail-wait {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* ---- 展开后的明细台账 ---- */
+
+.details {
+  margin: 2px 10px 12px 36px;
+  padding: 12px 14px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--panel-2);
   animation: details-in var(--t-base) var(--ease);
 }
 
-.row__stats {
-  color: var(--ink-2);
-  font-size: var(--fs-label);
+.details__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--line-2);
 }
 
-.row__note {
-  margin-top: 6px;
+.stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.stat__n {
+  color: var(--ink);
+  font-size: var(--fs-4);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.stat__n--bad {
+  color: var(--bad);
+}
+
+.stat__k {
   color: var(--ink-3);
-  font-size: var(--fs-label);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
+  font-size: var(--fs-1);
 }
 
 .items {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--surface);
-  overflow: hidden;
 }
 
-.item {
+.items__row {
   display: grid;
-  grid-template-columns: 34px 52px minmax(0, 1fr) 12px minmax(0, 1.1fr);
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 9px;
+  grid-template-columns: 46px 58px minmax(0, 1fr) 16px minmax(0, 1.05fr);
+  align-items: center;
+  column-gap: 8px;
+  min-height: 30px;
   border-bottom: 1px solid var(--line);
-  font-size: var(--fs-label);
 }
 
-.item:last-child {
-  border-bottom: none;
+.items__row:last-child {
+  border-bottom: 0;
 }
 
-.item__line {
+.items__line {
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
 }
 
-.item__status {
+.items__status {
   color: var(--ink-2);
+  font-size: var(--fs-1);
+  font-weight: 500;
   white-space: nowrap;
 }
 
-.item__status[data-tone='success'] {
+.items__row[data-status='uploaded'] .items__status {
   color: var(--ok);
 }
 
-.item__status[data-tone='accent'] {
+.items__row[data-status='reused'] .items__status {
   color: var(--accent-ink);
 }
 
-.item__status[data-tone='warning'] {
+.items__row[data-status='missing'] .items__status {
   color: var(--warn);
 }
 
-.item__status[data-tone='danger'] {
+.items__row[data-status='failed'] .items__status {
   color: var(--bad);
 }
 
-.item__target,
-.item__detail {
-  min-width: 0;
+.items__target,
+.items__result {
   overflow: hidden;
+  font-size: var(--fs-1);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 不使用 direction: rtl 做「左侧省略」：bidi 重排会把开头的 ./ 或盘符挪到末尾，
-   反而读不出路径。这里正常书写方向截断，完整路径由 title 提供。 */
-.item__target {
+.items__target {
   color: var(--ink-2);
 }
 
-.item__detail {
-  color: var(--ink-2);
-}
-
-.item__detail--muted {
+.items__result {
   color: var(--ink-3);
 }
 
-.item__arrow {
-  color: var(--line-2);
-  text-align: center;
+.items__row[data-status='uploaded'] .items__result,
+.items__row[data-status='reused'] .items__result {
+  color: var(--accent-ink);
 }
 
-.item__arrow--on {
+.items__row[data-status='failed'] .items__result {
+  color: var(--bad);
+}
+
+.items__arrow {
+  display: grid;
+  place-items: center;
+  color: var(--line-3);
+}
+
+.items__arrow-icon {
+  transform: rotate(-90deg);
+}
+
+.items__arrow--on {
   color: var(--accent);
+}
+
+.details__empty {
+  padding: 10px 0 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+}
+
+.details__out {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-2);
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+}
+
+.details__out .mono {
+  overflow: hidden;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .warnings {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 7px;
-}
-
-.warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
+  margin-top: 8px;
   color: var(--warn);
-  font-size: var(--fs-label);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
+  font-size: var(--fs-1);
+  line-height: 1.5;
 }
 
-@keyframes rail-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(340%);
-  }
+.warnings li::before {
+  margin-right: 6px;
+  content: '·';
 }
 
 @keyframes details-in {
   from {
     opacity: 0;
+    transform: translateY(-3px);
   }
+
   to {
     opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .item__count {
+    display: none;
+  }
+
+  .item__main {
+    grid-template-columns: minmax(0, 1fr) 96px 34px;
+  }
+
+  .items__row {
+    grid-template-columns: 46px 58px minmax(0, 1fr);
+  }
+
+  .items__arrow,
+  .items__result {
+    display: none;
   }
 }
 </style>

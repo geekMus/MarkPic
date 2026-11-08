@@ -47,56 +47,69 @@ const parts = computed<Part[]>(() => {
   return list
 })
 
+// 试运行没有真正写出文件，别给一个必然失败的「打开输出目录」
 const showReveal = computed(
-  () => props.canReveal && (props.phase === 'done' || props.phase === 'cancelled'),
+  () =>
+    props.canReveal && !props.dryRun && (props.phase === 'done' || props.phase === 'cancelled'),
 )
 
 const showShortcut = computed(() => props.canStart && !props.busy)
 </script>
 
 <template>
-  <footer class="footer">
-    <div class="footer__readout" role="status" aria-live="polite">
-      <template v-for="(part, i) in parts" :key="part.text">
-        <span v-if="i > 0" class="footer__sep" aria-hidden="true">·</span>
-        <span class="footer__part num" :data-tone="part.tone">{{ part.text }}</span>
+  <footer class="foot">
+    <div class="foot__stats" role="status" aria-live="polite">
+      <template v-for="(part, index) in parts" :key="index">
+        <span v-if="index > 0" class="foot__sep" aria-hidden="true">·</span>
+        <span class="foot__part" :data-tone="part.tone">{{ part.text }}</span>
       </template>
-      <span v-if="dryRun" class="tag tag--warn footer__dry">试运行</span>
+      <span v-if="dryRun" class="tag tag--warn">试运行</span>
     </div>
 
-    <div class="footer__actions">
-      <span v-if="showShortcut" class="footer__kbd">
-        <span class="kbd">Ctrl</span>
-        <span class="kbd">Enter</span>
+    <div class="foot__actions">
+      <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
+        <kbd class="kbd">Ctrl</kbd>
+        <span class="foot__plus">+</span>
+        <kbd class="kbd">Enter</kbd>
       </span>
 
-      <button
-        v-if="showReveal"
-        type="button"
-        class="btn btn--secondary btn--sm"
-        @click="emit('reveal')"
-      >
-        <AppIcon name="folder-open" :size="14" />
+      <button v-if="showReveal" type="button" class="btn btn--secondary" @click="emit('reveal')">
+        <AppIcon name="folder-open" :size="15" />
         打开输出目录
       </button>
 
-      <button v-if="phase === 'preparing'" type="button" class="btn btn--primary" disabled>
+      <button
+        v-if="phase === 'preparing'"
+        type="button"
+        class="btn btn--primary btn--lg"
+        disabled
+      >
         启动中
       </button>
-      <button v-else-if="phase === 'cancelling'" type="button" class="btn btn--danger" disabled>
+      <button
+        v-else-if="phase === 'cancelling'"
+        type="button"
+        class="btn btn--secondary btn--lg"
+        disabled
+      >
         正在取消
       </button>
-      <button v-else-if="busy" type="button" class="btn btn--danger" @click="emit('cancel')">
+      <button
+        v-else-if="busy"
+        type="button"
+        class="btn btn--secondary btn--lg"
+        @click="emit('cancel')"
+      >
         取消
       </button>
       <button
         v-else
         type="button"
-        class="btn btn--primary"
+        class="btn btn--primary btn--lg"
         :disabled="!canStart"
-        :title="canStart ? '开始转换' : '请先加入文件'"
         @click="emit('run')"
       >
+        <AppIcon name="play" :size="15" />
         开始转换
       </button>
     </div>
@@ -104,65 +117,63 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 </template>
 
 <style scoped>
-.footer {
+.foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  height: 44px;
-  padding: 0 16px;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
-  z-index: 20;
-}
-
-.footer__readout {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  gap: 16px;
   min-width: 0;
 }
 
-.footer__part {
+.foot__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   color: var(--ink-2);
-  font-size: var(--fs-data);
+  font-size: var(--fs-2);
+}
+
+.foot__part {
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
-.footer__sep {
-  color: var(--line-2);
-}
-
-.footer__part[data-tone='bad'] {
+.foot__part[data-tone='bad'] {
   color: var(--bad);
+  font-weight: 600;
 }
 
-.footer__part[data-tone='warn'] {
+.foot__part[data-tone='warn'] {
   color: var(--warn);
 }
 
-.footer__dry {
-  flex: none;
+.foot__sep {
+  color: var(--line-3);
 }
 
-.footer__kbd {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-right: 4px;
-  color: var(--ink-3);
-  font-size: var(--fs-label);
-}
-
-.footer__actions {
+.foot__actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: none;
 }
 
-@media (max-width: 720px) {
-  .footer__kbd {
+.foot__kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+}
+
+.foot__plus {
+  color: var(--ink-3);
+}
+
+@media (max-width: 760px) {
+  .foot__kbd {
     display: none;
   }
 }

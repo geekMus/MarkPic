@@ -59,59 +59,47 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
 <template>
   <header class="bar">
     <div class="bar__brand">
-      <svg class="bar__mark" viewBox="0 0 24 24" aria-hidden="true">
-        <rect
-          x="1.5"
-          y="1.5"
-          width="21"
-          height="21"
-          rx="6.5"
-          fill="var(--mark)"
-          stroke="var(--line-2)"
-        />
-        <path
-          d="M8.6 8.4h4.2a1.6 1.6 0 0 1 1.6 1.6v4.2"
-          stroke="var(--mark-ink)"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          fill="none"
-        />
-        <path
-          d="M15.4 8.6v6.8H8.6"
-          stroke="var(--mark-ink)"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          fill="none"
-        />
-        <path
-          d="M10.6 13.4l4.8-4.8"
-          stroke="var(--mark-ink)"
-          stroke-width="1.6"
-          stroke-linecap="round"
-          fill="none"
-        />
-      </svg>
-
-      <h1 class="bar__title">Markdown 图片图床化</h1>
-      <span v-if="versionLabel" class="tag" :title="`本地服务版本 ${versionLabel}`">
-        {{ versionLabel }}
+      <span class="bar__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <rect x="1.5" y="1.5" width="21" height="21" rx="6.5" fill="var(--mark)" />
+          <path
+            d="M8.6 8.4h4.2a1.6 1.6 0 0 1 1.6 1.6v4.2"
+            stroke="var(--mark-ink)"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            fill="none"
+          />
+          <path
+            d="M15.4 8.6v6.8H8.6"
+            stroke="var(--mark-ink)"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            fill="none"
+            opacity="0.55"
+          />
+        </svg>
       </span>
+
+      <span class="bar__names">
+        <span class="bar__title">Markdown 图片图床化</span>
+        <span class="bar__sub">本地图片经 PicGo 上传，回写为图床链接</span>
+      </span>
+
+      <span v-if="versionLabel" class="bar__version mono">{{ versionLabel }}</span>
     </div>
 
-    <div class="bar__right">
-      <span v-if="runVisible" class="bar__run" role="status" aria-live="polite">
-        <StatusPill tone="accent" :label="runLabel" pulse />
-      </span>
+    <div class="bar__tools">
+      <StatusPill v-if="runVisible" :label="runLabel" tone="accent" pulse />
 
       <button
         type="button"
-        class="bar__health"
+        class="health"
+        :data-tone="picgoTone"
         :title="picgoTitle"
-        :aria-label="picgoTitle"
         @click="emit('refresh-health')"
       >
-        <StatusPill :tone="picgoTone" :label="picgoLabel" :pulse="healthChecking" />
+        <span class="health__dot" aria-hidden="true" />
+        <span class="health__text">{{ picgoLabel }}</span>
       </button>
 
       <span class="bar__sep" aria-hidden="true" />
@@ -129,8 +117,9 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
       <button
         type="button"
         class="icon-btn"
-        title="显示或隐藏选项面板"
-        aria-label="显示或隐藏选项面板"
+        :class="{ 'icon-btn--active': optionsOpen }"
+        :title="optionsOpen ? '隐藏设置面板' : '显示设置面板'"
+        :aria-label="optionsOpen ? '隐藏设置面板' : '显示设置面板'"
         :aria-pressed="optionsOpen"
         @click="emit('toggle-settings')"
       >
@@ -145,70 +134,149 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  height: 52px;
-  padding: 0 14px 0 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface);
-  z-index: 20;
+  gap: 16px;
+  min-width: 0;
 }
 
 .bar__brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 11px;
   min-width: 0;
 }
 
 .bar__mark {
-  width: 22px;
-  height: 22px;
+  display: grid;
+  place-items: center;
   flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.18), 0 8px 18px -12px rgba(13, 17, 23, 0.7);
+}
+
+.bar__mark svg {
+  width: 32px;
+  height: 32px;
+}
+
+.bar__names {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
 .bar__title {
+  overflow: hidden;
   color: var(--ink);
-  font-size: var(--fs-title);
+  font-size: var(--fs-4);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.005em;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.bar__right {
+.bar__sub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar__version {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  line-height: 17px;
+}
+
+.bar__tools {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
 }
 
-.bar__run {
-  display: inline-flex;
-  margin-right: 2px;
-}
-
-.bar__health {
-  display: inline-flex;
-  padding: 3px 6px;
-  border: none;
-  border-radius: var(--r-2);
-  background: transparent;
-  cursor: pointer;
-  transition: background-color var(--t-fast) var(--ease);
-}
-
-.bar__health:hover {
-  background: var(--sunk);
-}
-
 .bar__sep {
   width: 1px;
-  height: 18px;
-  margin: 0 2px;
-  background: var(--line);
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line-2);
 }
 
-@media (max-width: 780px) {
-  .bar__title {
+/* PicGo 状态读成一个可点的徽标，悬停才浮起来 */
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+  cursor: pointer;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+
+.health:hover {
+  border-color: var(--line-3);
+  background: var(--panel-2);
+  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.06);
+}
+
+.health__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
+.health[data-tone='success'] .health__dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.health[data-tone='danger'] .health__dot {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px var(--bad-soft);
+}
+
+.health[data-tone='neutral'] .health__dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+
+.health[data-tone='success'] .health__text {
+  color: var(--ok);
+}
+
+.health[data-tone='danger'] .health__text {
+  color: var(--bad);
+}
+
+@media (max-width: 940px) {
+  .bar__sub {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .bar__names {
+    display: none;
+  }
+
+  .bar__version {
     display: none;
   }
 }

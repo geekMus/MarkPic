@@ -42,83 +42,91 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
 </template>
 
 <style scoped>
+/* 左下角浮起来：不遮右栏底部的保存按钮，也不挡队列最后一行的操作 */
 .toasts {
   position: fixed;
-  left: 16px;
-  bottom: 56px;
-  z-index: 60;
+  left: 20px;
+  bottom: 78px;
+  z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(392px, calc(100vw - 32px));
+  width: 340px;
+  max-width: calc(100vw - 40px);
   pointer-events: none;
 }
 
 .toast {
-  --tone: var(--accent);
-
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 9px 8px 9px 11px;
-  border: 1px solid var(--line);
-  border-left: 2px solid var(--tone);
-  border-radius: var(--r-2);
-  background: var(--surface);
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--border-panel);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-3);
+  background: var(--panel);
   box-shadow: var(--shadow-pop);
   pointer-events: auto;
 }
 
 .toast[data-tone='success'] {
-  --tone: var(--ok);
+  border-left-color: var(--ok);
 }
 
 .toast[data-tone='warning'] {
-  --tone: var(--warn);
+  border-left-color: var(--warn);
 }
 
 .toast[data-tone='danger'] {
-  --tone: var(--bad);
+  border-left-color: var(--bad);
 }
 
 .toast__icon {
   display: grid;
   place-items: center;
+  flex: none;
   width: 18px;
   height: 18px;
-  flex: none;
   margin-top: 1px;
-  color: var(--tone);
+  color: var(--accent);
+}
+
+.toast[data-tone='success'] .toast__icon {
+  color: var(--ok);
+}
+
+.toast[data-tone='warning'] .toast__icon {
+  color: var(--warn);
+}
+
+.toast[data-tone='danger'] .toast__icon {
+  color: var(--bad);
 }
 
 .toast__text {
   flex: 1;
   min-width: 0;
   color: var(--ink);
-  font-size: var(--fs-data);
-  line-height: 1.5;
+  font-size: var(--fs-2);
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
 .toast__close {
   display: grid;
   place-items: center;
+  flex: none;
   width: 22px;
   height: 22px;
-  flex: none;
-  padding: 0;
-  border: none;
+  border: 0;
   border-radius: var(--r-1);
-  background: transparent;
+  background: none;
   color: var(--ink-3);
   cursor: pointer;
-  transition:
-    background-color var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
 }
 
 .toast__close:hover {
-  background: var(--sunk);
+  background: var(--panel-2);
   color: var(--ink);
 }
 
@@ -133,5 +141,9 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
 .toast-leave-to {
   opacity: 0;
   transform: translateY(6px);
+}
+
+.toast-move {
+  transition: transform var(--t-base) var(--ease);
 }
 </style>

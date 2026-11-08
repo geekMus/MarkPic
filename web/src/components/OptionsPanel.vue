@@ -38,12 +38,13 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 </script>
 
 <template>
-  <aside class="pane panel">
-    <div class="pane__head">
-      <div class="pane__headline">
-        <h2 class="pane__title">设置</h2>
+  <aside class="panel panel--rail">
+    <header class="panel__head">
+      <div class="panel__title">
+        <h2>设置</h2>
+        <span v-if="dirty" class="panel__note panel__note--dirty">未保存</span>
       </div>
-      <div class="pane__actions">
+      <div class="panel__actions">
         <button
           type="button"
           class="icon-btn"
@@ -54,16 +55,16 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           <AppIcon name="x" :size="15" />
         </button>
       </div>
-    </div>
+    </header>
 
-    <div class="pane__body panel__body">
+    <div class="panel__body">
       <template v-if="loaded">
-        <section class="group">
-          <h3 class="group__title">PicGo 服务</h3>
+        <section class="section">
+          <h3 class="section__title">PicGo 服务</h3>
           <label class="field">
             <span class="field__label">服务地址</span>
             <input
-              class="input input--mono"
+              class="input mono"
               type="text"
               spellcheck="false"
               autocomplete="off"
@@ -74,8 +75,8 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           </label>
         </section>
 
-        <section class="group">
-          <h3 class="group__title">并发与重试</h3>
+        <section class="section">
+          <h3 class="section__title">并发与重试</h3>
           <div class="field-row">
             <label class="field">
               <span class="field__label">并发数</span>
@@ -88,7 +89,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.concurrency"
                 @change="emit('update', { concurrency: clampValue($event, 1, 16, 4) })"
               />
-              <span class="field__hint">1 - 16</span>
+              <span class="field__hint">1 – 16</span>
             </label>
             <label class="field">
               <span class="field__label">失败重试</span>
@@ -101,13 +102,13 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.retries"
                 @change="emit('update', { retries: clampValue($event, 0, 5, 2) })"
               />
-              <span class="field__hint">0 - 5</span>
+              <span class="field__hint">0 – 5</span>
             </label>
           </div>
         </section>
 
-        <section class="group">
-          <h3 class="group__title">输出方式</h3>
+        <section class="section">
+          <h3 class="section__title">输出方式</h3>
           <div class="segmented" role="group" aria-label="输出方式">
             <button
               v-for="mode in OUTPUT_MODES"
@@ -125,7 +126,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
           <label v-if="settings.output === 'sidecar'" class="field">
             <span class="field__label">副本后缀</span>
             <input
-              class="input input--mono"
+              class="input mono"
               type="text"
               spellcheck="false"
               autocomplete="off"
@@ -135,33 +136,32 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
             <span class="field__hint">例：post{{ settings.suffix }}.md</span>
           </label>
 
-          <template v-if="settings.output === 'directory'">
-            <div class="field">
-              <span class="field__label">输出目录</span>
-              <div class="field__row">
-                <input
-                  class="input input--mono"
-                  type="text"
-                  spellcheck="false"
-                  autocomplete="off"
-                  placeholder="D:\output"
-                  :value="settings.outDir"
-                  @input="emit('update', { outDir: textValue($event) })"
-                />
-                <button type="button" class="btn btn--secondary btn--sm" @click="emit('pick-dir')">
-                  选择
-                </button>
-              </div>
+          <div v-if="settings.output === 'directory'" class="field">
+            <span class="field__label">输出目录</span>
+            <div class="field__row">
+              <input
+                class="input mono"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="D:\output"
+                :value="settings.outDir"
+                @input="emit('update', { outDir: textValue($event) })"
+              />
+              <button type="button" class="btn btn--secondary btn--sm" @click="emit('pick-dir')">
+                <AppIcon name="folder-open" :size="14" />
+                选择
+              </button>
             </div>
-          </template>
+          </div>
 
           <p v-if="settings.output === 'in-place'" class="notice">
             原地替换会直接改写原始文件，请确认已开启备份或已纳入版本控制。
           </p>
         </section>
 
-        <section class="group">
-          <h3 class="group__title">写入选项</h3>
+        <section class="section">
+          <h3 class="section__title">写入选项</h3>
           <label class="check">
             <input
               type="checkbox"
@@ -193,7 +193,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
       </div>
     </div>
 
-    <div v-if="loaded" class="pane__foot">
+    <footer v-if="loaded" class="panel__foot">
       <button
         type="button"
         class="btn btn--ghost btn--sm"
@@ -210,13 +210,22 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
       >
         {{ saving ? '保存中' : '保存设置' }}
       </button>
-    </div>
+    </footer>
   </aside>
 </template>
 
 <style scoped>
+.panel__note--dirty {
+  color: var(--warn);
+  font-weight: 500;
+}
+
+/* 设置项一段一段往前推，靠留白和细线分组，不嵌套卡片 */
+.section {
+  padding: 16px 18px 18px;
+}
+
 .panel__body {
-  padding: 13px 14px 16px;
-  overflow-y: auto;
+  padding-bottom: 6px;
 }
 </style>

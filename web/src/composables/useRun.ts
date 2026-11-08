@@ -427,7 +427,12 @@ function applyPreview(result: PreviewResult): void {
 
   rows.value = rows.value.map(row => {
     const exact = byPath.get(pathKey(row.path))
-    if (exact) return { ...row, images: exact.images, total: exact.images, missing: false }
+    if (exact) {
+      // 预检结果也存进 results：行的 images 有了，逐图明细（L 行）才有出处，
+      // 否则展开一行 8 张图的文件会得到「没有可处理的本地图片」这种自相矛盾的话。
+      if (!results.has(row.id)) results.set(row.id, exact)
+      return { ...row, images: exact.images, total: exact.images, missing: false }
+    }
 
     const prefix = `${pathKey(row.path)}\\`
     let sum = 0
