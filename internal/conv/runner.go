@@ -129,6 +129,18 @@ func (r *Runner) SaveUploadCache() {
 	}
 }
 
+// skipDir 返回扫描时要整体跳过的目录。
+//
+// 只有「输出到目录」模式需要：输出目录常常就建在被扫描的目录里面，不跳过的话
+// 第二次运行会把上一次的产物当成待处理文档（队列里凭空多几行，产物还会被再处理一遍）。
+// 旁挂副本与原地模式的产物本来就散在源目录里，靠 *<suffix>.md 这个后缀过滤。
+func (r *Runner) skipDir() string {
+	if r.cfg.Output != settings.OutputDirectory {
+		return ""
+	}
+	return r.cfg.OutDir
+}
+
 // noteUploadSuccess 记下「这一轮至少成功过一张」。一旦成功过，就说明图床是通的，
 // 后面偶发失败交给重试与逐图报错即可，不再触发提前收工。
 func (r *Runner) noteUploadSuccess() {
@@ -308,7 +320,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		r.abortMu.Unlock()
 	}()
 
-	files, missing, err := ExpandPaths(paths, r.cfg.Suffix)
+	files, missing, err := ExpandPaths(paths, r.cfg.Suffix, r.skipDir())
 	if err != nil {
 		r.logf("error", "%s", i18n.T(r.lang, i18n.KeyConvExpandFailed, err))
 	}

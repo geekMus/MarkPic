@@ -299,12 +299,48 @@ func TestExpandPathsSkipsOutputs(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "sub", "b.md"), "x")
 	writeFile(t, filepath.Join(dir, "node_modules", "c.md"), "x")
 
-	files, _, err := ExpandPaths([]string{dir}, ".converted")
+	files, _, err := ExpandPaths([]string{dir}, ".converted", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 2 {
 		t.Fatalf("got %v", files)
+	}
+}
+
+// 「输出到目录」的输出目录如果正好建在被扫描的目录里面，第二次运行不能把上一次的
+// 产物当成待处理文档——否则队列里凭空多几行，产物还会被再处理一遍。
+func TestExpandSkipsOutputDirInsideScan(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.md"), "x")
+	out := filepath.Join(dir, "out")
+	writeFile(t, filepath.Join(out, "a.md"), "x")
+	writeFile(t, filepath.Join(out, "sub", "b.md"), "x")
+
+	files, _, err := ExpandPaths([]string{dir}, ".converted", out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || filepath.Base(files[0]) != "a.md" {
+		t.Fatalf("输出目录没有被跳过：%v", files)
+	}
+
+	// 大小写不同也要认得出来（Windows 上 Out 与 out 是同一个目录）。
+	files, _, err = ExpandPaths([]string{dir}, ".converted", strings.ToUpper(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("大小写不同的输出目录没被跳过：%v", files)
+	}
+
+	// 不传（旁挂副本 / 原地模式）时行为不变：产物目录里的文件照常算。
+	files, _, err = ExpandPaths([]string{dir}, ".converted", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 {
+		t.Fatalf("不跳过时应该扫到 3 篇：%v", files)
 	}
 }
 

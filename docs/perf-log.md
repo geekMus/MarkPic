@@ -1505,3 +1505,30 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 回归测试 `TestCurrentRunSnapshot`：没跑过时 `running=false`；图床卡住时 `running=true`、文件清单到位、
 结果为空；放行后同一接口能拿到 `results[0].uploaded == 1` 与 `summary`。
 `docs/API.md` 端点表补 `/api/run/current`，README 的图形界面一节补一段「刷新/断线不会丢这一轮」。
+## 第 32 轮：「输出到目录」的输出目录建在被扫描目录里面时，产物会被当成输入
+
+**问题**：`-o directory --out-dir docs\out docs` 这种写法很自然（产物不想和原稿混在一起，
+就在原稿目录下开个子目录），但 `ExpandPaths` 只按 `*<suffix>.md` 过滤产物，
+而目录模式的产物文件名是**原文件名**（`a.md`），于是第二次运行会把 `docs\out\a.md` 当成待处理文档。
+
+实测（夹具 `%TEMP%\cmp-nested`：`docs\a.md` + `docs\img\one.png`，输出到 `docs\out`）：
+
+| 第几遍 | 改之前 | 改之后 |
+| --- | --- | --- |
+| 第 1 遍 | 1 个文件 · 替换 1 处 | 1 个文件 · 替换 1 处 |
+| 第 2 遍 | **2 个文件**：`a.md` 完成 + `a.md`（`docs\out\a.md`）「没有本地图片」 | **1 个文件** · 替换 1 处 · 省下 1 张重传 |
+| 第 3 遍（`--dry-run`） | **2 个文件**：1 处待上传 + 1 处网络图片（把产物又数了一遍） | **1 个文件** · 1 处引用 · 1 处待上传 |
+
+界面上的表现更明显：队列里凭空多一行同名文件，状态「无图」，用户会以为工具出了错。
+
+**改法**：`ExpandPaths(paths, suffix, skipDir)` 多一个参数，`WalkDir` 里遇到
+`normalizeDir(path) == normalizeDir(skipDir)` 的目录就 `fs.SkipDir`（根目录本身不跳，
+否则 `--out-dir` 正好等于源目录时一篇都扫不到）。
+`Runner.skipDir()` 只在 `Output == settings.OutputDirectory` 时返回 `OutDir`：
+旁挂副本与原地模式的产物本来就散在源目录里，靠后缀过滤就够了。
+`normalizeDir` 做 `Abs + Clean + ToLower`——Windows 上用户完全可能把 `--out-dir` 写成 `Out`
+而扫描到的是 `out`。
+
+回归测试 `TestExpandSkipsOutputDirInsideScan`：输出目录里的文件被跳过、大小写不同也认得出、
+不传 skipDir 时行为不变（3 篇照常扫到）。API 侧同样生效：`POST /api/preview` 传
+`settings={output:'directory', outDir:…}` 只回 1 个文件。
