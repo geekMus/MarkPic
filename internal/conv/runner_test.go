@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -689,5 +690,69 @@ func TestReferenceStyleImagesAreConverted(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("输出里缺少 %q：\n%s", want, out)
 		}
+	}
+}
+
+// TestPreviewSurfacesBadOutputDir 保证试运行就把「输出位置有问题」说出来：
+// 选了「输出到目录」但那个路径其实是个文件时，预检结果里必须带错误、
+// 且不能给出一个假的输出路径（真正跑的时候会当场失败）。
+func TestPreviewSurfacesBadOutputDir(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "# t\n\n![x](img/a.png)\n")
+
+	blocker := filepath.Join(dir, "out")
+	writeFile(t, blocker, "这不是目录")
+
+	cfg := baseCfg("http://127.0.0.1:1")
+	cfg.DryRun = true
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = blocker
+
+	r := NewRunner(cfg, i18n.ZH, "preview", func(Event) {})
+	files, _ := r.RunCollect(context.Background(), []string{doc})
+	if len(files) != 1 {
+		t.Fatalf("预检结果数量不对：%d", len(files))
+	}
+	if files[0].Error == "" {
+		t.Fatal("预期预检就报出输出目录有问题，实际没报")
+	}
+	if files[0].OutputPath != "" {
+		t.Errorf("输出位置有问题时不该给出输出路径，得到 %q", files[0].OutputPath)
+	}
+}
+
+// TestReadOnlyTargetExplainsItself 覆盖「目标文件只读、覆盖不了」时的说法：
+// 不能把 rename 的原始错误（带临时文件名和英文系统调用信息）甩给用户。
+// 只有 Windows 会因目标只读而改名失败，所以这个用例限定平台。
+func TestReadOnlyTargetExplainsItself(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("只有 Windows 上覆盖只读文件会失败")
+	}
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "# t\n\n![x](img/a.png)\n")
+
+	target := filepath.Join(dir, "a.converted.md")
+	writeFile(t, target, "旧内容\n")
+	if err := os.Chmod(target, 0o444); err != nil {
+		t.Fatalf("设置只读失败：%v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(target, 0o644) })
+
+	srv, _ := fakePicGo(t, nil)
+	r := NewRunner(baseCfg(srv.URL), i18n.ZH, "run1", func(Event) {})
+	files, sum := r.RunCollect(context.Background(), []string{doc})
+
+	if sum.Failed != 1 {
+		t.Fatalf("预期 1 个文件失败，实际 %d", sum.Failed)
+	}
+	if len(files) != 1 {
+		t.Fatalf("结果数量不对：%d", len(files))
+	}
+	if !strings.Contains(files[0].Error, "只读") {
+		t.Errorf("错误文案应说明是只读文件，实际是 %q", files[0].Error)
 	}
 }

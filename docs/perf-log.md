@@ -579,3 +579,46 @@ README 都用这种写法，等于这些文档用不了这个工具。
 
 `TestScanMarkdown` 新增 4 个用例：`<pre>` 内忽略、`<code>` 内忽略、`<PRE>` 大小写、
 `<prefix>` 不算 `<pre>`（仍然识别其中的图片）。
+---
+
+## 第 14 轮：文件系统边角上的说法（只读目标、输出目录是文件）
+
+这一轮没有提速目标，去翻「文件系统边角」这一摊，看失败时到底跟用户说了什么。
+
+### 负结果（本来就是对的）
+
+| 场景 | 结果 |
+| --- | --- |
+| 路径总长 2834 字符（远超 260） | 正常转换（Go 的 os 包会自己加 `\\?\` 前缀） |
+| `-o directory --out-dir <多级不存在>` | 正常创建并写出（目录模式保留原文件名） |
+| 图床地址连不上（TCP 层） | 开跑前就拦下：2.2 秒报「无法连接 PicGo：端口未响应（地址）」，不会一张张干等 |
+| `<img>` 各种写法（单引号/无引号/大写/`src=` 带空格/自闭合/属性在前） | 全部正确识别 |
+
+### 改掉的两处
+
+**1. 目标文件只读时，甩的是 Go 的原始错误**
+
+改之前：`写入失败：rename C:\…\.cmp-3181963446.tmp C:\…\d1.converted.md: Access is denied.`
+—— 临时文件名 + 英文系统调用信息，用户不知道该怎么办。
+
+改之后：`目标文件是只读的，覆盖不了：C:\…\d1.converted.md（去掉只读属性后重试，或换个输出位置）`
+
+实现：`writeAtomic` 里 `os.Rename` 失败后看一眼目标是否存在且没有写权限位，
+返回一个 `errTargetReadOnly` 哨兵错误，由 `processFile` 换成上面这句人话（其它写入错误照旧带原始信息）。
+原地模式同理：只读的源文件不会被硬闯。
+
+**2. 「输出目录是一个文件」的报错重复两遍、还误导**
+
+改之前：`无法创建输出目录：mkdir …\notadir: The system cannot find the path specified.: mkdir …\notadir: The system cannot find the path specified.`
+（文案里嵌了 `%v`，外面又 `%w` 包了一次；而且 Windows 对「同名文件挡路」只会说「找不到路径」。）
+
+改之后：`输出目录是一个文件，不是目录：C:\…\notadir`
+
+顺带把这类「输出位置」问题搬进预检：`planOutput` 的错误以前在试运行里被丢掉
+（`if p, perr := ...; perr == nil`），现在会写进预检结果的 `error`，
+于是界面在按下「开始转换」之前就能告诉你位置选错了（中英双语都验过）。
+
+### 测试
+
+* `TestPreviewSurfacesBadOutputDir`：输出目录位置上是个文件时，预检必须带 `error`、且不给假输出路径。
+* `TestReadOnlyTargetExplainsItself`（限 Windows）：只读目标要给出含「只读」字样的说明，而不是 rename 原文。

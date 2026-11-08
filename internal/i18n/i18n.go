@@ -56,6 +56,8 @@ const (
 	KeyConvReferenceStyle     Key = "conv.referenceStyle"
 	KeyConvLoosePath          Key = "conv.loosePath"
 	KeyConvEndpointDead       Key = "conv.endpointDead"
+	KeyConvWriteReadOnly      Key = "conv.writeReadOnly"
+	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
@@ -207,8 +209,16 @@ var catalog = map[Key]entry{
 		"No output directory configured",
 	},
 	KeyConvOutDirCreateFailed: {
-		"无法创建输出目录：%v",
-		"Could not create the output directory: %v",
+		"无法创建输出目录",
+		"Could not create the output directory",
+	},
+	KeyConvOutDirIsFile: {
+		"输出目录是一个文件，不是目录：%s",
+		"The output directory is a file, not a directory: %s",
+	},
+	KeyConvWriteReadOnly: {
+		"目标文件是只读的，覆盖不了：%s（去掉只读属性后重试，或换个输出位置）",
+		"The target file is read-only and cannot be replaced: %s (clear the read-only attribute or write somewhere else)",
 	},
 	KeyConvReferenceStyle: {
 		"第 %d 行：引用式图片的标签在文档里找不到对应定义，已跳过",

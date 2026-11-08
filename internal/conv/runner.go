@@ -511,7 +511,11 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	if r.cfg.DryRun {
 		res.Status = FilePreview
-		if p, perr := r.planOutput(path, false); perr == nil {
+		if p, perr := r.planOutput(path, false); perr != nil {
+			// 试运行不落盘，但「输出位置」本身有问题（选了目录却没填、或者那个
+			// 路径其实是个文件）应该当场说清楚，别等按下开始才失败。
+			res.Error = perr.Error()
+		} else {
 			res.OutputPath = p
 		}
 		return res
@@ -571,7 +575,11 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 	if werr := writeOutput(target, out); werr != nil {
 		res.Status = FileFailed
-		res.Error = i18n.T(r.lang, i18n.KeyConvWriteFailed, werr)
+		if errors.Is(werr, errTargetReadOnly) {
+			res.Error = i18n.T(r.lang, i18n.KeyConvWriteReadOnly, target)
+		} else {
+			res.Error = i18n.T(r.lang, i18n.KeyConvWriteFailed, werr)
+		}
 		return res
 	}
 
@@ -734,9 +742,12 @@ func (r *Runner) planOutput(src string, create bool) (string, error) {
 		if strings.TrimSpace(r.cfg.OutDir) == "" {
 			return "", errors.New(i18n.T(r.lang, i18n.KeyConvOutDirRequired))
 		}
+		if st, serr := os.Stat(r.cfg.OutDir); serr == nil && !st.IsDir() {
+			return "", errors.New(i18n.T(r.lang, i18n.KeyConvOutDirIsFile, r.cfg.OutDir))
+		}
 		if create {
 			if err := os.MkdirAll(r.cfg.OutDir, 0o755); err != nil {
-				return "", fmt.Errorf("%s: %w", i18n.T(r.lang, i18n.KeyConvOutDirCreateFailed, err), err)
+				return "", fmt.Errorf("%s: %w", i18n.T(r.lang, i18n.KeyConvOutDirCreateFailed), err)
 			}
 		}
 		return r.uniquePath(filepath.Join(r.cfg.OutDir, filepath.Base(src))), nil
@@ -859,11 +870,20 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	if err := os.Rename(tmpName, path); err != nil {
+		// Windows 上覆盖只读文件会得到一句「Access is denied」加临时文件名，
+		// 对用户毫无意义；这里换成能直接照做的说法。
+		if st, serr := os.Stat(path); serr == nil && st.Mode().Perm()&0o222 == 0 {
+			return fmt.Errorf("%w: %s", errTargetReadOnly, path)
+		}
 		return err
 	}
 	renamed = true
 	return nil
 }
+
+// errTargetReadOnly 表示目标文件被标了只读，覆盖不了。
+// 调用方用它换成一句人话（见 processFile）。
+var errTargetReadOnly = errors.New("target file is read-only")
 
 // wrapURL 在地址里含有空格或括号时把它包进尖括号，
 // 否则 ![a](x y.png) 这种写法会被解析成「地址 + 标题」。
