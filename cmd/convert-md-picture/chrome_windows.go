@@ -18,6 +18,7 @@ package main
 // 平台相关性全部收在这个文件里，chrome_other.go 提供空实现。
 
 import (
+	"math"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -32,6 +33,17 @@ const (
 	wmNCLButtonDown = 0x00A1
 	wmSysCommand    = 0x0112
 	wmClose         = 0x0010
+	wmGetMinMaxInfo = 0x0024
+	wmDpiChanged    = 0x02E0
+
+	// 窗口最小尺寸（96 DPI 下的逻辑值）：再小界面就只能切成上下堆叠了。
+	minWindowWidth  = 900
+	minWindowHeight = 620
+
+	// GetSystemMetrics 的索引
+	smCxSizeFrame    = 32
+	smCySizeFrame    = 33
+	smCxPaddedBorder = 92
 
 	// GWLP_WNDPROC 的数值是 -4；uintptr 下用 ^uintptr(3) 表达。
 	gwlpWndProc = ^uintptr(3)
@@ -83,6 +95,7 @@ var (
 	procSetWindowPos     = user32Chrome.NewProc("SetWindowPos")
 	procIsZoomed         = user32Chrome.NewProc("IsZoomed")
 	procGetCursorPos     = user32Chrome.NewProc("GetCursorPos")
+	procGetSystemMetrics = user32Chrome.NewProc("GetSystemMetrics")
 	procDwmSetAttribute  = dwmapiChrome.NewProc("DwmSetWindowAttribute")
 )
 
@@ -98,6 +111,15 @@ type point32 struct {
 type ncCalcSizeParams struct {
 	rgrc  [3]rect32
 	lppos uintptr
+}
+
+// minMaxInfo 对应 MINMAXINFO。
+type minMaxInfo struct {
+	ptReserved     point32
+	ptMaxSize      point32
+	ptMaxPosition  point32
+	ptMinTrackSize point32
+	ptMaxTrackSize point32
 }
 
 type windowChrome struct {
@@ -161,11 +183,20 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		if wp == 0 {
 			break
 		}
-		// 最大化时系统给出的客户区已经是可见工作区，保持原样；
-		// 否则让客户区等于整个窗口矩形，标题栏才能贴到窗口最顶端。
-		if !zoomed(uintptr(hwnd)) {
-			params := (*ncCalcSizeParams)(lp)
-			params.rgrc[0] = params.rgrc[1]
+		// 这里千万不要把 rgrc[1]（改动前的窗口矩形）塞回 rgrc[0]：
+		// 那等于告诉系统「新的客户区还是旧窗口那么大」。窗口一旦被拉大，
+		// 客户区就停在原地，WebView 只画原来那一块，右下方留出未绘制的黑区
+		// —— 界面被拉伸之后错位，就是这么来的。
+		// 其余情况保持系统给出的矩形原样返回：客户区等于整个窗口，并随窗口一起变化。
+		if params := (*ncCalcSizeParams)(lp); params != nil && zoomed(uintptr(hwnd)) {
+			// 最大化是个例外：系统会把窗口矩形往外扩一圈「边框厚度」，
+			// 好让真正的边框落到屏幕外。我们本来就没有边框，
+			// 不把这圈减掉的话内容会顶出屏幕，四边各被吃掉几个像素。
+			x, y := frameThickness()
+			params.rgrc[0].left += x
+			params.rgrc[0].top += y
+			params.rgrc[0].right -= x
+			params.rgrc[0].bottom -= y
 		}
 		return 0
 	case wmNCActivate:
@@ -173,6 +204,26 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		return 1
 	case wmEraseBkgnd:
 		return 1
+	case wmGetMinMaxInfo:
+		// 没有系统边框，最小尺寸得自己定，不然窗口能被拖成一条缝。
+		if lp != nil {
+			info := (*minMaxInfo)(lp)
+			scale := scaleFor(uintptr(hwnd))
+			info.ptMinTrackSize.x = int32(math.Round(float64(minWindowWidth) * scale))
+			info.ptMinTrackSize.y = int32(math.Round(float64(minWindowHeight) * scale))
+		}
+		return 0
+	case wmDpiChanged:
+		// 窗口换到另一个缩放比例的显示器时，系统会给出建议矩形，照着它调整，
+		// 界面在两种缩放的屏幕之间移动时才不会忽然变大或变小。
+		if lp != nil {
+			r := (*rect32)(lp)
+			procSetWindowPos.Call(uintptr(hwnd), 0,
+				uintptr(int64(r.left)), uintptr(int64(r.top)),
+				uintptr(int64(r.right-r.left)), uintptr(int64(r.bottom-r.top)),
+				swpNoZOrder|swpNoActivate)
+		}
+		return 0
 	}
 
 	if c := chromeWindow; c != nil && c.oldProc != 0 {
@@ -187,6 +238,15 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 func zoomed(hwnd uintptr) bool {
 	r, _, _ := procIsZoomed.Call(hwnd)
 	return r != 0
+}
+
+// frameThickness 是系统给窗口留的边框厚度（x / y 方向，已按当前 DPI 折算）。
+// 最大化时窗口矩形会按它往外扩一圈，我们没有边框，得把这圈减掉。
+func frameThickness() (int32, int32) {
+	sx, _, _ := procGetSystemMetrics.Call(smCxSizeFrame)
+	sy, _, _ := procGetSystemMetrics.Call(smCySizeFrame)
+	pad, _, _ := procGetSystemMetrics.Call(smCxPaddedBorder)
+	return int32(sx + pad), int32(sy + pad)
 }
 
 // applyChromeTheme 让窗口边框 / 标题栏跟随前端主题。

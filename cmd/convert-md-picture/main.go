@@ -29,6 +29,8 @@ import (
 const defaultPort = 17860
 
 func main() {
+	// 必须在任何窗口创建之前声明 DPI 感知，否则缩放显示器上界面会被系统拉伸发虚。
+	enableDPIAwareness()
 	os.Exit(run(os.Args[1:]))
 }
 

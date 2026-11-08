@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -35,14 +36,20 @@ var (
 func openAppWindow(url, title string, stop <-chan os.Signal) error {
 	hideOwnedConsole()
 
+	// 尺寸与内边距都是按 96 DPI 设计的，窗口要按显示器缩放折算成物理像素，
+	// 这样在 125% / 150% 的屏幕上界面「看上去」还是同样大小（内容由 WebView 自己按缩放渲染）。
+	scale := systemScale()
+	width := uint(math.Round(float64(windowWidth) * scale))
+	height := uint(math.Round(float64(windowHeight) * scale))
+
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		AutoFocus: true,
 		// 默认会把用户数据放在 exe 旁边（污染绿色版目录），改放到本机应用数据里。
 		DataPath: webviewDataPath(),
 		WindowOptions: webview2.WindowOptions{
 			Title:  title,
-			Width:  windowWidth,
-			Height: windowHeight,
+			Width:  width,
+			Height: height,
 			Center: true,
 			// 图标取自 exe 资源（rsrc 生成的那份，图标组 ID 为 1）；0 会退回 Windows 通用图标。
 			IconId: 1,
