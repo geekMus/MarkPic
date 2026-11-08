@@ -330,3 +330,44 @@ accessibility tree）：一轮 1.26 s 的 profile 里 `getTextAlternativeInterna
 `(idle)` 432 ms、GC 12 ms，而**我们自己的 JS 自耗时合计只有 50 ms 左右**。
 真实用户在 WebView2 里跑（没有屏幕阅读器、没有自动化）时，这部分开销会小得多 ——
 所以真机手感应当好于上表，上表是「带自动化开销」的偏悲观值。
+
+## 第 8 轮：取消不是失败
+
+按「取消」的时候，第一版实现会把每一个还没处理的文件都标成 `failed`：1000 篇文档、慢图床
+（600 ms/张）跑到一半点取消，**1000 行全红**，页脚写着「失败 11000」。三处原因都在
+`internal/conv/runner.go`：
+
+1. 派发循环 `for i := range files { work <- i }` 不看 `ctx` —— 取消之后仍然把 1000 个文件
+   逐个喂给 worker，每个都白走一遍空转的 `processFile`。
+2. `processFile` 结尾把取消的文件写成 `FileFailed`，而它上面的计数 switch 已经把 10 个
+   `StatusFailed` 图算进了 `res.Failed`。
+3. `uploadGroups` 只要 `uerr != nil` 就把图标成 `failed`，不管这次失败是不是取消引起的。
+
+### 改了什么
+
+- 派发循环加 `if ctx.Err() != nil { break }`：取消之后一个文件都不再派，没轮到的文件保持
+  空结果（界面把它们显示成「已取消」，它们确实一个字节都没被碰过）。
+- 新增 `StatusCancelled`（图）与 `FileCancelled`（文件）：因取消而没传成的图记
+  `StatusCancelled` 并计入 `Skipped`，不计入失败；被取消的文件状态是 `cancelled`，汇总里
+  既不算成功也不算失败。
+- `uploadGroups` 用 `upload()` 返回的状态，不再把取消一律压成 `failed`；`upload()` 自己在
+  请求失败时也区分「取消」与「真的失败」。
+- 前端补登记两个状态（`types.ts` 的联合类型、`FileRow.vue` 的 `FILE_STATUS_META` /
+  `IMAGE_STATUS_META`）——服务端发一个前端没登记的状态，行状态会直接渲染不出来。
+
+### 复测（1000 篇 / 12000 张图，假图床 600 ms/张，跑到 250 ms 时点取消）
+
+| 指标 | 改之前 | 改之后 |
+| --- | --- | --- |
+| 取消 → 界面安定 | 280 ms | **135 ms** |
+| 行状态 | 失败 ×1000 | **已取消 ×1000** |
+| 页脚 | 替换 0 · 失败 11000 · 已取消 | **替换 0 · 失败 18 · 已取消** |
+| 一轮推的事件 | 5025 条（`file.started` / `file.finished` 各 1000） | **105 条**（只碰了 17 个文件） |
+| 落盘的输出 | 0 个 | 0 个（也没有残留的临时文件） |
+
+那 18 个失败是**真的缺图**：夹具里每篇文档都故意放了一个不存在的 `images/missing.png`，
+被碰过的文件如实报出来；剩下的 980 多个文件一个字节都没动。
+
+回归钉在 `internal/conv/runner_test.go` 的 `TestCancelIsNotFailure`：第一次上传时就把 ctx
+取消掉，断言汇总不标失败、被取消的文件不写输出、没轮到的文件结果为空、目录里 0 个
+`.converted*`。

@@ -28,9 +28,11 @@ type Settings = {
 type ImageStatus =
   | 'uploaded'   // 本次上传成功
   | 'reused'     // 同一张图本轮已上传过，复用 URL（去重命中）
+  | 'cached'     // 上一次运行时传过同一张图，沿用当时拿到的地址
   | 'remote'     // 本来就是网络图片，跳过
   | 'missing'    // 本地文件不存在
   | 'failed'     // 上传失败
+  | 'cancelled'  // 运行被取消，这张图没传（不算失败）
   | 'pending'    // 仅预检（dryRun）：本地文件存在，尚未上传
 
 type ImageItem = {
@@ -48,9 +50,10 @@ type FileResult = {
   path: string
   name: string
   dir: string
-  status: 'ok' | 'partial' | 'no-images' | 'failed' | 'preview'
+  status: 'ok' | 'partial' | 'no-images' | 'failed' | 'cancelled' | 'preview'
   images: number        // 文档里解析出的图片引用总数
-  uploaded: number      // 已经指向图床的引用数（含 reused），不是发出的上传请求数
+  uploaded: number      // 已经指向图床的引用数（含 reused/cached），不是发出的上传请求数
+  reused?: number       // 其中靠复用（本轮去重或上次缓存）拿到的，按引用处算
   failed: number
   skipped: number
   outputPath?: string

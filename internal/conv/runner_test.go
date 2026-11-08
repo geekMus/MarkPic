@@ -475,3 +475,76 @@ func TestUploadCacheDisabledBySettings(t *testing.T) {
 		t.Errorf("关掉缓存时不该写出 %s（err=%v）", cachePath, err)
 	}
 }
+
+// TestCancelIsNotFailure 验证取消的语义：
+//   - 取消不该被算成失败（界面上刷出一千个「失败」纯属吓人）
+//   - 没轮到的文件一个都不碰（保持空结果，界面自己显示「已取消」）
+//   - 取消的文件不写输出
+func TestCancelIsNotFailure(t *testing.T) {
+	dir := t.TempDir()
+	var files []string
+	for _, name := range []string{"a", "b", "c", "d", "e", "f"} {
+		writeFile(t, filepath.Join(dir, name+".png"), "x")
+		p := filepath.Join(dir, name+".md")
+		writeFile(t, p, "![图]("+name+".png)\n")
+		files = append(files, p)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 第一次上传就把这次运行取消掉：之后所有文件都会走取消分支。
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		once.Do(cancel)
+		name := "x.png"
+		var req struct {
+			List []string `json:"list"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && len(req.List) > 0 {
+			name = filepath.Base(req.List[0])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result":  []string{"https://cdn.example.com/" + name},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := baseCfg(srv.URL)
+	cfg.Concurrency = 2
+	results, sum := NewRunner(cfg, i18n.ZH, "run-cancel", nil).RunCollect(ctx, files)
+
+	if !sum.Cancelled {
+		t.Fatalf("summary 没有标记取消：%+v", sum)
+	}
+	if sum.Failed != 0 {
+		t.Errorf("取消被算成了失败：failed=%d，%+v", sum.Failed, sum)
+	}
+	if sum.OK != 0 {
+		t.Errorf("取消的运行不该有成功文件：ok=%d，%+v", sum.OK, sum)
+	}
+
+	cancelled := 0
+	for _, res := range results {
+		switch res.Status {
+		case FileCancelled:
+			cancelled++
+			if res.Failed != 0 {
+				t.Errorf("%s 被取消却记了 %d 个失败图", res.Name, res.Failed)
+			}
+		case "":
+			// 没轮到的文件：界面会把它显示成「已取消」
+		default:
+			t.Errorf("%s 的状态是 %q，取消之后不该写出任何结果", res.Name, res.Status)
+		}
+	}
+	if cancelled == 0 {
+		t.Fatal("没有任何文件走到取消分支，这个用例没测到东西")
+	}
+
+	outs, _ := filepath.Glob(filepath.Join(dir, "*.converted*"))
+	if len(outs) != 0 {
+		t.Errorf("取消后仍写出了 %d 个文件：%v", len(outs), outs)
+	}
+}

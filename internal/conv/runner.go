@@ -284,6 +284,10 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		}()
 	}
 	for i := range files {
+		// 取消之后不再派新文件：没轮到的文件一个都不碰，界面把它们显示成「已取消」。
+		if ctx.Err() != nil {
+			break
+		}
 		work <- i
 	}
 	close(work)
@@ -303,6 +307,8 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 			sum.NoImages++
 		case FileFailed:
 			sum.Failed++
+		case FileCancelled:
+			// 取消的文件既不算成功也不算失败：界面自己会显示「已取消」。
 		case FilePreview:
 			sum.OK++
 		}
@@ -409,6 +415,9 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			res.Reused++
 		case StatusFailed, StatusMissing:
 			res.Failed++
+		case StatusCancelled:
+			// 取消造成的「没传」不是失败，别把它算进失败数里吓人。
+			res.Skipped++
 		default:
 			res.Skipped++
 		}
@@ -423,7 +432,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 
 	if ctx.Err() != nil {
-		res.Status = FileFailed
+		res.Status = FileCancelled
 		res.Error = i18n.T(r.lang, i18n.KeyConvCancelled)
 		return res
 	}
@@ -514,7 +523,12 @@ func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGrou
 				progress := done
 				for _, idx := range g.refs {
 					if uerr != nil {
-						items[idx].Status = StatusFailed
+						if status == StatusCancelled {
+							// 取消不是上传失败：统计和界面都不该把它算成失败。
+							items[idx].Status = StatusCancelled
+						} else {
+							items[idx].Status = StatusFailed
+						}
 						items[idx].Error = uerr.Error()
 						continue
 					}
@@ -554,9 +568,16 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 	if exists {
 		select {
 		case <-entry.done:
-			return entry.url, StatusReused, entry.err
+			if entry.err != nil {
+				// 领头那次没成：把失败原因如实带回去，取消引起的算取消。
+				if ctx.Err() != nil {
+					return "", StatusCancelled, entry.err
+				}
+				return "", StatusFailed, entry.err
+			}
+			return entry.url, StatusReused, nil
 		case <-ctx.Done():
-			return "", StatusFailed, ctx.Err()
+			return "", StatusCancelled, ctx.Err()
 		}
 	}
 
@@ -575,17 +596,22 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 	case r.sem <- struct{}{}:
 	case <-ctx.Done():
 		r.closeEntry(entry, "", ctx.Err())
-		return "", StatusFailed, ctx.Err()
+		return "", StatusCancelled, ctx.Err()
 	}
 	url, err := r.client.Upload(ctx, absPath)
 	<-r.sem
 	r.closeEntry(entry, url, err)
-	if err == nil {
-		if size, mtime, ok := r.fileStamp(absPath); ok {
-			r.uploads.Store(r.client.Endpoint, key, size, mtime, url)
+	if err != nil {
+		if ctx.Err() != nil {
+			// 请求是被取消打断的，这一张没传成，但也不算「上传失败」。
+			return "", StatusCancelled, err
 		}
+		return "", StatusFailed, err
 	}
-	return url, StatusUploaded, err
+	if size, mtime, ok := r.fileStamp(absPath); ok {
+		r.uploads.Store(r.client.Endpoint, key, size, mtime, url)
+	}
+	return url, StatusUploaded, nil
 }
 
 func (r *Runner) closeEntry(e *cacheEntry, url string, err error) {

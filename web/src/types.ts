@@ -22,6 +22,7 @@ export type ImageStatus =
   | 'remote'
   | 'missing'
   | 'failed'
+  | 'cancelled'
   | 'pending'
 
 export type ImageItem = {
@@ -34,7 +35,7 @@ export type ImageItem = {
   error?: string
 }
 
-export type FileStatus = 'ok' | 'partial' | 'no-images' | 'failed' | 'preview'
+export type FileStatus = 'ok' | 'partial' | 'no-images' | 'failed' | 'cancelled' | 'preview'
 
 export type FileResult = {
   id: string

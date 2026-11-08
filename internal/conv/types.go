@@ -3,22 +3,24 @@ package conv
 
 // 图片状态。
 const (
-	StatusUploaded = "uploaded" // 本次上传成功
-	StatusReused   = "reused"   // 同一张图本轮已上传，复用结果
-	StatusCached   = "cached"   // 上一次运行时已经传过，直接复用当时的地址
-	StatusRemote   = "remote"   // 本来就是网络图片，跳过
-	StatusMissing  = "missing"  // 本地文件不存在
-	StatusFailed   = "failed"   // 上传失败
-	StatusPending  = "pending"  // 仅预检模式：本地文件存在，尚未上传
+	StatusUploaded  = "uploaded"  // 本次上传成功
+	StatusReused    = "reused"    // 同一张图本轮已上传，复用结果
+	StatusCached    = "cached"    // 上一次运行时已经传过，直接复用当时的地址
+	StatusRemote    = "remote"    // 本来就是网络图片，跳过
+	StatusMissing   = "missing"   // 本地文件不存在
+	StatusFailed    = "failed"    // 上传失败
+	StatusCancelled = "cancelled" // 用户中途取消，这张图没传（不算失败）
+	StatusPending   = "pending"   // 仅预检模式：本地文件存在，尚未上传
 )
 
 // 文件状态。
 const (
-	FileOK       = "ok"        // 全部图片处理成功
-	FilePartial  = "partial"   // 部分图片失败，已尽力替换成功的部分
-	FileNoImages = "no-images" // 文档里没有本地图片
-	FileFailed   = "failed"    // 没有可写出的结果
-	FilePreview  = "preview"   // 预检，未写入
+	FileOK        = "ok"        // 全部图片处理成功
+	FilePartial   = "partial"   // 部分图片失败，已尽力替换成功的部分
+	FileNoImages  = "no-images" // 文档里没有本地图片
+	FileFailed    = "failed"    // 没有可写出的结果
+	FileCancelled = "cancelled" // 用户中途取消，这个文件没有写出去
+	FilePreview   = "preview"   // 预检，未写入
 )
 
 // Item 是一张图片的处理结果。

@@ -19,6 +19,7 @@ const FILE_STATUS_META: Record<FileStatus, { tone: Tone; labelKey: MessageKey }>
   partial: { tone: 'warning', labelKey: 'row.status.partial' },
   'no-images': { tone: 'neutral', labelKey: 'row.status.noImages' },
   failed: { tone: 'danger', labelKey: 'row.status.failed' },
+  cancelled: { tone: 'warning', labelKey: 'row.status.cancelled' },
   preview: { tone: 'neutral', labelKey: 'row.status.preview' },
 }
 
@@ -29,6 +30,7 @@ const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey 
   remote: { tone: 'neutral', labelKey: 'row.status.remote' },
   missing: { tone: 'warning', labelKey: 'row.status.missing' },
   failed: { tone: 'danger', labelKey: 'row.status.uploadFailed' },
+  cancelled: { tone: 'neutral', labelKey: 'row.status.cancelled' },
   pending: { tone: 'neutral', labelKey: 'row.status.pending' },
 }
 
@@ -115,8 +117,8 @@ function itemDetail(item: ImageItem): string {
   if (item.status === 'failed') return item.error ?? t('row.status.uploadFailed')
   if (item.status === 'missing') return item.error ?? t('row.item.missingFile')
   if (item.status === 'remote') return t('row.item.remoteSkipped')
-  // 待上传的引用：状态列已经写了「待上传」，这里再重复一句就是噪音
-  if (item.status === 'pending') return ''
+  // 待上传/已取消的引用：状态列已经写了，这里再重复一句就是噪音
+  if (item.status === 'pending' || item.status === 'cancelled') return ''
   return item.url ?? ''
 }
 
