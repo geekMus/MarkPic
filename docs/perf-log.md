@@ -1266,3 +1266,48 @@ parseRetryAfter("9227000000") = -2561040h1m13.709551616s，不能是负数
 | `internal/picgo/picgo.go` 退避用的是 `300<<uint(i-1)` | `Retries` 在 `Normalize` 里夹在 0..5，`i-1 ≤ 5`，移位不会溢出（CLI 是先 `applyOverrides` 再 `Normalize`，顺序没问题） |
 
 结论：这一类「零进展循环」在当前代码里只有第 24 轮修掉的那一处。
+## 第 26 轮：设置界面 9 个字段的「往返」体检（这轮没发现问题）
+
+### 为什么值得单独跑一轮
+
+设置面板是「旋钮最多、接错最难发现」的地方：控件改完、界面显示新值、用户以为生效了，
+而后端收到的是旧值——第 4 轮就真的踩过一次（`reuseUploads` 的开关在界面上能点，
+但 `settingsPatch` 里没有对应字段，保存下去等于没保存）。
+
+先做静态核对（三处字段名逐个对齐）：
+
+- `Settings` 结构体：`endpoint / concurrency / retries / output / suffix / outDir /
+  backup / dryRun / reuseUploads`（9 个，`schemaVersion` 由程序自己管）；
+- `settingsPatch`：9 个指针字段，一个不少，`apply()` 里逐个赋值；
+- 前端 `SETTINGS_KEYS`：同样 9 个键，`normalize()` 里逐个校验类型与范围。
+
+静态对得上只说明「名字没错」，说明不了「控件真的接到了这个字段、保存真的发出去了、
+刷新真的读回来了」。所以新增探针 `tools/perf/gui-settings.mjs`，把每个控件都拧一遍，
+并且**在网络层截下界面真正 PUT 出去的载荷**：
+
+```
+{"endpoint":"127.0.0.1:36678","concurrency":12,"retries":3,"output":"sidecar",
+ "suffix":".roundtrip","outDir":"C:\\Users\\…\\cmp-settings-out",
+ "backup":false,"dryRun":true,"reuseUploads":false}
+```
+
+### 结果：9 个字段、7 条界面回读、3 条交互状态，全过
+
+| 检查 | 结果 |
+| --- | --- |
+| 界面 PUT 的载荷包含全部 9 个字段 | ✓ |
+| 后端 `/api/settings` 与载荷逐字段一致（含 `outDir`） | ✓ 9/9 |
+| 服务地址故意只写 `127.0.0.1:36678`（不写协议） | ✓ 后端补成 `http://127.0.0.1:36678` |
+| 切到「原地替换」 | ✓ 副本后缀输入框隐藏、出现「会直接改写原始文件」的风险提示 |
+| 切到「指定目录」再切回「旁挂副本」 | ✓ 填过的输出目录仍然记住并保存下来 |
+| 刷新页面后重新打开设置 | ✓ 7 个显示的字段与保存值一致 |
+| 改动之后「未保存」标记 | ✓ 出现 |
+| 点「还原」 | ✓ 并发数从 7 回到 12、标记消失 |
+| 改了值直接关掉弹窗 | ✓ 后端仍是 12（草稿没有落盘） |
+
+### 探针的两个写法细节（下次复用）
+
+- 控件一律用**可见标签文字**定位（`label:has-text("并发数")`），不绑 class；
+  唯一例外是弹窗根元素用 `[role="dialog"]:has(#settings-title)`。
+- 「输出目录」那一段是 `div.field`（里面还有一个「选择目录」按钮），**不是 `label`**，
+  所以它得单独写一个定位器 —— 第一版按 `label` 找，探针直接超时。
