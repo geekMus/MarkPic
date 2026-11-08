@@ -52,6 +52,7 @@ export const zh = {
   'settings.endpoint.hint': '默认 http://127.0.0.1:36677',
   'settings.section.concurrency': '并发与重试',
   'settings.concurrency': '并发数',
+  'settings.concurrency.hint': '同时处理的文件数，也是同时上传的图片数',
   'settings.retries': '失败重试',
   'settings.reuse': '复用上次的上传结果',
   'settings.reuse.hint': '同一张图不再重传，直接沿用上次拿到的地址',

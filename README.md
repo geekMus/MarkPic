@@ -61,13 +61,13 @@ convert-md-picture .\docs --dry-run
 | `--browser` | 改用系统浏览器打开界面（不开桌面窗口） |
 | `-o, --output <sidecar\|in-place\|directory>` | 输出方式，默认 `sidecar` |
 | `--out-dir <dir>` | `directory` 模式的输出目录 |
-| `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted` |
+| `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted`（最终文件名 = 原名 + 后缀 + `.md`） |
 | `--in-place` | 等价于 `--output in-place`，会先备份 `.bak` |
 | `--backup` | 原地替换前备份，默认开启；用 `--backup=false` 关闭 |
 | `--dry-run` | 只检查，不上传、不写文件 |
 | `--no-reuse` | 不复用上次的上传结果，每张图都重新上传 |
 | `-e, --endpoint <url>` | PicGo 服务地址，默认 `http://127.0.0.1:36677` |
-| `-c, --concurrency <int>` | 同时上传的图片数，1-32，默认 16 |
+| `-c, --concurrency <int>` | 同时处理的文件数，也是同时上传的图片数，1-32，默认 16 |
 | `--retries <int>` | 上传失败重试次数，0-5，默认 2 |
 | `-q, --quiet` | 只输出汇总 |
 | `-v, --version` | 显示版本 |

@@ -105,7 +105,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
             <label class="field">
               <span class="field__lblrow">
                 <span class="field__label">{{ t('settings.concurrency') }}</span>
-                <span class="field__hint">1 – 16</span>
+                <span class="field__hint">1 – 32</span>
               </span>
               <input
                 class="input num"
@@ -116,6 +116,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.concurrency"
                 @change="emit('update', { concurrency: clampValue($event, 1, 32, 16) })"
               />
+              <span class="check__hint">{{ t('settings.concurrency.hint') }}</span>
             </label>
             <label class="field">
               <span class="field__lblrow">
