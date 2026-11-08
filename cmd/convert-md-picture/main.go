@@ -112,6 +112,10 @@ func newRootCmd(opt *options) *cobra.Command {
 
 			// 没有任何路径参数：启动图形界面。
 			if len(args) == 0 {
+				// 设置文件读不出来时 Load 会静默回退默认值；先读一次好把这件事
+				// 说给用户听（界面里还有 /api/health 的 settingsNote 兜底）。
+				_ = store.Load()
+				reportSettingsProblem(cmd, store)
 				if code := runGUI(store, *opt); code != 0 {
 					return &exitError{code: code}
 				}
@@ -119,6 +123,7 @@ func newRootCmd(opt *options) *cobra.Command {
 			}
 
 			cfg := store.Load()
+			reportSettingsProblem(cmd, store)
 			applyOverrides(cmd, *opt, &cfg)
 			if err := cfg.Normalize(); err != nil {
 				return &exitError{code: 2, msg: "参数有误：" + err.Error()}
@@ -366,3 +371,11 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
   convert-md-picture . --in-place
   convert-md-picture docs -o directory --out-dir ./out
 `
+
+// reportSettingsProblem 把「设置文件读不出来、现在跑的是默认值」这件事说给用户听。
+// 放在 Load 之后调用：Load 才是发现问题的那个动作。
+func reportSettingsProblem(cmd *cobra.Command, store *settings.Store) {
+	if problem := store.Problem(i18n.ZH); problem != "" {
+		fmt.Fprintln(cmd.ErrOrStderr(), "提示："+problem)
+	}
+}

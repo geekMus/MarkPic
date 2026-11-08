@@ -12,6 +12,8 @@ const props = defineProps<{
   dataDir?: string
   /** 没能放到 exe 旁边时的原因。 */
   dataNote?: string
+  /** 设置文件读不出来时的说明（此时跑的是默认值）。 */
+  settingsNote?: string
 }>()
 
 const emit = defineEmits<{ close: [] }>()
@@ -160,7 +162,7 @@ async function openDataDir(): Promise<void> {
           </div>
         </dl>
 
-        <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>
+        <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>`n        <p v-if="settingsNote" class="about__hint about__hint--bad">{{ settingsNote }}</p>
         <p v-if="dirOpenError" class="about__hint about__hint--bad">{{ dirOpenError }}</p>
 
         <div

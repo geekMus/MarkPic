@@ -87,13 +87,13 @@ type RunSummary = {
 
 | 方法 | 路径 | 请求体 | 响应 |
 | --- | --- | --- | --- |
-| GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string }, dataDir: string, dataNote?: string }` |
+| GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string }, dataDir: string, dataNote?: string, settingsNote?: string }` |
 | GET | `/api/settings` | — | `Settings` |
 | PUT | `/api/settings` | `Partial<Settings>` | `Settings`（校验失败 400） |
 | POST | `/api/dialog/files` | — | `{ paths: string[] }`；不支持原生对话框时 `501` |
 | POST | `/api/dialog/folder` | — | `{ paths: string[] }`；不支持时 `501` |
 | POST | `/api/preview` | `{ paths: string[], settings?: Partial<Settings> }` | `{ files: FileResult[], summary: RunSummary }` |
-| POST | `/api/run` | `{ paths: string[], settings?: Partial<Settings> }` | `{ runId: string }` |
+| POST | `/api/run` | `{ paths: string[], settings?: Partial<Settings> }` | `{ runId: string }`；已经有一次转换在跑时返回 `409`（`error.code = "conflict"`） |
 | POST | `/api/run/cancel` | `{ runId: string }` | `{ ok: boolean }` |
 | POST | `/api/reveal` | `{ path: string }` | `{ ok: boolean }`（在资源管理器中定位） |
 | POST | `/api/open` | `{ target: string }` | `{ ok: boolean }`（打开文件/目录/URL） |
@@ -101,6 +101,9 @@ type RunSummary = {
 | GET | `/api/update/status` | — | `UpdateStatus` |
 | POST | `/api/update/check` | — | `UpdateStatus`（检查失败也返回 200，原因在 `error` 里） |
 | POST | `/api/update/install` | — | `UpdateStatus`；`501` 表示这个运行形态不支持自更新 |
+
+`/api/health` 里的 `settingsNote` 只在设置文件读不出来时出现（此时进程用的是默认设置）。
+出现它说明用户的 `settings.json` 有问题，原文件已被另存为 `settings.json.broken`。
 
 `/api/health` 里的 `dataDir` 是设置与 WebView 缓存所在的位置（默认 exe 旁边的 `data` 目录，
 见 `internal/appdata`）；只有没能放到那里时才带 `dataNote` 说明原因（例如 exe 装在 Program Files

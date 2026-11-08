@@ -102,6 +102,8 @@ export type Health = {
   dataDir: string
   /** 没能放到 exe 旁边时的原因，正常情况下是空。 */
   dataNote?: string
+  /** 设置文件读不出来时的说明（此时跑的是默认值），正常情况是空。 */
+  settingsNote?: string
 }
 
 export type DialogResult = { paths: string[] }

@@ -147,6 +147,11 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 type Store struct {
 	path string
 	mu   sync.RWMutex
+	// 下面三个字段记录「上一次 Load 为什么没能用上文件里的设置」。
+	// 读设置失败只在内部回退到默认值，但用户得能知道这件事——否则他改过的
+	// 图床地址、并发数会凭空变回默认值，而界面上一点提示都没有。
+	problemKey  i18n.Key
+	quarantined string
 }
 
 // NewStore 创建存储。path 为空时放在程序数据目录（默认是 exe 旁边的 data 目录，
@@ -169,17 +174,23 @@ func (s *Store) Load() Settings {
 	raw, err := os.ReadFile(s.path)
 	s.mu.RUnlock()
 	if err != nil {
+		s.setProblem("") // 文件不存在是正常的（还没改过设置）
 		return Default()
 	}
 	raw = trimBOM(raw)
 
 	cfg := Default()
 	if err := json.Unmarshal(raw, &cfg); err != nil {
+		s.quarantine(raw)
+		s.setProblem(i18n.KeySettingsBrokenJSON)
 		return Default()
 	}
 	if err := cfg.Normalize(); err != nil {
+		s.quarantine(raw)
+		s.setProblem(i18n.KeySettingsBrokenValues)
 		return Default()
 	}
+	s.setProblem("")
 	// Default() 里已经带上当前版本号，所以光看 cfg.SchemaVersion 分不清
 	// 「刚迁移过」和「文件里根本没这个字段」，得回到原始 JSON 里确认。
 	if !hasSchemaVersion(raw) {
@@ -195,6 +206,48 @@ func (s *Store) Load() Settings {
 // 见到 BOM 会直接报错——不能因为用户用记事本编辑过设置就把设置全丢成默认值。
 func trimBOM(raw []byte) []byte {
 	return bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
+}
+
+// Problem 返回上一次 Load 遇到的问题（按 lang 本地化）；没有问题时空串。
+// 界面与命令行用它告诉用户「你的设置没被用上，现在跑的是默认值」。
+func (s *Store) Problem(lang i18n.Lang) string {
+	s.mu.RLock()
+	key, path := s.problemKey, s.quarantined
+	s.mu.RUnlock()
+	if key == "" {
+		return ""
+	}
+	msg := i18n.T(lang, key)
+	if path != "" {
+		msg += " " + i18n.T(lang, i18n.KeySettingsBrokenKept, path)
+	}
+	return msg
+}
+
+func (s *Store) setProblem(key i18n.Key) {
+	s.mu.Lock()
+	s.problemKey = key
+	s.mu.Unlock()
+}
+
+// quarantine 把读不出来的设置文件另存一份（xxx.broken），这样用户还有机会把它
+// 手工改回来；返回另存的位置。已经存在同名备份时不覆盖：第一份才是最接近
+// 「设置本来长什么样」的那一份。
+func (s *Store) quarantine(raw []byte) string {
+	backup := s.path + ".broken"
+	if _, err := os.Stat(backup); err == nil {
+		s.mu.Lock()
+		s.quarantined = backup
+		s.mu.Unlock()
+		return backup
+	}
+	if err := os.WriteFile(backup, raw, 0o644); err != nil {
+		return ""
+	}
+	s.mu.Lock()
+	s.quarantined = backup
+	s.mu.Unlock()
+	return backup
 }
 
 // hasSchemaVersion 判断设置文件里是否写了 schemaVersion。

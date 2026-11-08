@@ -73,6 +73,7 @@ const version = computed(() => health.value?.version ?? '')
 const picgo = computed(() => health.value?.picgo ?? null)
 const dataDir = computed(() => health.value?.dataDir ?? '')
 const dataNote = computed(() => health.value?.dataNote ?? '')
+const settingsNote = computed(() => health.value?.settingsNote ?? '')
 const dryRun = computed(() => settings.dryRun)
 
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
@@ -270,7 +271,7 @@ onBeforeUnmount(() => {
       v-if="aboutOpen"
       :version="version"
       :data-dir="dataDir"
-      :data-note="dataNote"
+      :data-note="dataNote"`n      :settings-note="settingsNote"
       @close="aboutOpen = false"
     />
 

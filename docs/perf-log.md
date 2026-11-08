@@ -804,3 +804,41 @@ if sum.Files == 0 {
 ```
 
 README 的「退出码」一行同步改写。
+## 第 19 轮：两处「用户改不动、也看不见」的边角
+
+这一轮不是提速，是把两个安静的坏行为说清楚。
+
+### 一、设置文件坏了，用户一点都不知道
+
+第 3 轮修过「设置文件带 BOM 就被当成解析失败」的 bug，但**解析失败本身的处理**没动过：
+`Load()` 直接 `return Default()`，于是用户手改过 `settings.json`（少个引号、多个逗号）之后，
+自己设的图床地址、并发数会**凭空变回默认值**，界面上没有任何提示——他只会觉得「这软件记不住设置」。
+
+现在：读不出来时把原文件另存为 `settings.json.broken`（已存在就不覆盖，第一份才最接近「本来
+长什么样」），并把这件事说给用户听：
+
+| 出口 | 说法 |
+| --- | --- |
+| 图形界面 | 「关于」里一条红色提示：`设置文件读不出来（不是合法的 JSON），已改用默认值。 原文件另存为 …settings.json.broken，改好它可以恢复设置。` |
+| `/api/health` | 新增 `settingsNote` 字段（英文请求返回英文） |
+| 命令行 | 开头一行 `提示：设置文件读不出来…`（在 `Load()` 之后打印——Load 才是发现问题的动作） |
+| 磁盘 | 原文件被复制成 `settings.json.broken`，改好它就能恢复设置 |
+
+实测（`CMP_DATA_DIR` 指向一个装着 `{ this is not json` 的目录）：CLI 打印上面那句提示、
+`.broken` 里是原始字节、`/api/health` 的 `settingsNote` 中英各自正确、改回合法 JSON 后提示消失。
+
+### 二、两个 `/api/run` 会各自开一个 Runner
+
+`handleRun` 原来只管把 `cancel` 记进 `s.runs`、起一个 goroutine，**没有「已经在跑」的判断**。
+界面因为 `busy` 挡住按钮，正常点不出来；但 `/api/run` 是文档里公开的接口，脚本连发两次、或者
+两个窗口一起点，就会有两个 Runner 同时处理同一批文件：同一张图被传两遍、同一份输出被两边
+反复写（原子写保证不写坏，但结果与统计会互相打架），而界面只有一套进度可显示。
+
+现在同一时刻只允许一次：第二次请求返回 `409`，错误码 `conflict`，消息「已经有一次转换在跑，
+等它结束或先取消再试」。`codeFor` 里补了 409 → `conflict`（原来落到默认的 `error`）。
+
+回归测试两条：`internal/settings` 的 `TestStoreReportsBrokenFile`（坏文件 → 默认值 + 提示 +
+`.broken` 字节一致 + 第二次读取仍指出位置 + 改好后提示消失 + 英文提示不含中文）、
+`internal/server` 的 `TestRunRejectsConcurrentRun`（图床卡住不返回时，第二次 `/api/run` 得到 409
+且带 `conflict` 消息）。实测也各跑了一遍：`/api/health` 给出 `settingsNote`，慢图床下第二次
+`/api/run` 得到 `HTTP 409`。

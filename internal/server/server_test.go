@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -342,4 +343,65 @@ func writeFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("写入 %s 失败: %v", path, err)
 	}
+}
+
+// TestRunRejectsConcurrentRun：一次只允许跑一次。图床卡住不返回时发第二次
+// /api/run，必须被挡下来并给出原因——否则两个 Runner 会同时处理同一批文件。
+func TestRunRejectsConcurrentRun(t *testing.T) {
+	release := make(chan struct{})
+	var once sync.Once
+	open := func() { once.Do(func() { close(release) }) }
+
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result":  []string{"https://cdn.example.com/a.png"},
+		})
+	}))
+	defer slow.Close()
+	defer open()
+
+	_, base := newTestServer(t, slow.URL)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "img"), 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "png")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![x](img/a.png)\n")
+
+	first := postJSON(t, base+"/api/run", map[string]any{"paths": []string{doc}})
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("第一次运行应被接受，得到 %d", first.StatusCode)
+	}
+	var started struct {
+		RunID string `json:"runId"`
+	}
+	_ = json.NewDecoder(first.Body).Decode(&started)
+	first.Body.Close()
+	if started.RunID == "" {
+		t.Fatal("第一次运行没有返回 runId")
+	}
+
+	second := postJSON(t, base+"/api/run", map[string]any{"paths": []string{doc}})
+	if second.StatusCode != http.StatusConflict {
+		t.Fatalf("第二次运行应被拒绝（409），得到 %d", second.StatusCode)
+	}
+	var refused struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(second.Body).Decode(&refused)
+	second.Body.Close()
+	if refused.Error.Message == "" {
+		t.Fatal("409 应该带上拒绝的原因")
+	}
+	if refused.Error.Code != "conflict" {
+		t.Fatalf("409 的错误码应该是 conflict，实际 %q", refused.Error.Code)
+	}
+
+	open() // 放行第一次运行，让它正常收尾
 }

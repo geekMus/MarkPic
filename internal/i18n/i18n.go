@@ -88,6 +88,9 @@ const (
 	KeySettingsUnknownOutput Key = "settings.unknownOutput"
 	KeySettingsBadSuffix     Key = "settings.badSuffix"
 	KeySettingsOutDirNeeded  Key = "settings.outDirNeeded"
+	KeySettingsBrokenJSON    Key = "settings.brokenJSON"
+	KeySettingsBrokenValues  Key = "settings.brokenValues"
+	KeySettingsBrokenKept    Key = "settings.brokenKept"
 
 	KeyPlatformNoDialog     Key = "platform.noDialog"
 	KeyPlatformNoFolderPath Key = "platform.noFolderPath"
@@ -105,6 +108,7 @@ const (
 	KeyServerSaveFailed        Key = "server.saveFailed"
 	KeyServerNoDialog          Key = "server.noDialog"
 	KeyServerNeedPaths         Key = "server.needPaths"
+	KeyServerBusy              Key = "server.busy"
 	KeyServerMissingFilePath   Key = "server.missingFilePath"
 	KeyServerMissingPath       Key = "server.missingPath"
 	KeyServerBadJSON           Key = "server.badJSON"
@@ -344,6 +348,18 @@ var catalog = map[Key]entry{
 		"输出到目录时必须指定目录",
 		"An output directory is required in directory mode",
 	},
+	KeySettingsBrokenJSON: {
+		"设置文件读不出来（不是合法的 JSON），已改用默认值。",
+		"The settings file could not be read (not valid JSON), so defaults are in use.",
+	},
+	KeySettingsBrokenValues: {
+		"设置文件里有不合法的值，已改用默认值。",
+		"The settings file contains invalid values, so defaults are in use.",
+	},
+	KeySettingsBrokenKept: {
+		"原文件另存为 %s，改好它可以恢复设置。",
+		"The original was kept as %s — fix it to get your settings back.",
+	},
 
 	KeyPlatformNoDialog: {
 		"当前平台不支持原生对话框，请手动输入路径",
@@ -405,6 +421,10 @@ var catalog = map[Key]entry{
 	KeyServerNeedPaths: {
 		"请先选择文件或文件夹",
 		"Choose a file or folder first",
+	},
+	KeyServerBusy: {
+		"已经有一次转换在跑，等它结束或先取消再试",
+		"A conversion is already running — wait for it to finish or cancel it first",
 	},
 	KeyServerMissingFilePath: {
 		"缺少文件路径",

@@ -2,6 +2,9 @@ package settings
 
 import (
 	"encoding/json"
+	"strings"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"os"
 	"path/filepath"
 	"testing"
@@ -183,5 +186,60 @@ func TestStoreMissingFile(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "not-exist.json"))
 	if got := store.Load(); got != Default() {
 		t.Fatalf("文件不存在时应返回默认值，实际 %+v", got)
+	}
+	if note := store.Problem(i18n.ZH); note != "" {
+		t.Fatalf("文件不存在不算问题，实际提示 %q", note)
+	}
+}
+
+// TestStoreReportsBrokenFile：设置读不出来时不能只是悄悄回退默认值
+// （用户改过的地址、并发数会凭空变回默认值），还要能报出来、并把原文件留一份。
+func TestStoreReportsBrokenFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	store := NewStore(path)
+
+	broken := []byte("{ this is not json")
+	if err := os.WriteFile(path, broken, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Load(); got != Default() {
+		t.Fatalf("损坏的设置文件应回退默认值，实际 %+v", got)
+	}
+
+	note := store.Problem(i18n.ZH)
+	if note == "" {
+		t.Fatal("设置读不出来时应该给出一句说明")
+	}
+	if !strings.Contains(note, ".broken") {
+		t.Fatalf("说明里应该指出原文件留在哪里，实际 %q", note)
+	}
+
+	kept, err := os.ReadFile(path + ".broken")
+	if err != nil {
+		t.Fatalf("原文件应该被另存一份: %v", err)
+	}
+	if string(kept) != string(broken) {
+		t.Fatalf(".broken 里应该是原来的字节，实际 %q", kept)
+	}
+	if en := store.Problem(i18n.EN); strings.Contains(en, "设置") {
+		t.Fatalf("英文提示不应含中文，实际 %q", en)
+	}
+
+	// 再读一次（这次 .broken 已经存在）：仍然要报出问题与位置，别因为
+	// 「备份已经在了」就把说明吃掉。
+	_ = store.Load()
+	if note := store.Problem(i18n.ZH); !strings.Contains(note, ".broken") {
+		t.Fatalf("第二次读取也要指出原文件位置，实际 %q", note)
+	}
+
+	// 改好之后再读：提示要消失。
+	good, _ := json.Marshal(Default())
+	if err := os.WriteFile(path, good, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = store.Load()
+	if note := store.Problem(i18n.ZH); note != "" {
+		t.Fatalf("设置正常时不应该有提示，实际 %q", note)
 	}
 }

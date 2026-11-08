@@ -236,6 +236,8 @@ type healthResponse struct {
 	DataDir string `json:"dataDir"`
 	// DataNote 只在没能放到 exe 旁边时说明原因。
 	DataNote string `json:"dataNote,omitempty"`
+	// SettingsNote 在设置文件读不出来时说明「现在跑的是默认值」。
+	SettingsNote string `json:"settingsNote,omitempty"`
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -256,6 +258,9 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		Picgo:    picgoHealth{Online: online, Detail: detail},
 		DataDir:  appdata.Dir(),
 		DataNote: appdata.Note(langOf(r)),
+		// Load 已经把「设置文件读不出来」这件事咽下去了（回退默认值继续跑），
+		// 这里把它说给用户听，免得他改过的地址、并发数凭空变回默认值。
+		SettingsNote: s.store.Problem(langOf(r)),
 	})
 }
 
@@ -417,9 +422,16 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runID := newRunID()
-	ctx, cancel := context.WithCancel(context.Background())
 
+	// 同一时刻只允许跑一次：两次 /api/run 会各自建一个 Runner，同一批文件被两边
+	// 同时处理（重复上传、输出互相覆盖），界面也只有一套进度可显示。
 	s.mu.Lock()
+	if len(s.runs) > 0 {
+		s.mu.Unlock()
+		errKey(w, r, http.StatusConflict, i18n.KeyServerBusy)
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s.runs[runID] = cancel
 	s.mu.Unlock()
 
@@ -621,6 +633,8 @@ func codeFor(status int) string {
 		return "not_found"
 	case http.StatusMethodNotAllowed:
 		return "method_not_allowed"
+	case http.StatusConflict:
+		return "conflict"
 	case http.StatusNotImplemented:
 		return "unsupported"
 	case http.StatusInternalServerError:
