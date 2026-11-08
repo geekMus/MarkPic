@@ -67,7 +67,7 @@ convert-md-picture .\docs --dry-run
 | `--dry-run` | 只检查，不上传、不写文件 |
 | `--no-reuse` | 不复用上次的上传结果，每张图都重新上传 |
 | `-e, --endpoint <url>` | PicGo 服务地址，默认 `http://127.0.0.1:36677` |
-| `-c, --concurrency <int>` | 同时上传的图片数，1-16，默认 8 |
+| `-c, --concurrency <int>` | 同时上传的图片数，1-32，默认 16 |
 | `--retries <int>` | 上传失败重试次数，0-5，默认 2 |
 | `-q, --quiet` | 只输出汇总 |
 | `-v, --version` | 显示版本 |

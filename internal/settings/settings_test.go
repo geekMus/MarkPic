@@ -35,7 +35,7 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "并发与重试夹到区间内",
 			in:   Settings{Concurrency: 99, Retries: 99, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: 16, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: MaxConcurrency, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "下限同样夹住",
@@ -125,6 +125,18 @@ func TestStoreMigratesLegacyConcurrency(t *testing.T) {
 	}
 	if got := store.Load(); got.Concurrency != 4 {
 		t.Fatalf("迁移完成后用户设的 4 不该被改：%d", got.Concurrency)
+	}
+
+	// 2.0 写出来的设置文件：有 schemaVersion=2，并发是当时的默认值 8。
+	path2 := filepath.Join(t.TempDir(), "settings.json")
+	store2 := NewStore(path2)
+	v2 := `{"endpoint":"http://127.0.0.1:36677","concurrency":8,"retries":2,"output":"sidecar",` +
+		`"suffix":".converted","backup":true,"reuseUploads":true,"schemaVersion":2}`
+	if err := os.WriteFile(path2, []byte(v2), 0o644); err != nil {
+		t.Fatalf("写 2.0 设置失败: %v", err)
+	}
+	if got := store2.Load(); got.Concurrency != DefaultConcurrency {
+		t.Fatalf("2.0 的默认并发应当迁移到 %d，得到 %d", DefaultConcurrency, got.Concurrency)
 	}
 }
 

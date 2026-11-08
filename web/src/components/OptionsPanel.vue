@@ -111,10 +111,10 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 class="input num"
                 type="number"
                 min="1"
-                max="16"
+                max="32"
                 step="1"
                 :value="settings.concurrency"
-                @change="emit('update', { concurrency: clampValue($event, 1, 16, 8) })"
+                @change="emit('update', { concurrency: clampValue($event, 1, 32, 16) })"
               />
             </label>
             <label class="field">

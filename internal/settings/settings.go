@@ -24,7 +24,7 @@ const (
 
 // CurrentSchemaVersion 是设置文件的结构版本。加载到比它旧的设置时会做一次性迁移，
 // 迁移完写回，用户之后再改回旧值就不会再被动。
-const CurrentSchemaVersion = 2
+const CurrentSchemaVersion = 3
 
 // Settings 是全部可配置项。JSON 字段名即 HTTP API 字段名。
 type Settings struct {
@@ -61,22 +61,30 @@ func Default() Settings {
 	}
 }
 
-// DefaultConcurrency 是默认并发上传数。用真实 PicGo 实测（每张图约 1 KB）：
-// 并发 1 → 618 ms/张，并发 4 → 218 ms/张，并发 8 → 198 ms/张，
-// 并发 16 且图多时跑到 65 ms/张。上传是纯等网络，并发太小吃亏最大。
-const DefaultConcurrency = 8
+// MaxConcurrency 是并发上传数的上限。再往上实测就没有收益了（图床反而更不稳）。
+const MaxConcurrency = 32
 
-// legacyConcurrency 是 1.x 版本的默认并发数。
-const legacyConcurrency = 4
+// DefaultConcurrency 是默认并发上传数。上传是纯等网络，并发太低最吃亏：
+// 真 PicGo + 150 KB 的图、59 张，跑 6 篇文档（每轮配置重复 3 次取最好）：
+// 并发 8 → 8.8~10.0 s，并发 12 → 5.9~8.9 s，并发 16 → 5.6~6.2 s，
+// 并发 20 → 5.3~6.1 s，并发 32 → 不稳（出现过 30 s 的轮次）。
+// 16 是收益拐点：再往上只多压图床、不多拿速度。
+const DefaultConcurrency = 16
+
+// 旧版本的默认并发数：1.0 是 4，2.0（含）之前是 8。
+const (
+	legacyConcurrency  = 4
+	legacyConcurrency2 = 8
+)
 
 // migrate 把旧版本的设置补成当前版本，返回是否改动过。
 func (s *Settings) migrate() bool {
 	if s.SchemaVersion >= CurrentSchemaVersion {
 		return false
 	}
-	// 旧版本的默认并发是 4，实测只有 8 的一半吞吐；只在用户用的还是
-	// 旧默认值时顺手提上去，迁移写回之后再改回 4 就不会被覆盖。
-	if s.Concurrency == legacyConcurrency {
+	// 只在用户用的还是「当时那个版本的默认值」时顺手提上去；迁移写回之后再
+	// 改回旧值就不会被覆盖。
+	if s.Concurrency == legacyConcurrency || s.Concurrency == legacyConcurrency2 {
 		s.Concurrency = DefaultConcurrency
 	}
 	s.SchemaVersion = CurrentSchemaVersion
@@ -110,8 +118,8 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 	if s.Concurrency < 1 {
 		s.Concurrency = 1
 	}
-	if s.Concurrency > 16 {
-		s.Concurrency = 16
+	if s.Concurrency > MaxConcurrency {
+		s.Concurrency = MaxConcurrency
 	}
 	if s.Retries < 0 {
 		s.Retries = 0

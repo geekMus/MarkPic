@@ -40,8 +40,8 @@ function defaultSettings(): Settings {
   return {
     endpoint: 'http://127.0.0.1:36677',
     // 与服务端 internal/settings.Default() 保持一致：真实图床上传是纯等网络，
-    // 实测并发 8 的吞吐是并发 4 的两倍左右。
-    concurrency: 8,
+    // 实测（150 KB 的图、59 张）并发 16 比并发 8 快一倍左右，再往上就没收益了。
+    concurrency: 16,
     retries: 2,
     output: 'sidecar',
     suffix: '.converted',
@@ -76,7 +76,7 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
     concurrency: clampInt(
       typeof value.concurrency === 'number' ? value.concurrency : base.concurrency,
       1,
-      16,
+      32,
       base.concurrency,
     ),
     retries: clampInt(

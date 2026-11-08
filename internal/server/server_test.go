@@ -132,7 +132,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 	if cfg.Endpoint != "http://127.0.0.1:9999" {
 		t.Fatalf("endpoint 未规范化: %q", cfg.Endpoint)
 	}
-	if cfg.Concurrency != 16 || cfg.Retries != 5 {
+	if cfg.Concurrency != settings.MaxConcurrency || cfg.Retries != 5 {
 		t.Fatalf("数值未夹到合法区间: %+v", cfg)
 	}
 }
