@@ -358,6 +358,14 @@ func parseHTMLImage(src []byte, start int) (Ref, int, bool) {
 		for i < k && !isHTMLSpace(src[i]) && src[i] != '=' && src[i] != '/' && src[i] != '>' {
 			i++
 		}
+		if i == nameStart {
+			// 站在 '=' 或 '>' 上，说明这里根本不是属性名。畸形标签里很常见
+			// （属性名位置上来个引号，引号里又有个 '>'，tagEnd 就会落在它后面），
+			// 往前挪一格保证循环一定往前走 —— 以前这里会原地死循环，
+			// 一个畸形标签就能让整个程序卡死（fuzz 抓到过）。
+			i++
+			continue
+		}
 		name := strings.ToLower(string(src[nameStart:i]))
 		for i < k && isHTMLSpace(src[i]) {
 			i++

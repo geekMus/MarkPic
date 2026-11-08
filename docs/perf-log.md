@@ -1071,3 +1071,124 @@ if resp.StatusCode != http.StatusOK {
   实际这个数字同时决定**文件工作池**和**上传信号量**（`internal/conv/runner.go` 里
   `workers := r.cfg.Concurrency` 与 `upload()` 里的 `r.sem`），所以统一改成
   「同时处理的文件数，也是同时上传的图片数」，并在界面上加了一行小字说明。
+## 第 24 轮：fuzz 抓到「一个畸形标签让整个程序卡死」
+
+### 为什么这轮换成 fuzz
+
+前 23 轮都是手写边界用例（编码、路径、后缀、代码块、标签、文件被占用、图床限流…）。
+手写用例只能覆盖「想得到的」输入；这一轮换一种找法：给扫描器写一个 fuzz 目标，
+让机器去撞「想不到的」输入，断言它在任何字节串上都不会 panic、不会卡住，
+而且给出的引用区间自洽。
+
+`internal/mdscan/fuzz_test.go` 的 `FuzzScanLang`：20 条种子（正常写法、引用式、
+尖括号、代码块、`<pre>`、注释、BOM+CRLF、畸形截断），每次断言两件事：
+
+- 每个引用都满足 `Start <= URLStart <= URLEnd <= End <= len(src)`；
+- 用各引用自己的 URL 区间 `Apply` 一次不报错，并且结果长度等于
+  `len(src) - 被替换的字节数 + 13 * 引用数`（`13` 是替换文本 `https://mock.local` 的长度）。
+
+### 69 秒时挂住了
+
+`go test ./internal/mdscan/ -run FuzzScanLang -fuzz FuzzScanLang -fuzztime 90s`：
+跑到第 69 秒，execs 从约 80 万/秒掉到 **0** —— 整个 fuzz 进程卡死不动，只能 Ctrl+C。
+失败输入被写进 `internal/mdscan/testdata/fuzz/FuzzScanLang/4b4cebd9feeaa7ac`
+（1058 字节，开头是 `<img "0000…`）。
+
+定位方式是临时测试里把 `ScanLang` 放进 goroutine，再
+`pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)` 打全部栈：卡在
+**`parseHTMLImage`（`internal/mdscan/scan.go:361`）**的属性循环里原地打转。
+
+### 根因：一个可以「零进展」的 continue
+
+属性循环的骨架是这样的：
+
+```go
+for i < tagEnd {
+    nameStart := i
+    for i < tagEnd && !isSpace(src[i]) && src[i] != '=' && src[i] != '>' {
+        i++
+    }
+    if i == nameStart {
+        // 站在 '=' 或 '>' 上：这里不是属性名
+        if src[i] != '=' {
+            i++
+            continue
+        }
+    }
+    ...
+    if i >= k || src[i] != '=' {
+        continue      // ← 回到循环开头，位置一点没动
+    }
+```
+
+当 `src[i]` 是 `=` 或 `>` 时，名字扫描一格都不动（`i == nameStart`），
+随后那条 `continue` 也回到同一个位置 —— **死循环**。
+
+能不能走到 `>` 上，取决于 `tagEnd`（取标签里最后一个 `>`）与属性解析各自
+怎么对待引号：畸形引号会让两者错位。最小复现：
+
+```html
+<img "a b>c" x>
+```
+
+同一批候选里 `<img = = >`、`<img alt=x >`、`<img alt="a>b" >`、`<img src="a.png" >`
+都不卡（属性名非空，或者一碰到 `src` 就返回了），所以这个洞藏得很深。
+
+### 影响面：不用恶意构造，编辑器里打错一个引号就行
+
+`ScanLang` 在三条路径上都会被调用：命令行、`/api/preview`、`/api/run`。
+也就是说，文档里出现这么一行，命令行会**永远挂着不返回**（用户只能去杀进程），
+服务端的预检请求也永远不结束 —— 界面表现为「点了预览/开始转换，一直转」。
+
+### 修法
+
+给循环补上「一定往前走」的保证：
+
+```go
+		if i == nameStart {
+			// 站在 '=' 或 '>' 上，说明这里根本不是属性名。畸形标签里很常见
+			// （属性名位置上来个引号，引号里又有个 '>'，tagEnd 就会落在它后面），
+			// 往前挪一格保证循环一定往前走 —— 以前这里会原地死循环，
+			// 一个畸形标签就能让整个程序卡死（fuzz 抓到过）。
+			i++
+			continue
+		}
+```
+
+顺手把 `internal/mdscan` 里所有带 `continue` 的循环都过了一遍：`scan.go` 的
+75/107/482/539 行外层都在 `continue` 前自增，132/179/212 行与 `refs.go` 的内层
+同样自增，`looseDestEnd` 用的是 `for` 语句自增形式 —— 只有属性循环这一处零进展。
+
+### 回归测试
+
+`internal/mdscan/hang_test.go`：
+
+- `TestScanNeverHangsOnBrokenHTML`：17 条畸形 `<img>` 写法（含最小复现、
+  `<img = = >`、`<img "` 等），每条给 1 秒时限；正常扫描是微秒级。
+- `TestScanFuzzCorpus`：把 `testdata/fuzz/FuzzScanLang/` 下的语料当固定用例跑一遍，
+  这样 fuzz 抓到的东西在普通的 `go test` 里也会被守住。
+
+一个自己踩的坑：`scanWithin` 辅助函数**必须**把 `ScanLang` 放进 goroutine 里跑，
+否则主测试协程自己就卡在里面，根本没机会走到超时分支（第一版就是这么写的，
+测试挂了两分钟才被 `-timeout` 杀掉）。
+
+### 验证
+
+- 修复前，拿仓库里那版 exe（提交 40c2e8f）跑同一份文档：
+  **8 秒不返回 → 强杀**。
+- 修复后重建，同一份文档 **559 ms 返回**（含进程启动约 0.5 秒），
+  预览「1 处引用 · 1 处待上传」，退出码 0。
+- `go test ./internal/mdscan/ -count=1` 0.9 秒全绿（含 fuzz 语料回归）。
+- 修复后再 fuzz 5 分钟：**178,756,995 次执行、0 失败**（`PASS`，302 秒）。
+
+### 顺带补的 i18n 审计
+
+`internal/i18n` 此前一条测试都没有。补了 `i18n_test.go`：
+
+- `TestCatalogIsComplete`：每条键的中英文都非空、文案不能正好等于键名、
+  中英两种语言的格式动词个数与种类要对得上（`%%` 不算，允许用 `%v` 兜底）；
+- `TestTFallback`：未知键回退键名、未知语言回退中文、`KeyConvFileMissing` 必须带上文件名；
+- `TestParse`：13 组 `Accept-Language`（空、`zh-CN`、q 值排序、q 相同按出现顺序、
+  大小写、不支持的语言、`*`、`q=0`、`q=abc` 按 1.0 等）。
+
+三组全过，说明已经积累的 60 多条文案没有漏译、格式动词也没错位。
