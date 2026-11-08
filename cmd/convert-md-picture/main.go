@@ -180,8 +180,8 @@ func applyOverrides(cmd *cobra.Command, opt options, cfg *settings.Settings) {
 	}
 }
 
-// appTitle 用作窗口标题、消息框标题，与网页里的标题保持一致。
-const appTitle = "Markdown 图片图床化"
+// appTitle 是任务栏与消息框里显示的名字：和 exe、和标题栏里的字标同一个名字。
+const appTitle = "convert-md-picture"
 
 func runGUI(store *settings.Store, opt options) int {
 	sig := make(chan os.Signal, 1)
@@ -228,7 +228,7 @@ func showUI(url string, opt options, sig <-chan os.Signal) {
 		openInBrowser(url)
 		<-sig
 	default:
-		if err := openAppWindow(url, appTitle+" · convert-md-picture", sig); err != nil {
+		if err := openAppWindow(url, appTitle, sig); err != nil {
 			fmt.Fprintf(os.Stderr, "%v，改用浏览器打开。\n", err)
 			openInBrowser(url)
 			<-sig

@@ -31,6 +31,9 @@ const versionLabel = computed(() => {
   return value.startsWith('v') ? value : `v${value}`
 })
 
+// 字标只写名字，中文说明挂在悬停提示里
+const brandTitle = 'convert-md-picture · Markdown 图片图床化'
+
 const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
   if (props.picgo === null) return props.healthChecking ? 'neutral' : 'danger'
   return props.picgo.online ? 'success' : 'danger'
@@ -90,7 +93,15 @@ function handleDoubleClick(event: MouseEvent): void {
           />
         </svg>
       </span>
-      <span class="tb__title">Markdown 图片图床化</span>
+      <!-- 品牌就是命令行里的那个名字。md 是它在做的事（改写 Markdown 图片链接），
+           所以把这一段点亮，其余保持普通字色：看着像命令，也像被高亮的 token。 -->
+      <span class="brand" role="img" aria-label="convert-md-picture" :title="brandTitle">
+        <span class="brand__word" aria-hidden="true">convert</span>
+        <span class="brand__dash" aria-hidden="true">-</span>
+        <span class="brand__word brand__word--md" aria-hidden="true">md</span>
+        <span class="brand__dash" aria-hidden="true">-</span>
+        <span class="brand__word" aria-hidden="true">picture</span>
+      </span>
       <span v-if="versionLabel" class="tb__version mono">{{ versionLabel }}</span>
     </div>
 
@@ -203,14 +214,28 @@ function handleDoubleClick(event: MouseEvent): void {
   height: 22px;
 }
 
-.tb__title {
+/* 品牌字标：等宽、小写，中段「md」用强调色 —— 工具本身就是一条命令，
+   等宽字体比衬线/无衬线的常规标题更贴合它 */
+.brand {
+  display: inline-flex;
+  align-items: baseline;
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--fs-3);
+  font-family: var(--mono);
+  font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: -0.005em;
-  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
   white-space: nowrap;
+}
+
+.brand__dash {
+  margin: 0 0.5px;
+  color: var(--ink-3);
+  font-weight: 400;
+}
+
+.brand__word--md {
+  color: var(--accent-ink);
 }
 
 .tb__version {
@@ -351,7 +376,7 @@ function handleDoubleClick(event: MouseEvent): void {
 }
 
 @media (max-width: 720px) {
-  .tb__title,
+  .brand,
   .tb__version {
     display: none;
   }
