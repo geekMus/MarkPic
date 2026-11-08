@@ -8,8 +8,9 @@
     · 前端  http://localhost:<WebPort>  —— Vite 开发服务器，/api 请求由它代理到后端
 
   浏览器请打开「前端」那个地址（默认 http://localhost:5173）。
-  默认会在 Vite 就绪后自动帮你打开；加 -NoOpen 可以关掉这个行为。
-  改 .vue/.ts 立刻热更新；改 Go 代码需要按 Ctrl+C 重跑本脚本。
+  默认不自动打开浏览器，只在终端里打印地址（加 -Open 才会自动打开）。
+  改 .vue/.ts 由 Vite 热更新，改 .go 由 watch-api.ps1 自动重新编译并重启后端，
+  两边都不用手动重跑本脚本。
   结束脚本时会一并关掉它启动的后端进程。
 
 .PARAMETER ApiPort
@@ -30,8 +31,11 @@
 .PARAMETER ApiOnly
   只启动后端（前端自己另开终端跑 pnpm --dir web dev）。
 
-.PARAMETER NoOpen
-  不要自动打开浏览器（默认会自动打开前端地址）。
+.PARAMETER Open
+  启动后自动用系统默认浏览器打开前端地址（默认不打开，只在终端里打印地址）。
+
+.PARAMETER NoWatch
+  后端不监视源码（默认改 Go 代码会自动重新编译并重启后端）。
 
 .EXAMPLE
   pnpm dev
@@ -50,7 +54,8 @@ param(
     [string]$Pnpm = '',
     [switch]$NoInstall,
     [switch]$ApiOnly,
-    [switch]$NoOpen
+    [switch]$Open,
+    [switch]$NoWatch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,8 +89,8 @@ try {
     if (Test-ApiHealth -Port $ApiPort) {
         Write-Host "==> 端口 $ApiPort 上已经有本项目实例在跑，直接复用" -ForegroundColor Yellow
     }
-    else {
-        Write-Host "==> 启动后端（端口 $ApiPort）" -ForegroundColor Cyan
+    elseif ($NoWatch) {
+        Write-Host "==> 启动后端（端口 $ApiPort，不监视源码）" -ForegroundColor Cyan
         # 用 .NET 直接起进程：Windows PowerShell 5.1 的 Start-Process 在本机可能因为
         # 环境变量里同时存在 NO_PROXY / no_proxy 而报 ArgumentException。
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -97,6 +102,24 @@ try {
 
         if (-not (Wait-ApiHealth -Port $ApiPort -TimeoutSeconds 30)) {
             throw "后端 30 秒内没有就绪。可以手动运行 `"$devExe --port $ApiPort`" 看具体报错。"
+        }
+    }
+    else {
+        Write-Host "==> 启动后端（端口 $ApiPort，改 Go 代码自动重启）" -ForegroundColor Cyan
+        # 后端交给 watch-api.ps1 看着：它是独立进程，但输出不重定向，
+        # 所以热重启的日志和 Vite 的日志打在同一个控制台里。
+        $watchScript = Join-Path $PSScriptRoot 'watch-api.ps1'
+        $watchArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $watchScript, '-Port', $ApiPort, '-Root', $root)
+        if ($Go) { $watchArgs += @('-Go', $Go) }
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'powershell.exe'
+        $psi.Arguments = (($watchArgs | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' ')
+        $psi.WorkingDirectory = $root
+        $psi.UseShellExecute = $false
+        $apiProc = [System.Diagnostics.Process]::Start($psi)
+
+        if (-not (Wait-ApiHealth -Port $ApiPort -TimeoutSeconds 40)) {
+            throw "后端 40 秒内没有就绪。可以手动运行 `"$devExe --port $ApiPort`" 看具体报错。"
         }
     }
 
@@ -134,9 +157,11 @@ try {
     # 让 vite.config.ts 知道后端在哪个端口（它读 CMP_API，默认 17860）。
     $env:CMP_API = "http://127.0.0.1:$ApiPort"
 
-    # Vite 就在下面这行以前台方式跑，所以「等它起来再开浏览器」只能放到后台作业里。
-    # 早点开浏览器会撞上一个还没监听的端口，用户看到的是一张连接失败页。
-    if (-not $NoOpen) {
+    # 默认不碰浏览器：开发机常常同时在干别的事（比如打游戏），
+    # 弹一个窗口出来抢焦点很讨厌。要自动打开就显式加 -Open。
+    # 真要开的话得等 Vite 真的在监听：Vite 在下面这行以前台方式跑，
+    # 所以只能放到后台作业里等，早了用户看到的是一张连接失败页。
+    if ($Open) {
         $opener = Start-Job -ScriptBlock {
             param($port, $url, $tools)
             . $tools
@@ -144,13 +169,13 @@ try {
                 Open-Url -Url $url | Out-Null
             }
         } -ArgumentList $WebPort, "http://127.0.0.1:$WebPort", (Join-Path $PSScriptRoot '_tools.ps1')
+        Write-Host ("  Vite 就绪后会自动打开 http://127.0.0.1:{0}" -f $WebPort) -ForegroundColor DarkGray
+    }
+    else {
+        Write-Host ("  Vite 就绪后请自己打开 http://127.0.0.1:{0}（要它自动打开就加 -Open）" -f $WebPort) -ForegroundColor DarkGray
     }
 
-    if (-not $NoOpen) {
-        Write-Host ("  Vite 就绪后会自动打开 http://127.0.0.1:{0}（不想自动打开就加 -NoOpen）" -f $WebPort) -ForegroundColor DarkGray
-    }
-
-    Write-Host '==> 启动前端 Vite（改 Vue 代码即时生效，Ctrl+C 结束）' -ForegroundColor Cyan
+    Write-Host '==> 启动前端 Vite（Ctrl+C 结束；改 .vue/.ts 前端热更新，改 .go 后端自动重启）' -ForegroundColor Cyan
     & $pnpmExe --dir web dev --port $WebPort --strictPort
 }
 finally {
@@ -164,5 +189,7 @@ finally {
         try { $apiProc.Kill() } catch { }
         try { $apiProc.WaitForExit(3000) | Out-Null } catch { }
     }
+    # watch-api.ps1 被强杀时不一定能带走它启动的后端，这里兜一下。
+    Get-Process -Name 'dev-api' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Pop-Location
 }

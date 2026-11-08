@@ -1,1 +1,10 @@
+# 默认按 CRLF 检出（Windows 上的主战场）
 * text=auto eol=crlf
+
+# Go 源码保持 LF：gofmt 会把 CRLF 文件判为「未格式化」，
+# 否则每次全新 clone 后 gofmt -l . 都会列出一大堆文件。
+*.go text eol=lf
+
+# 图片与其他二进制不要做行尾转换
+*.ico binary
+*.png binary
