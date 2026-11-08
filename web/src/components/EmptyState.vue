@@ -310,7 +310,8 @@ const emit = defineEmits<{
   line-height: 1.5;
 }
 
-@media (max-width: 1180px) {
+/* 默认窗口宽 1180：够宽就左右两栏，窄下来再竖排 */
+@media (max-width: 1040px) {
   .empty__hero {
     grid-template-columns: minmax(0, 1fr);
     gap: 20px;
@@ -321,14 +322,47 @@ const emit = defineEmits<{
   }
 }
 
+/* 窄窗口（820 以下就是窄版）：压缩纵向节奏，让整块内容一屏放得下 */
 @media (max-width: 900px) {
   .empty {
-    padding: 24px;
+    padding: 22px 20px 18px;
+  }
+
+  .empty__inner {
+    gap: 16px;
+  }
+
+  .empty__hero {
+    gap: 16px;
+  }
+
+  .empty__title {
+    font-size: 21px;
+  }
+
+  .empty__text {
+    line-height: 1.6;
+  }
+
+  .spec {
+    padding: 12px 14px;
   }
 
   .steps {
+    gap: 14px;
+    padding-top: 12px;
+  }
+
+  .step {
+    gap: 8px;
+  }
+}
+
+/* 再窄：三步改成竖排，一列一行 */
+@media (max-width: 620px) {
+  .steps {
     grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+    gap: 10px;
   }
 }
 </style>

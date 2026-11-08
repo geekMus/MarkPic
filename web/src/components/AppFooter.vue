@@ -172,7 +172,8 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   color: var(--ink-3);
 }
 
-@media (max-width: 760px) {
+/* 窄窗口：先丢掉快捷键提示，把空间让给汇总和按钮 */
+@media (max-width: 820px) {
   .foot__kbd {
     display: none;
   }

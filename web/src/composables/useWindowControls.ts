@@ -1,5 +1,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useTheme } from './useTheme'
+import { markResizing } from './useResizing'
 
 /** 可拖拽缩放的窗口边。 */
 export type ResizeEdge =
@@ -104,6 +105,8 @@ export function useWindowControls() {
     /** 在窗口边缘按下：把这次按下交给系统去缩放窗口。 */
     startResize: (edge: ResizeEdge): void => {
       if (!available.value) return
+      // 缩放循环一进来就会连续重排，先按「正在缩放」把贵的效果关掉
+      markResizing()
       void bridge.cmpWinResize?.(edge)
     },
   }

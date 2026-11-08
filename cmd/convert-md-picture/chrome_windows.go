@@ -38,9 +38,11 @@ const (
 	wmGetMinMaxInfo = 0x0024
 	wmDpiChanged    = 0x02E0
 
-	// 窗口最小尺寸（96 DPI 下的逻辑值）：再小界面就只能切成上下堆叠了。
-	minWindowWidth  = 900
-	minWindowHeight = 620
+	// 窗口最小尺寸（96 DPI 下的逻辑值）。取 760×560 是照着界面自己的两个断点定的：
+	// 820px 以下界面进入窄版（标题栏丢掉版本号、台账丢掉「图片」列、底栏丢掉快捷键提示），
+	// 620px 以下才会丢字标 —— 760 落在窄版里、离「压缩到难看」还有一段距离。
+	minWindowWidth  = 760
+	minWindowHeight = 560
 
 	// GetSystemMetrics 的索引
 	smCxSizeFrame    = 32

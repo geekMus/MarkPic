@@ -375,9 +375,16 @@ function handleDoubleClick(event: MouseEvent): void {
   color: #fff;
 }
 
-@media (max-width: 720px) {
-  .brand,
-  .tb__version {
+/* 窄窗口：先丢版本号和 PicGo 文字（只留状态点），再窄才丢字标 */
+@media (max-width: 820px) {
+  .tb__version,
+  .health__text {
+    display: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .brand {
     display: none;
   }
 }

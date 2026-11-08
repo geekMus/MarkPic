@@ -565,7 +565,7 @@ function replaced(status: ImageStatus): boolean {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 820px) {
   .item__count {
     display: none;
   }

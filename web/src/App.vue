@@ -264,6 +264,9 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-rows: 44px minmax(0, 1fr) 64px;
   height: 100vh;
+  /* 桌面窗口的最小宽度由后端 WM_GETMINMAXINFO 兜着（760 逻辑像素）；
+     这里再留一道底线，浏览器里拖到更窄就出现横向滚动条，而不是把版面压垮。 */
+  min-width: 620px;
   padding: 0 var(--gutter);
   color: var(--ink);
 }

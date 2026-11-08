@@ -247,4 +247,15 @@ function submitManual(): void {
     transform: none;
   }
 }
+
+/* 窄窗口：行里不再显示「图片」列（列宽留给文件名），列头跟着一起收 */
+@media (max-width: 820px) {
+  .ledger__head {
+    grid-template-columns: minmax(0, 1fr) 96px 34px;
+  }
+
+  .ledger__col--num {
+    display: none;
+  }
+}
 </style>
