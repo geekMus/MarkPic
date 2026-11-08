@@ -212,6 +212,16 @@ func runGUI(store *settings.Store, opt options) int {
 
 	if url := findRunning(opt.port); url != "" {
 		fmt.Printf("已经有一个实例在运行：%s\n", url)
+		// 服务在别人那里，这个进程只剩「把界面送到用户面前」一件事。
+		// 不需要界面的两种形态（--no-open / --browser）干完就走，
+		// 别留一个什么都不干的进程挂在那儿等信号。
+		if opt.noOpen {
+			return 0
+		}
+		if opt.browser || !windowSupported() {
+			openInBrowser(url)
+			return 0
+		}
 		showUI(url, opt, sig)
 		return 0
 	}
