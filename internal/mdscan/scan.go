@@ -151,7 +151,11 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 	j := start + 2 // 跳过 "!["
 
-	// alt 文本：扫描到未转义的 ']'
+	// alt 文本：扫描到未转义的 ']'。
+	//
+	// 试过用 bytes.IndexAny 跳着找 `]`、`\`、换行，实测反而慢 5%（1258 vs 1326 MB/s）：
+	// alt 文本通常只有十几个字节，IndexAny 自己的建表与调用开销比逐字节判断还大。
+	// 所以这里保持逐字节。
 	for j < len(src) {
 		if src[j] == '\\' && j+1 < len(src) {
 			j += 2
