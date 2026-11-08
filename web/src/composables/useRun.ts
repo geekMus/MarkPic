@@ -39,6 +39,8 @@ export interface RunStats {
   files: number
   images: number
   uploaded: number
+  /** 靠缓存省下的去重图片数（跑完之后才有准确值）。 */
+  reused: number
   failed: number
   ok: number
   partial: number
@@ -94,6 +96,7 @@ const stats = computed<RunStats>(() => {
       files: finished.files,
       images: finished.images,
       uploaded: finished.uploaded,
+      reused: finished.reused,
       failed: finished.failedImages,
       ok: finished.ok,
       partial: finished.partial,
@@ -104,6 +107,7 @@ const stats = computed<RunStats>(() => {
 
   let images = 0
   let uploaded = 0
+  let reused = 0
   let failed = 0
   let ok = 0
   let partial = 0
@@ -115,6 +119,9 @@ const stats = computed<RunStats>(() => {
     if (result) {
       images += result.images
       uploaded += result.uploaded
+      reused += result.items.filter(
+        item => item.status === 'reused' || item.status === 'cached',
+      ).length
       failed += result.failed
       if (result.status === 'ok') ok += 1
       else if (result.status === 'partial') partial += 1
@@ -126,7 +133,17 @@ const stats = computed<RunStats>(() => {
     }
   }
 
-  return { files: rows.value.length, images, uploaded, failed, ok, partial, failedFiles, noImages }
+  return {
+    files: rows.value.length,
+    images,
+    uploaded,
+    reused,
+    failed,
+    ok,
+    partial,
+    failedFiles,
+    noImages,
+  }
 })
 
 /** 转换结束后「打开输出目录」的目标：最后一个成功文件的产物，否则首行所在目录。 */

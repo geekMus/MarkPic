@@ -394,3 +394,84 @@ func TestImageUploadedOnceAcrossFiles(t *testing.T) {
 		}
 	})
 }
+
+// TestUploadCacheSkipsSecondRun 是「改一篇文章再跑一次」的回归：
+// 第二次运行时图片一个字节都没变，就不该再打一次图床。
+func TestUploadCacheSkipsSecondRun(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "a")
+	writeFile(t, filepath.Join(dir, "b.png"), "b")
+	writeFile(t, filepath.Join(dir, "a.md"), "![a](a.png)\n![a 又一次](a.png)\n![b](b.png)\n")
+	src := filepath.Join(dir, "a.md")
+	out := filepath.Join(dir, "a.converted.md")
+	cachePath := filepath.Join(dir, "cache", "upload-cache.json")
+
+	srv, hitCount := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	cfg.ReuseUploads = true
+	runner := NewRunner(cfg, i18n.ZH, "run-cache", nil).AttachUploadCache(cachePath)
+
+	_, first := runner.RunCollect(context.Background(), []string{src})
+	if first.Uploaded != 3 || first.Reused != 0 {
+		t.Fatalf("第一次运行 uploaded=%d reused=%d, want 3/0：%+v", first.Uploaded, first.Reused, first)
+	}
+	if hits := hitCount(); hits["a.png"] != 1 || hits["b.png"] != 1 {
+		t.Fatalf("第一次运行的上传次数不对：%v", hits)
+	}
+	firstOut, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 第二次：输出先删掉，确保真的重新写了一遍文件，只是不再上传。
+	if err := os.Remove(out); err != nil {
+		t.Fatal(err)
+	}
+	results, second := NewRunner(cfg, i18n.ZH, "run-cache", nil).AttachUploadCache(cachePath).
+		RunCollect(context.Background(), []string{src})
+
+	if hits := hitCount(); hits["a.png"] != 1 || hits["b.png"] != 1 {
+		t.Fatalf("第二次运行不该再上传：%v", hits)
+	}
+	if second.Reused != 2 {
+		t.Fatalf("第二次运行 reused=%d, want 2（a.png 与 b.png）：%+v", second.Reused, second)
+	}
+	if second.Uploaded != 3 {
+		t.Fatalf("缓存命中也算替换成功，uploaded=%d, want 3：%+v", second.Uploaded, second)
+	}
+	for _, item := range results[0].Items {
+		if item.Status != StatusCached {
+			t.Errorf("第 %d 条状态 = %s, want %s", item.Line, item.Status, StatusCached)
+		}
+	}
+	secondOut, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(secondOut) != string(firstOut) {
+		t.Errorf("两次输出不一致：\n第一次 %q\n第二次 %q", firstOut, secondOut)
+	}
+}
+
+// TestUploadCacheDisabledBySettings 验证设置里关掉之后，缓存文件既不读也不写。
+func TestUploadCacheDisabledBySettings(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "a")
+	writeFile(t, filepath.Join(dir, "a.md"), "![a](a.png)\n")
+	cachePath := filepath.Join(dir, "upload-cache.json")
+
+	srv, hitCount := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	cfg.ReuseUploads = false
+
+	for i := 0; i < 2; i++ {
+		NewRunner(cfg, i18n.ZH, "run-nocache", nil).AttachUploadCache(cachePath).
+			RunCollect(context.Background(), []string{filepath.Join(dir, "a.md")})
+	}
+	if hits := hitCount(); hits["a.png"] != 2 {
+		t.Fatalf("关掉缓存后每次都该重传，实际上传 %d 次", hits["a.png"])
+	}
+	if _, err := os.Stat(cachePath); !os.IsNotExist(err) {
+		t.Errorf("关掉缓存时不该写出 %s（err=%v）", cachePath, err)
+	}
+}

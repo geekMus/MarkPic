@@ -37,6 +37,12 @@ type Settings struct {
 	Backup      bool   `json:"backup"`
 	DryRun      bool   `json:"dryRun"`
 
+	// ReuseUploads 打开跨运行的上传结果缓存：同一张图（大小与修改时间都没变）
+	// 上次已经传过的话，这一轮直接用上次的地址，不再重传。
+	// 新增字段的零值是 false，所以 Default() 里必须显式写 true；
+	// 旧设置文件里没有这个字段时，反序列化到 Default() 上会保住 true。
+	ReuseUploads bool `json:"reuseUploads"`
+
 	// SchemaVersion 只在设置文件里出现，界面不显示。
 	SchemaVersion int `json:"schemaVersion,omitempty"`
 }
@@ -50,6 +56,7 @@ func Default() Settings {
 		Output:        OutputSidecar,
 		Suffix:        ".converted",
 		Backup:        true,
+		ReuseUploads:  true,
 		SchemaVersion: CurrentSchemaVersion,
 	}
 }

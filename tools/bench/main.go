@@ -19,12 +19,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"io"
+	"io/fs"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +45,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/imgpath"
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/uploadcache"
 )
 
 var (
@@ -59,6 +62,8 @@ var (
 	endpoint   = flag.String("endpoint", "", "图床地址；留空则用进程内的假图床")
 	verify     = flag.Bool("verify", false, "跑完检查输出文件里的替换结果")
 	dryRun     = flag.Bool("dryrun", false, "只扫描与分类，不上传也不回写（用来把各阶段耗时拆开）")
+	reuse      = flag.String("reuse", "", "上传结果缓存的路径；给了就挂上缓存（同一进程里第 2 轮起就能命中）")
+	reuseFix   = flag.Bool("reusefixture", false, "夹具目录里已有的文件不重写（保住图片时间戳，用来测跨进程的缓存命中）")
 	fresh      = flag.Bool("fresh", false, "每轮开始前删掉上次的输出文件（模拟首次写入，而不是覆盖已有文件）")
 	cpuProfile = flag.String("cpuprofile", "", "把 e2e 的 CPU profile 写到这个文件")
 	memProfile = flag.String("memprofile", "", "把 e2e 的堆 profile 写到这个文件")
@@ -88,6 +93,17 @@ type fixture struct {
 	images int // 图片池大小
 }
 
+// writeFixture 写一个夹具文件。-reusefixture 时已存在的文件原样保留：
+// 图片的修改时间不变，跨运行的上传缓存才有机会命中。
+func writeFixture(path string, data []byte) error {
+	if *reuseFix {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
 // buildFixtures 造夹具：一个图片池 + N 篇引用它们的 Markdown。
 func buildFixtures(dir string, n, refsPerFile, poolSize, kb int) (*fixture, error) {
 	imgDir := filepath.Join(dir, "images")
@@ -115,13 +131,13 @@ func buildFixtures(dir string, n, refsPerFile, poolSize, kb int) (*fixture, erro
 	for i := range names {
 		names[i] = fmt.Sprintf("img-%03d.png", i)
 		rel := filepath.Join("images", names[i])
-		if err := os.WriteFile(filepath.Join(dir, rel), img, 0o644); err != nil {
+		if err := writeFixture(filepath.Join(dir, rel), img); err != nil {
 			return nil, err
 		}
 	}
 
 	// 缺一张图，用来验证「找不到文件」的路径不拖慢整体。
-	if err := os.Remove(filepath.Join(dir, "images", names[len(names)-1])); err != nil {
+	if err := os.Remove(filepath.Join(dir, "images", names[len(names)-1])); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 
@@ -161,7 +177,7 @@ func buildFixtures(dir string, n, refsPerFile, poolSize, kb int) (*fixture, erro
 		data := []byte(b.String())
 		name := fmt.Sprintf("doc-%04d.md", i)
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, data, 0o644); err != nil {
+		if err := writeFixture(path, data); err != nil {
 			return nil, err
 		}
 		f.files = append(f.files, path)
@@ -272,7 +288,11 @@ func runE2E(ctx context.Context, cfg settings.Settings, f *fixture) (e2eResult, 
 	var before, after runtime.MemStats
 	runtime.ReadMemStats(&before)
 	start := time.Now()
-	results, sum := conv.NewRunner(cfg, i18n.ZH, "bench", emit).RunCollect(ctx, f.files)
+	runner := conv.NewRunner(cfg, i18n.ZH, "bench", emit)
+	if *reuse != "" {
+		runner.UseUploadCache(uploadcache.Open(*reuse))
+	}
+	results, sum := runner.RunCollect(ctx, f.files)
 	wall := time.Since(start)
 	runtime.ReadMemStats(&after)
 	close(stop)
@@ -404,6 +424,10 @@ func runE2EAndReport(dir string, f *fixture) {
 		}
 		res.uploads = atomic.LoadInt64(uploads) - before
 		walls = append(walls, res.wall)
+		if !*quiet {
+			fmt.Printf("[bench] 第 %d/%d 轮 wall=%s uploads=%d reused=%d\n",
+				i+1, *repeat, res.wall.Round(time.Millisecond), res.uploads, res.summary.Reused)
+		}
 		if best.wall == 0 || res.wall < best.wall {
 			best = res
 		}
@@ -443,9 +467,9 @@ func runE2EAndReport(dir string, f *fixture) {
 	if *dryRun {
 		label = "e2e(dry)"
 	}
-	fmt.Printf("[bench] %-8s files=%d images=%d uploaded=%d failedImages=%d wall=%s files/s=%.1f images/s=%.0f uploads=%d events=%d peakHeap=%.1fMB totalAlloc=%.1fMB\n",
+	fmt.Printf("[bench] %-8s files=%d images=%d uploaded=%d reused=%d failedImages=%d wall=%s files/s=%.1f images/s=%.0f uploads=%d events=%d peakHeap=%.1fMB totalAlloc=%.1fMB\n",
 		label,
-		best.summary.Files, best.summary.Images, best.summary.Uploaded, best.summary.FailedImages,
+		best.summary.Files, best.summary.Images, best.summary.Uploaded, best.summary.Reused, best.summary.FailedImages,
 		best.wall.Round(time.Millisecond), filesPerSec, imagesPerSec,
 		best.uploads, best.events,
 		float64(best.peakHeap)/(1<<20), float64(best.totalHeap)/(1<<20))

@@ -25,6 +25,7 @@ const FILE_STATUS_META: Record<FileStatus, { tone: Tone; labelKey: MessageKey }>
 const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey }> = {
   uploaded: { tone: 'success', labelKey: 'row.status.uploaded' },
   reused: { tone: 'accent', labelKey: 'row.status.reused' },
+  cached: { tone: 'accent', labelKey: 'row.status.cached' },
   remote: { tone: 'neutral', labelKey: 'row.status.remote' },
   missing: { tone: 'warning', labelKey: 'row.status.missing' },
   failed: { tone: 'danger', labelKey: 'row.status.uploadFailed' },
@@ -91,7 +92,9 @@ const items = computed<ImageItem[]>(() => props.row.result?.items ?? [])
  * 注意 uploaded 是「指向图床的引用数」（含复用），skipped 是「跳过的引用数」
  * （网络图片等），两者都不是上传请求数，所以分开显示。
  */
-const reusedCount = computed(() => items.value.filter(item => item.status === 'reused').length)
+const reusedCount = computed(
+  () => items.value.filter(item => item.status === 'reused' || item.status === 'cached').length,
+)
 
 /** 预检模式下所有待上传的引用都还没有真正上传，单独数一遍，别混进「跳过」。 */
 const pendingCount = computed(() => items.value.filter(item => item.status === 'pending').length)
@@ -119,7 +122,7 @@ function itemDetail(item: ImageItem): string {
 
 /** 只有真正改写过的引用才配得上一条强调色的替换箭头。 */
 function replaced(status: ImageStatus): boolean {
-  return status === 'uploaded' || status === 'reused'
+  return status === 'uploaded' || status === 'reused' || status === 'cached'
 }
 </script>
 

@@ -71,6 +71,11 @@ func SettingsPath() string {
 	return filepath.Join(Dir(), "settings.json")
 }
 
+// UploadCachePath 返回「上传结果缓存」的位置。缓存丢了只是重传一遍，不是用户数据。
+func UploadCachePath() string {
+	return filepath.Join(Dir(), "upload-cache.json")
+}
+
 // WebViewDir 返回 WebView2 的用户数据目录。这里是缓存，删掉会自动重建；
 // 建不出来时返回空串，交给运行时自己决定放哪。
 func WebViewDir() string {

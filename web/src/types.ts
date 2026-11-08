@@ -11,9 +11,18 @@ export type Settings = {
   outDir: string
   backup: boolean
   dryRun: boolean
+  /** 复用上一次运行留下的上传结果，同一张图不再重传。 */
+  reuseUploads: boolean
 }
 
-export type ImageStatus = 'uploaded' | 'reused' | 'remote' | 'missing' | 'failed' | 'pending'
+export type ImageStatus =
+  | 'uploaded'
+  | 'reused'
+  | 'cached'
+  | 'remote'
+  | 'missing'
+  | 'failed'
+  | 'pending'
 
 export type ImageItem = {
   target: string
@@ -52,6 +61,8 @@ export type RunSummary = {
   noImages: number
   images: number
   uploaded: number
+  /** 这一轮靠缓存省下的去重图片数（不是引用数）。 */
+  reused: number
   failedImages: number
   cancelled: boolean
   durationMs: number

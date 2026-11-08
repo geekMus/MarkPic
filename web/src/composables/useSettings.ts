@@ -33,6 +33,7 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
   'outDir',
   'backup',
   'dryRun',
+  'reuseUploads',
 ]
 
 function defaultSettings(): Settings {
@@ -47,6 +48,8 @@ function defaultSettings(): Settings {
     outDir: '',
     backup: true,
     dryRun: false,
+    // 同一张图第二次跑就不用再传了，直接复用上次拿到的地址。
+    reuseUploads: true,
   }
 }
 
@@ -87,6 +90,8 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
     outDir: typeof value.outDir === 'string' ? value.outDir.trim() : base.outDir,
     backup: typeof value.backup === 'boolean' ? value.backup : base.backup,
     dryRun: typeof value.dryRun === 'boolean' ? value.dryRun : base.dryRun,
+    reuseUploads:
+      typeof value.reuseUploads === 'boolean' ? value.reuseUploads : base.reuseUploads,
   }
 }
 

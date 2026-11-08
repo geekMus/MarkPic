@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geekMus/convert-md-picture/internal/appdata"
 	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
@@ -38,7 +39,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit)
+	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit).AttachUploadCache(appdata.UploadCachePath())
 	sum := runner.Run(ctx, paths)
 
 	if sum.Cancelled {
@@ -190,6 +191,9 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	}
 	if s.FailedImages > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))
+	}
+	if s.Reused > 0 {
+		parts = append(parts, fmt.Sprintf("省下 %d 张重传", s.Reused))
 	}
 	if s.NoImages > 0 {
 		parts = append(parts, fmt.Sprintf("无图 %d 个", s.NoImages))

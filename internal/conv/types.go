@@ -5,6 +5,7 @@ package conv
 const (
 	StatusUploaded = "uploaded" // 本次上传成功
 	StatusReused   = "reused"   // 同一张图本轮已上传，复用结果
+	StatusCached   = "cached"   // 上一次运行时已经传过，直接复用当时的地址
 	StatusRemote   = "remote"   // 本来就是网络图片，跳过
 	StatusMissing  = "missing"  // 本地文件不存在
 	StatusFailed   = "failed"   // 上传失败
@@ -67,6 +68,7 @@ type Summary struct {
 	NoImages     int    `json:"noImages"`
 	Images       int    `json:"images"`
 	Uploaded     int    `json:"uploaded"`
+	Reused       int    `json:"reused"`
 	FailedImages int    `json:"failedImages"`
 	Cancelled    bool   `json:"cancelled"`
 	DurationMs   int64  `json:"durationMs"`

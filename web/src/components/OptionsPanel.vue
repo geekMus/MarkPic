@@ -132,6 +132,17 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 @change="emit('update', { retries: clampValue($event, 0, 5, 2) })"
               />
             </label>
+            <label class="check">
+              <input
+                type="checkbox"
+                :checked="settings.reuseUploads"
+                @change="emit('update', { reuseUploads: checkedValue($event) })"
+              />
+              <span>
+                {{ t('settings.reuse') }}
+                <span class="check__hint">{{ t('settings.reuse.hint') }}</span>
+              </span>
+            </label>
           </section>
 
           <section class="section">

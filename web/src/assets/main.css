@@ -439,6 +439,15 @@ select {
   margin-top: 10px;
 }
 
+/* 复选框后面跟一句解释时，换成小一号的说明色，且独占一行。 */
+.check__hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+}
+
 .check input {
   flex: none;
   width: 15px;

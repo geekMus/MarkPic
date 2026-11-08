@@ -359,6 +359,7 @@ type settingsPatch struct {
 	OutDir      *string `json:"outDir"`
 	Backup      *bool   `json:"backup"`
 	DryRun      *bool   `json:"dryRun"`
+	Reuse       *bool   `json:"reuseUploads"`
 }
 
 func (p *settingsPatch) apply(cfg *settings.Settings) {
@@ -388,6 +389,9 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	}
 	if p.DryRun != nil {
 		cfg.DryRun = *p.DryRun
+	}
+	if p.Reuse != nil {
+		cfg.ReuseUploads = *p.Reuse
 	}
 }
 
@@ -426,7 +430,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			cancel()
 		}()
-		runner := conv.NewRunner(cfg, langOf(r), runID, s.hub.publish)
+		runner := conv.NewRunner(cfg, langOf(r), runID, s.hub.publish).AttachUploadCache(appdata.UploadCachePath())
 		runner.Run(ctx, req.Paths)
 	}()
 

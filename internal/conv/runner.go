@@ -18,6 +18,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/uploadcache"
 )
 
 // Emit 是事件回调，可以为 nil（CLI 模式）。
@@ -49,11 +50,16 @@ type Runner struct {
 	cache   map[string]*cacheEntry
 	usedOut map[string]bool
 
-	// existsCache 记住「某个绝对路径是不是一个可用的文件」。
+	// stamps 记住「某个绝对路径是不是一个可用的文件」，以及它的大小与修改时间。
 	// 一篇文档里同一张图常被引用几十次，同一张图又常被多篇文档引用；
 	// 不缓存的话每处引用都要发一次 stat，而 Windows 上每次 stat 都是系统调用。
-	existsMu    sync.Mutex
-	existsCache map[string]bool
+	// 大小与修改时间还给上传结果缓存用来判断「这张图有没有被换过」。
+	existsMu sync.Mutex
+	stamps   map[string]stamp
+
+	// uploads 是跨运行的上传结果缓存：同一张图上次已经传过就不再传一遍。
+	// 为 nil 或路径为空时等于关掉。
+	uploads *uploadcache.Cache
 
 	// scanMu/scanDocs 缓存预扫时解析出来的文档：正式处理每个文件时只要字节没变
 	// 就直接复用，省掉第二次解析（一篇文档扫两遍是白花的钱）。
@@ -66,6 +72,35 @@ type Runner struct {
 
 // scanCacheBudget 是预扫结果缓存的字节上限（源文档本身，不是解析结果的额外开销）。
 const scanCacheBudget = 64 << 20
+
+// stamp 是一个文件的「身份」：大小 + 修改时间。图片换了（大小或时间戳变了）
+// 就不能再复用上次的地址。
+type stamp struct {
+	ok    bool
+	size  int64
+	mtime int64
+}
+
+// UseUploadCache 挂上跨运行的上传结果缓存（传 nil 等于关掉）。
+func (r *Runner) UseUploadCache(c *uploadcache.Cache) *Runner {
+	r.uploads = c
+	return r
+}
+
+// AttachUploadCache 按设置打开上传结果缓存文件；设置里关掉了就什么都不做。
+func (r *Runner) AttachUploadCache(path string) *Runner {
+	if r.cfg.ReuseUploads {
+		r.UseUploadCache(uploadcache.Open(path))
+	}
+	return r
+}
+
+// SaveUploadCache 把这一轮的上传结果写回缓存文件。
+func (r *Runner) SaveUploadCache() {
+	if r.uploads.Enabled() {
+		_ = r.uploads.Save()
+	}
+}
 
 // NewRunner 创建运行器。
 func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *Runner {
@@ -86,12 +121,10 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 		cache:   make(map[string]*cacheEntry),
 		usedOut: make(map[string]bool),
 
-		existsCache: make(map[string]bool),
-		scanDocs:    make(map[string]*mdscan.Document),
+		stamps:   make(map[string]stamp),
+		scanDocs: make(map[string]*mdscan.Document),
 	}
-}
-
-// rememberDoc 记下预扫结果，供正式处理时复用。
+} // rememberDoc 记下预扫结果，供正式处理时复用。
 func (r *Runner) rememberDoc(path string, doc *mdscan.Document) {
 	r.scanMu.Lock()
 	defer r.scanMu.Unlock()
@@ -135,20 +168,32 @@ func (r *Runner) logf(level, format string, args ...any) {
 	r.notify(Event{Type: EventLog, Level: level, Message: fmt.Sprintf(format, args...)})
 }
 
-// fileExists 判断 abs 是不是一个可用的文件（目录不算）。一轮里结果按小写路径缓存。
-func (r *Runner) fileExists(abs string) bool {
+// fileStamp 判断 abs 是不是一个可用的文件（目录不算），并给出它的大小与修改时间。
+// 一轮里结果按小写路径缓存。
+func (r *Runner) fileStamp(abs string) (size, mtime int64, ok bool) {
 	key := strings.ToLower(abs)
 	r.existsMu.Lock()
-	ok, hit := r.existsCache[key]
+	st, hit := r.stamps[key]
 	r.existsMu.Unlock()
 	if hit {
-		return ok
+		return st.size, st.mtime, st.ok
 	}
-	st, err := os.Stat(abs)
-	ok = err == nil && !st.IsDir()
+	info, err := os.Stat(abs)
+	if err == nil && info.IsDir() {
+		err = os.ErrNotExist
+	}
+	if err == nil {
+		st = stamp{ok: true, size: info.Size(), mtime: info.ModTime().UnixNano()}
+	}
 	r.existsMu.Lock()
-	r.existsCache[key] = ok
+	r.stamps[key] = st
 	r.existsMu.Unlock()
+	return st.size, st.mtime, st.ok
+}
+
+// fileExists 只关心「在不在」。
+func (r *Runner) fileExists(abs string) bool {
+	_, _, ok := r.fileStamp(abs)
 	return ok
 }
 
@@ -264,6 +309,10 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	}
 	sum.DurationMs = time.Since(started).Milliseconds()
 	sum.Cancelled = ctx.Err() != nil
+	// Reused 统计的是「这一轮少传了几张图」——按去重后的图片算，
+	// 和 Uploaded（按引用处算）不是一个口径，界面上分开写。
+	sum.Reused = r.uploads.Hits()
+	r.SaveUploadCache()
 
 	if sum.Cancelled {
 		r.notify(Event{Type: EventRunCancelled})
@@ -351,7 +400,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	for _, it := range items {
 		switch it.Status {
-		case StatusUploaded, StatusReused:
+		case StatusUploaded, StatusReused, StatusCached:
 			res.Uploaded++
 		case StatusFailed, StatusMissing:
 			res.Failed++
@@ -453,7 +502,7 @@ func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGrou
 			defer wg.Done()
 			for gi := range work {
 				g := groups[gi]
-				url, reused, uerr := r.upload(ctx, g.abs)
+				url, status, uerr := r.upload(ctx, g.abs)
 
 				mu.Lock()
 				done++
@@ -465,11 +514,7 @@ func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGrou
 						continue
 					}
 					items[idx].URL = url
-					if reused {
-						items[idx].Status = StatusReused
-					} else {
-						items[idx].Status = StatusUploaded
-					}
+					items[idx].Status = status
 				}
 				mu.Unlock()
 
@@ -484,10 +529,15 @@ func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGrou
 	wg.Wait()
 }
 
-// upload 上传一张图片；同一路径在一轮里只上传一次，其余复用结果。
-func (r *Runner) upload(ctx context.Context, absPath string) (string, bool, error) {
+// upload 上传一张图片，返回地址与这张图是怎么来的（uploaded/reused/cached）。
+// 同一路径在一轮里只上传一次，其余复用结果；跨运行则靠上传结果缓存。
+func (r *Runner) upload(ctx context.Context, absPath string) (string, string, error) {
 	key := strings.ToLower(absPath)
 
+	// 先认「这一轮已经在传/传过了」：同一张图在一轮里只该走到图床一次。
+	// 这一步必须排在跨运行缓存前面，否则「同轮内第二个引用」会命中刚刚
+	// 自己写进去的缓存条目，被记成 cached —— 那会把「本轮去重」和
+	// 「跨运行复用」两件事混成一件，统计与界面都不再有意义。
 	r.mu.Lock()
 	entry, exists := r.cache[key]
 	if !exists {
@@ -499,9 +549,20 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, bool, erro
 	if exists {
 		select {
 		case <-entry.done:
-			return entry.url, true, entry.err
+			return entry.url, StatusReused, entry.err
 		case <-ctx.Done():
-			return "", false, ctx.Err()
+			return "", StatusFailed, ctx.Err()
+		}
+	}
+
+	// 这一轮第一次碰到这张图：再看跨运行的缓存——大小与修改时间都没变，
+	// 说明上次已经传过同一张图，直接沿用当时的地址，这一轮不打图床。
+	if r.uploads.Enabled() {
+		if size, mtime, ok := r.fileStamp(absPath); ok {
+			if url, hit := r.uploads.Lookup(r.client.Endpoint, key, size, mtime); hit {
+				r.closeEntry(entry, url, nil)
+				return url, StatusCached, nil
+			}
 		}
 	}
 
@@ -509,12 +570,17 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, bool, erro
 	case r.sem <- struct{}{}:
 	case <-ctx.Done():
 		r.closeEntry(entry, "", ctx.Err())
-		return "", false, ctx.Err()
+		return "", StatusFailed, ctx.Err()
 	}
 	url, err := r.client.Upload(ctx, absPath)
 	<-r.sem
 	r.closeEntry(entry, url, err)
-	return url, false, err
+	if err == nil {
+		if size, mtime, ok := r.fileStamp(absPath); ok {
+			r.uploads.Store(r.client.Endpoint, key, size, mtime, url)
+		}
+	}
+	return url, StatusUploaded, err
 }
 
 func (r *Runner) closeEntry(e *cacheEntry, url string, err error) {

@@ -51,6 +51,7 @@ type options struct {
 	inPlace     bool
 	backup      bool
 	dryRun      bool
+	noReuse     bool
 	endpoint    string
 	concurrency int
 	retries     int
@@ -148,6 +149,7 @@ func newRootCmd(opt *options) *cobra.Command {
 	f.BoolVar(&opt.inPlace, "in-place", false, "原地替换（自动备份）")
 	f.BoolVar(&opt.backup, "backup", true, "原地替换前备份")
 	f.BoolVar(&opt.dryRun, "dry-run", false, "只检查，不上传不写文件")
+	f.BoolVar(&opt.noReuse, "no-reuse", false, "不复用上次的上传结果，每张图都重新上传")
 	f.StringVarP(&opt.endpoint, "endpoint", "e", "", "PicGo 服务地址")
 	f.IntVarP(&opt.concurrency, "concurrency", "c", 0, "同时处理的文件数")
 	f.IntVar(&opt.retries, "retries", -1, "上传失败重试次数")
@@ -187,6 +189,9 @@ func applyOverrides(cmd *cobra.Command, opt options, cfg *settings.Settings) {
 	}
 	if f.Changed("backup") {
 		cfg.Backup = opt.backup
+	}
+	if f.Changed("no-reuse") {
+		cfg.ReuseUploads = !opt.noReuse
 	}
 	if opt.inPlace {
 		cfg.Output = settings.OutputInPlace
@@ -338,6 +343,7 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
       --in-place         等价于 --output in-place，会先备份为 .bak
       --backup           原地替换前备份（默认 true，用 --backup=false 关闭）
       --dry-run          只检查，不上传、不写文件
+      --no-reuse         不复用上次的上传结果，每张图都重新上传
   -e, --endpoint string  PicGo 服务地址（默认 http://127.0.0.1:36677）
   -c, --concurrency int  同时上传的图片数 1-16（默认 8）
       --retries int      上传失败重试次数 0-5（默认 2）
