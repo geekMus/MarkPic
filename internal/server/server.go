@@ -508,8 +508,8 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	// 先订阅再写响应头：客户端拿到响应时事件通道一定已就绪，
 	// 不会漏掉紧跟着发生的 run.started。
-	ch := s.hub.subscribe()
-	defer s.hub.unsubscribe(ch)
+	sub := s.hub.subscribe()
+	defer s.hub.unsubscribe(sub)
 
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -533,17 +533,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			flusher.Flush()
-		case ev, open := <-ch:
-			if !open {
-				return
-			}
-			data, err := json.Marshal(ev)
-			if err != nil {
+		case <-sub.signal():
+			batch := sub.drain()
+			if len(batch) == 0 {
 				continue
 			}
-			// 用具名事件发送。注意：浏览器对具名事件不会触发 onmessage，
-			// 前端必须用 addEventListener('<type>', …) 接收，见 docs/API.md。
-			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, data); err != nil {
+			// 一批事件合成一次写出、一次 flush；事件名即类型，同时把完整 JSON
+			// 放在 data 中。注意：浏览器对具名事件不会触发 onmessage，前端必须用
+			// addEventListener('<type>', …) 接收，见 docs/API.md。
+			var buf strings.Builder
+			for _, ev := range batch {
+				data, err := json.Marshal(ev)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(&buf, "event: %s\ndata: %s\n\n", ev.Type, data)
+			}
+			if _, err := io.WriteString(w, buf.String()); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -652,28 +658,141 @@ func newRunID() string {
 
 // ---------- 事件广播 ----------
 
+// subscriber 是一个 SSE 订阅者。
+//
+// 这里刻意不用带缓冲的 channel：channel 一满就只能整条丢掉，而 run.finished
+// 这种终止事件一旦丢掉，界面会永远停在进行中。300 篇文档实测过：9528 条事件
+// 把 512 的缓冲灌满，前端再也等不到结束，Go 侧其实早就跑完了。
+// 改成「队列 + 覆盖 + 成批取走」之后：
+//   - 进度事件按文件就地覆盖，同一文件只留最新一条，事件量从「每张图一条」
+//     降到「每个文件一条」；
+//   - 终止事件（run.finished/run.cancelled）永不丢弃；
+//   - 一批事件一次写完、一次 flush，浏览器不必为每条事件各做一次渲染。
+type subscriber struct {
+	mu       sync.Mutex
+	events   []conv.Event          // 待下发事件，先进先出
+	progress map[string]conv.Event // 每个文件只保留最新一条进度
+	order    []string              // 进度事件的下发顺序（首次出现的顺序）
+	closed   bool
+	sig      chan struct{}
+}
+
+// subscriberQueueLimit 是单个订阅者积压事件的上限。正常情况下队列里
+// 最多是「每个文件两条」（file.started/file.finished）加零头。
+const subscriberQueueLimit = 4096
+
+func newSubscriber() *subscriber {
+	return &subscriber{
+		progress: make(map[string]conv.Event),
+		sig:      make(chan struct{}, 1),
+	}
+}
+
+// isTerminalEvent 判断事件是否属于「丢了界面就会卡住」的那一类。
+func isTerminalEvent(t string) bool {
+	return t == conv.EventRunFinished || t == conv.EventRunCancelled
+}
+
+// push 把一个事件放进队列，然后戳一下等待中的 SSE 协程。绝不阻塞生产者。
+func (sub *subscriber) push(ev conv.Event) {
+	sub.mu.Lock()
+	if sub.closed {
+		sub.mu.Unlock()
+		return
+	}
+	if ev.Type == conv.EventFileProgress {
+		// 同一文件的进度只留最新一条：这就是事件量下降的主要来源。
+		if _, seen := sub.progress[ev.ID]; !seen {
+			sub.order = append(sub.order, ev.ID)
+		}
+		sub.progress[ev.ID] = ev
+	} else {
+		// 先把攒着的进度按原顺序落到队列里，保证 file.finished 不会排在
+		// 它自己的进度前面（否则行状态会从「已完成」退回「进行中」）。
+		sub.materializeProgressLocked()
+		if len(sub.events) >= subscriberQueueLimit {
+			sub.dropOldestLocked()
+		}
+		sub.events = append(sub.events, ev)
+	}
+	sub.mu.Unlock()
+
+	select {
+	case sub.sig <- struct{}{}:
+	default:
+	}
+}
+
+func (sub *subscriber) materializeProgressLocked() {
+	for _, id := range sub.order {
+		if ev, ok := sub.progress[id]; ok {
+			sub.events = append(sub.events, ev)
+		}
+	}
+	sub.order = sub.order[:0]
+	clear(sub.progress)
+}
+
+// dropOldestLocked 丢掉队列里最旧的一条「丢了也不影响结果」的事件。
+func (sub *subscriber) dropOldestLocked() {
+	for i, ev := range sub.events {
+		if isTerminalEvent(ev.Type) {
+			continue
+		}
+		sub.events = append(sub.events[:i], sub.events[i+1:]...)
+		return
+	}
+	// 极端情况下队列里全是终止事件，也只能丢最旧的，否则会无限增长。
+	sub.events = sub.events[1:]
+}
+
+// drain 把当前积压的事件整批交给调用方（切片所有权转移，下次重新分配）。
+func (sub *subscriber) drain() []conv.Event {
+	sub.mu.Lock()
+	defer sub.mu.Unlock()
+	sub.materializeProgressLocked()
+	if len(sub.events) == 0 {
+		return nil
+	}
+	out := sub.events
+	sub.events = nil
+	return out
+}
+
+// signal 返回「有新事件」的通知通道，配合 select 等待。
+func (sub *subscriber) signal() <-chan struct{} { return sub.sig }
+
+func (sub *subscriber) close() {
+	sub.mu.Lock()
+	sub.closed = true
+	sub.events = nil
+	sub.order = nil
+	clear(sub.progress)
+	sub.mu.Unlock()
+}
+
 type hub struct {
 	mu   sync.Mutex
-	subs map[chan conv.Event]struct{}
+	subs map[*subscriber]struct{}
 }
 
 func newHub() *hub {
-	return &hub{subs: make(map[chan conv.Event]struct{})}
+	return &hub{subs: make(map[*subscriber]struct{})}
 }
 
-func (h *hub) subscribe() chan conv.Event {
-	ch := make(chan conv.Event, 512)
+func (h *hub) subscribe() *subscriber {
+	sub := newSubscriber()
 	h.mu.Lock()
-	h.subs[ch] = struct{}{}
+	h.subs[sub] = struct{}{}
 	h.mu.Unlock()
-	return ch
+	return sub
 }
 
-func (h *hub) unsubscribe(ch chan conv.Event) {
+func (h *hub) unsubscribe(sub *subscriber) {
 	h.mu.Lock()
-	if _, ok := h.subs[ch]; ok {
-		delete(h.subs, ch)
-		close(ch)
+	if _, ok := h.subs[sub]; ok {
+		delete(h.subs, sub)
+		sub.close()
 	}
 	h.mu.Unlock()
 }
@@ -681,11 +800,7 @@ func (h *hub) unsubscribe(ch chan conv.Event) {
 func (h *hub) publish(ev conv.Event) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for ch := range h.subs {
-		select {
-		case ch <- ev:
-		default:
-			// 前端读得慢时丢弃事件，绝不阻塞转换流程
-		}
+	for sub := range h.subs {
+		sub.push(ev)
 	}
 }

@@ -314,6 +314,33 @@ function onSignal(event: RunEvent): void {
   }
 }
 
+/**
+ * 事件先攒起来，每帧统一应用一次。
+ *
+ * 大语料一轮会推来上千条事件（每篇文件的 started/progress/finished），逐条应用
+ * 就是逐条触发 Vue 更新与列表重渲染；攒成一帧一批之后，渲染次数降到每秒几十次。
+ * 用定时器而不是 requestAnimationFrame：窗口最小化时 rAF 根本不触发，而定时器
+ * 仍会跑（只是被节流），不会把事件一直闷在缓冲区里。
+ */
+const EVENT_FLUSH_MS = 16
+
+const pending: RunEvent[] = []
+let pendingTimer: number | null = null
+
+function flushPending(): void {
+  pendingTimer = null
+  if (pending.length === 0) return
+  const batch = pending.splice(0, pending.length)
+  for (const event of batch) onSignal(event)
+}
+
+function enqueue(event: RunEvent): void {
+  pending.push(event)
+  if (pendingTimer === null) {
+    pendingTimer = window.setTimeout(flushPending, EVENT_FLUSH_MS)
+  }
+}
+
 function handleRaw(raw: string): void {
   if (raw.length === 0) return
   let parsed: unknown
@@ -327,7 +354,7 @@ function handleRaw(raw: string): void {
     console.warn('[events] 忽略未知事件')
     return
   }
-  onSignal(parsed)
+  enqueue(parsed)
 }
 
 function connect(): void {

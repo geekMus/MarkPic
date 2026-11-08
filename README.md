@@ -367,8 +367,11 @@ internal/server/          本地 HTTP API（chi 路由）+ SSE 事件流 + 静�
 internal/webui/           前端构建产物（go:embed 打进二进制）
 internal/platform/        系统原生对话框、打开文件、定位文件
 internal/settings/        设置读写
+internal/uploadcache/     上传结果缓存（同一张图不重复上传）
 web/                      Vue 3 + TypeScript 前端源码（Vite 工程）
 scripts/                  开发与构建脚本（web.ps1 / start.ps1 / watch-api.ps1 / build.ps1 / test.ps1 / _tools.ps1）
+tools/bench/              性能与功能基准（造语料、假图床、逐篇校验；不参与打包）
+tools/mockpicgo/          开发用假图床（可控延迟/失败率，用来测界面表现；不参与打包）
 package.json              根目录的命令入口（pnpm web、pnpm start、pnpm build 等快捷方式，不是前端工程）
 docs/API.md               前后端接口契约
 ```
