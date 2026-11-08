@@ -159,10 +159,74 @@ func TestCleanTarget(t *testing.T) {
 	}
 }
 
-func TestReferenceStyleWarns(t *testing.T) {
-	d := Scan([]byte("![a][id]\n\n[id]: p.png\n"))
-	if len(d.Warnings) == 0 {
-		t.Fatal("want warning for reference-style image")
+// TestReferenceStyleResolves 验证引用式图片现在会被处理：
+// 定义在文档里就当作真图片（替换标签那一段），定义缺失才提示一句。
+func TestReferenceStyleResolves(t *testing.T) {
+	cases := []struct {
+		name   string
+		src    string
+		target string
+		// wantRefs 是期望解析出的引用数；0 表示只该有警告。
+		wantRefs  int
+		wantWarns int
+	}{
+		{"完整形式", "![a][id]\n\n[id]: img/a.png\n", "img/a.png", 1, 0},
+		{"折叠形式", "![img/a.png][]\n\n[img/a.png]: img/a.png\n", "img/a.png", 1, 0},
+		{"简写形式", "看图 ![shot]\n\n[shot]: img/shot.png\n", "img/shot.png", 1, 0},
+		{"标签不区分大小写", "![a][ID]\n\n[id]: img/a.png\n", "img/a.png", 1, 0},
+		{"标签内空白折叠", "![a][my  ref]\n\n[my ref]: img/a.png\n", "img/a.png", 1, 0},
+		{"尖括号地址带标题", "![a][id]\n\n[id]: <图片 目录/a.png> \"标题\"\n", "图片 目录/a.png", 1, 0},
+		{"远程地址也交给上层判断", "![a][id]\n\n[id]: https://example.com/a.png\n", "https://example.com/a.png", 1, 0},
+		{"没有定义只提示", "![a][nope]\n", "", 0, 1},
+		{"代码块里的定义不算", "![a][id]\n\n```\n[id]: img/a.png\n```\n", "", 0, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := Scan([]byte(c.src))
+			if len(d.Refs) != c.wantRefs {
+				t.Fatalf("refs = %d，期望 %d（%+v）", len(d.Refs), c.wantRefs, d.Refs)
+			}
+			if len(d.Warnings) != c.wantWarns {
+				t.Fatalf("warnings = %d，期望 %d（%v）", len(d.Warnings), c.wantWarns, d.Warnings)
+			}
+			if c.wantRefs > 0 {
+				ref := d.Refs[0]
+				if !ref.Reference {
+					t.Errorf("该标记成引用式")
+				}
+				if ref.Target != c.target {
+					t.Errorf("Target = %q，期望 %q", ref.Target, c.target)
+				}
+				if ref.URLStart > ref.URLEnd || ref.URLEnd > len(c.src) {
+					t.Errorf("区间不合法：%d..%d（长度 %d）", ref.URLStart, ref.URLEnd, len(c.src))
+				}
+			}
+		})
+	}
+}
+
+// TestReferenceStyleApplyMakesInline 验证替换后就是等价的整行写法，
+// 简写形式（![alt]）也能把地址插进去。
+func TestReferenceStyleApplyMakesInline(t *testing.T) {
+	cases := map[string]string{
+		"![a][id]\n\n[id]: img/a.png\n":  "![a](https://cdn/a.png)\n\n[id]: img/a.png\n",
+		"![shot]\n\n[shot]: img/a.png\n": "![shot](https://cdn/a.png)\n\n[shot]: img/a.png\n",
+		"![a][]\n\n[a]: img/a.png\n":     "![a](https://cdn/a.png)\n\n[a]: img/a.png\n",
+	}
+	for src, want := range cases {
+		d := Scan([]byte(src))
+		if len(d.Refs) != 1 {
+			t.Fatalf("%q：期望 1 个引用，实际 %d", src, len(d.Refs))
+		}
+		ref := d.Refs[0]
+		// 简写形式的定义不存在，这里补一条定义让它可解析。
+		out, err := Apply([]byte(src), []Repl{{Start: ref.URLStart, End: ref.URLEnd, Text: "(https://cdn/a.png)"}})
+		if err != nil {
+			t.Fatalf("%q：apply 失败：%v", src, err)
+		}
+		if string(out) != want {
+			t.Errorf("%q：得到 %q，期望 %q", src, string(out), want)
+		}
 	}
 }
 

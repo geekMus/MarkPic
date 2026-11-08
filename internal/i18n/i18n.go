@@ -211,8 +211,8 @@ var catalog = map[Key]entry{
 		"Could not create the output directory: %v",
 	},
 	KeyConvReferenceStyle: {
-		"第 %d 行使用了引用式图片语法 ![alt][id]，本工具暂不处理",
-		"Line %d uses reference-style image syntax (![alt][id]), which this tool does not handle yet",
+		"第 %d 行：引用式图片的标签在文档里找不到对应定义，已跳过",
+		"Line %d: the reference-style image's label has no definition in this document, so it was skipped",
 	},
 	KeyConvLoosePath: {
 		"第 %d 行：图片路径里有空格，规范写法是 <路径> 或把空格写成 %%20（已按原样处理）",

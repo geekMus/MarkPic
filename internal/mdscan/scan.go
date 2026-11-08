@@ -35,6 +35,9 @@ type Ref struct {
 	// CommonMark 不允许这种写法，但不少编辑器照样生成，所以调用方要按
 	// 「那个文件是否真的存在」决定认不认它。
 	Loose bool
+	// Reference 表示这是引用式图片（![alt][label]）：地址写在文档的链接定义里，
+	// 要替换的是标签那一段，替换文本得写成 (地址) 而不是裸地址。
+	Reference bool
 }
 
 // Document 是一次扫描的结果。
@@ -53,7 +56,19 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 	masked := protectedMask(src)
 	lineStarts := indexLines(src)
 
-	// Markdown 语法：![alt](dest "title")
+	// Markdown 语法：![alt](dest "title")，以及引用式 ![alt][label]。
+	// 链接定义只在这篇文档真的出现引用式图片时才去收集：绝大多数文档没有，
+	// 没必要为此多扫一遍全文。
+	var defs map[string]linkRef
+	defsReady := false
+	lookupRef := func(label string) (linkRef, bool) {
+		if !defsReady {
+			defs = collectLinkRefs(src, masked)
+			defsReady = true
+		}
+		def, ok := defs[normalizeLabel(label)]
+		return def, ok
+	}
 	for i := 0; i+1 < len(src); i++ {
 		if masked[i] || src[i] != '!' || src[i+1] != '[' {
 			continue
@@ -65,10 +80,24 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 			i = next - 1
 			continue
 		}
-		if isReferenceStyleImage(src, i) {
+		ref, next, label, ok := parseReferenceImage(src, i)
+		if !ok {
+			continue
+		}
+		def, found := lookupRef(label)
+		if !found {
+			// 定义不在文档里（可能写在别的文件、也可能是编辑器导出的半成品），
+			// 这种情况没法安全替换，只提示一句。
 			d.Warnings = append(d.Warnings,
 				i18n.T(lang, i18n.KeyConvReferenceStyle, lineOf(lineStarts, i)))
+			i = next - 1
+			continue
 		}
+		ref.Kind = KindMarkdown
+		ref.Target = def.dest
+		ref.Line = lineOf(lineStarts, i)
+		d.Refs = append(d.Refs, ref)
+		i = next - 1
 	}
 
 	// HTML 语法：<img src="...">
@@ -287,15 +316,6 @@ func looseTitleStart(src []byte, start, end int) int {
 		}
 	}
 	return -1
-}
-
-// isReferenceStyleImage 判断是否形如 ![alt][id]（本工具不处理）。
-func isReferenceStyleImage(src []byte, start int) bool {
-	j := start + 2
-	for j < len(src) && src[j] != ']' && src[j] != '\n' {
-		j++
-	}
-	return j+1 < len(src) && src[j] == ']' && src[j+1] == '['
 }
 
 // parseHTMLImage 解析从 start（指向 '<'）开始的 <img ...> 标签。

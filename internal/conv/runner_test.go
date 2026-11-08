@@ -646,3 +646,48 @@ func TestAbortsWhenEndpointIsDead(t *testing.T) {
 		t.Errorf("取消事件要带汇总与原因，实际 %+v", cancelled.Summary)
 	}
 }
+
+// TestReferenceStyleImagesAreConverted 验证引用式图片（![alt][label] + 文档里的定义）
+// 现在会被真的替换：标签那一段变成 (地址)，文档里的定义原样保留。
+func TestReferenceStyleImagesAreConverted(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	writeFile(t, filepath.Join(dir, "img", "b.png"), "b")
+
+	src := "# 标题\n\n![完整][ref1] 与 ![折叠][] 还有 ![简写]\n\n" +
+		"[ref1]: img/a.png\n" +
+		"[折叠]: img/b.png\n" +
+		"[简写]: img/a.png \"标题\"\n" +
+		"![没有定义][nope]\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	srv, _ := fakePicGo(t, nil)
+	cfg := baseCfg(srv.URL)
+	r := NewRunner(cfg, i18n.ZH, "run1", func(Event) {})
+
+	sum := r.Run(context.Background(), []string{doc})
+
+	if sum.Uploaded != 3 {
+		t.Fatalf("三处引用式图片都该替换，实际替换 %d 处（失败 %d）", sum.Uploaded, sum.FailedImages)
+	}
+	outBytes, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatalf("读输出失败：%v", err)
+	}
+	out := string(outBytes)
+	for _, want := range []string{
+		"![完整](https://cdn.example.com/a.png)",
+		"![折叠](https://cdn.example.com/b.png)",
+		"![简写](https://cdn.example.com/a.png)",
+		// 定义原样保留
+		"[ref1]: img/a.png",
+		"[简写]: img/a.png \"标题\"",
+		// 没有定义的引用式图片不动
+		"![没有定义][nope]",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("输出里缺少 %q：\n%s", want, out)
+		}
+	}
+}

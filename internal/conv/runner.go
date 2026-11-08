@@ -538,7 +538,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			continue
 		}
 		text := items[i].URL
-		if ref.Kind == mdscan.KindHTML && ref.Quote == '<' {
+		switch {
+		case ref.Reference:
+			// 引用式图片（![alt][label]）要改的是标签那一段：换成 (地址)，
+			// 于是这一处就变成了等价的整行写法，文档里的定义保持原样。
+			text = "(" + wrapURL(text) + ")"
+		case ref.Kind == mdscan.KindHTML && ref.Quote == '<':
 			text = "<" + text + ">"
 		}
 		repls = append(repls, mdscan.Repl{Start: ref.URLStart, End: ref.URLEnd, Text: text})
@@ -858,4 +863,13 @@ func writeAtomic(path string, data []byte) error {
 	}
 	renamed = true
 	return nil
+}
+
+// wrapURL 在地址里含有空格或括号时把它包进尖括号，
+// 否则 ![a](x y.png) 这种写法会被解析成「地址 + 标题」。
+func wrapURL(url string) string {
+	if strings.ContainsAny(url, " ()<>") {
+		return "<" + url + ">"
+	}
+	return url
 }
