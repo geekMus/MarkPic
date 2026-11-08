@@ -320,9 +320,27 @@ go test ./...
 
 前端产物 `internal/webui/dist` 是提交进仓库的，这样 clone 之后只装 Go 就能构建，不必先装 Node。
 
-exe 的图标来自 `assets/icon.ico`，由 `cmd/convert-md-picture/rsrc_windows_amd64.syso` 打进去（已提交，构建时不需要联网）。
+图标（exe 文件图标、任务栏图标、浏览器标签页图标）画的是同一个标记：界面左上角那个
+深色圆角方块 + 青色折角，唯一来源是 `web/src/components/AppHeader.vue` 里的 `.tb__mark`。
+exe 的图标来自 `assets/icon.ico`，由 `cmd/convert-md-picture/rsrc_windows_amd64.syso`
+打进去（已提交，构建时不需要联网）；窗口自己的图标在运行时从这份资源里读出来挂上去，
+所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
 Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
 删掉它再构建会尝试用 `go run github.com/akavel/rsrc@latest` 重新生成；失败也不影响构建，只是图标变成默认的。
+
+改了那个标记之后，图标要按三步重做（脚本在 `scripts/make-icon.py`）：
+
+```powershell
+# 1. 按各尺寸把 SVG 渲染成 PNG（用浏览器截图即可，尺寸：16 24 32 48 64 128 256）
+#    产物放在 %TEMP%\cmp-icon\mark-<size>.png
+# 2. 打包成多尺寸 ico
+python scripts\make-icon.py "$env:TEMP\cmp-icon" assets\icon.ico
+# 3. 重新生成资源文件
+go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\convert-md-picture\rsrc_windows_amd64.syso
+```
+
+网页里的标签页图标（`web/index.html` 的 `<link rel="icon">`）是同一份 SVG 的内联 data URI，
+改标记时手工同步一下。
 
 交叉编译到其他平台：
 

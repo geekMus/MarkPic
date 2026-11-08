@@ -81,11 +81,33 @@ const (
 	swpNoZOrder     = 0x0004
 	swpNoActivate   = 0x0010
 	swpFrameChanged = 0x0020
+
+	// 窗口图标
+	wmSetIcon   = 0x0080
+	iconSmall   = 0
+	iconBig     = 1
+	iconSmall2  = 2
+	imageIcon   = 1
+	lrShared    = 0x8000
+	rtGroupIcon = 14 // RT_GROUP_ICON（RT_ICON 是 3，别混）
+
+	// GetSystemMetrics 的图标尺寸索引
+	smCxIcon   = 11
+	smCyIcon   = 12
+	smCxSmIcon = 49
+	smCySmIcon = 50
 )
 
+// appUserModelID 让任务栏把窗口认成「我们自己」：钉住的快捷方式和正在运行的
+// 窗口会归到一组，用的也是 exe 自带的那个图标。不设的话 Windows 用 exe 路径
+// 猜一个，钉住之后容易和运行中的窗口分成两个图标。
+const appUserModelID = "geekMus.convert-md-picture"
+
 var (
-	user32Chrome = syscall.NewLazyDLL("user32.dll")
-	dwmapiChrome = syscall.NewLazyDLL("dwmapi.dll")
+	user32Chrome   = syscall.NewLazyDLL("user32.dll")
+	dwmapiChrome   = syscall.NewLazyDLL("dwmapi.dll")
+	kernel32Chrome = syscall.NewLazyDLL("kernel32.dll")
+	shell32Chrome  = syscall.NewLazyDLL("shell32.dll")
 
 	procSetWindowLongPtr = user32Chrome.NewProc("SetWindowLongPtrW")
 	procGetWindowLongPtr = user32Chrome.NewProc("GetWindowLongPtrW")
@@ -98,7 +120,12 @@ var (
 	procIsZoomed         = user32Chrome.NewProc("IsZoomed")
 	procGetCursorPos     = user32Chrome.NewProc("GetCursorPos")
 	procGetSystemMetrics = user32Chrome.NewProc("GetSystemMetrics")
+	procLoadImage        = user32Chrome.NewProc("LoadImageW")
 	procDwmSetAttribute  = dwmapiChrome.NewProc("DwmSetWindowAttribute")
+
+	procGetModuleHandle   = kernel32Chrome.NewProc("GetModuleHandleW")
+	procEnumResourceNames = kernel32Chrome.NewProc("EnumResourceNamesW")
+	procSetAppUserModelID = shell32Chrome.NewProc("SetCurrentProcessExplicitAppUserModelID")
 )
 
 type rect32 struct {
@@ -156,6 +183,60 @@ func installWindowChrome(target any) {
 
 	// 先按浅色画；前端挂载后会立刻同步真实主题。
 	applyChromeTheme(false)
+
+	// 窗口自己不设图标的话，任务栏和 Alt-Tab 拿到的是窗口类的默认图标 ——
+	// 一个空白方块，而不是我们的标记。
+	setWindowIcon(uintptr(hwnd))
+}
+
+// initProcessIdentity 在创建窗口之前声明「这个进程是谁」，让任务栏的图标与
+// 分组走我们自己的 AppUserModelID（见 appUserModelID 的注释）。
+func initProcessIdentity() {
+	id, err := windows.UTF16PtrFromString(appUserModelID)
+	if err != nil {
+		return
+	}
+	procSetAppUserModelID.Call(uintptr(unsafe.Pointer(id)))
+}
+
+// setWindowIcon 把 exe 自带的那份图标（由 rsrc 从 assets/icon.ico 生成）挂到
+// 窗口上。资源 id 是 rsrc 决定的，这里直接枚举 RT_GROUP_ICON，免得写死一个
+// 将来会变的数字。
+func setWindowIcon(hwnd uintptr) {
+	hInst, _, _ := procGetModuleHandle.Call(0)
+	if hInst == 0 {
+		return
+	}
+
+	var group uintptr
+	cb := windows.NewCallback(func(_, _, name, _ uintptr) uintptr {
+		group = name
+		return 0 // 返回 0 停止枚举，取第一个就够了
+	})
+	procEnumResourceNames.Call(hInst, rtGroupIcon, cb, 0)
+	if group == 0 {
+		return
+	}
+
+	iconCx, _, _ := procGetSystemMetrics.Call(smCxIcon)
+	iconCy, _, _ := procGetSystemMetrics.Call(smCyIcon)
+	smCx, _, _ := procGetSystemMetrics.Call(smCxSmIcon)
+	smCy, _, _ := procGetSystemMetrics.Call(smCySmIcon)
+
+	// LR_SHARED：图标句柄由系统保管，进程退出时释放，我们不能 DestroyIcon。
+	big, _, _ := procLoadImage.Call(hInst, group, imageIcon, iconCx, iconCy, lrShared)
+	small, _, _ := procLoadImage.Call(hInst, group, imageIcon, smCx, smCy, lrShared)
+
+	for slot, handle := range map[uintptr]uintptr{
+		iconBig:    big,
+		iconSmall:  small,
+		iconSmall2: small,
+	} {
+		if handle == 0 {
+			continue
+		}
+		procSendMessage.Call(hwnd, wmSetIcon, slot, handle)
+	}
 }
 
 func chromeHwndOf(target any) unsafe.Pointer {

@@ -7,6 +7,8 @@ package main
 
 func installWindowChrome(any) {}
 
+func initProcessIdentity() {}
+
 func applyChromeTheme(bool) {}
 
 func minimizeWindow() {}
@@ -17,6 +19,6 @@ func closeWindow() {}
 
 func windowMaximized() bool { return false }
 
-func beginCaptionDrag() {}
+func beginCaptionDrag(int, int) {}
 
 func beginResize(string) {}
