@@ -1532,3 +1532,38 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 回归测试 `TestExpandSkipsOutputDirInsideScan`：输出目录里的文件被跳过、大小写不同也认得出、
 不传 skipDir 时行为不变（3 篇照常扫到）。API 侧同样生效：`POST /api/preview` 传
 `settings={output:'directory', outDir:…}` 只回 1 个文件。
+## 第 33 轮：`<img srcset>` / `<source srcset>` 里的图，以前一张都不换
+
+**问题**：响应式写法 `<img srcset="img/a.png 1x, img/b.png 2x">` 在 Markdown 里很常见
+（Typora、VuePress、Hugo 的图片短代码都会产出），但扫描器只认 `src` 属性，
+`srcset` 整条被跳过：界面显示「没有本地图片」，文档原样输出，用户以为跑成功了。
+
+实测（夹具 `%TEMP%\cmp-srcset\doc.md`，5 种写法）：
+
+| 写法 | 改之前 | 改之后 |
+| --- | --- | --- |
+| `<img src="img/one.png">` | 换 | 换 |
+| `<img srcset="img/wide.png 2x, img/narrow.png 1x">` | **不动** | **两张都换**，`2x` / `1x` 原样 |
+| `<picture><source srcset="img/wide.png 2x"><img src="img/src.png"></picture>` | 只换 `<img src>` | **两张都换** |
+| `<source srcset="img/two.png">` | 不动 | 换 |
+| `<img srcset="img/one%2Epng 1x">` | 不动 | 换（百分号编码照常解码） |
+
+预检从「2 处引用 · 2 处待上传」变成「7 处引用 · 7 处待上传」。
+
+**改法**：`parseHTMLImage` 的返回值从「一个 Ref」改成「一组 Ref」，
+`<img>` 与 `<source>` 都认；`srcset` 的值按逗号切成一项一项，**只把地址那一段
+作为替换区间**，描述符（`1x`、`640w`）和属性的引号逗号全都不动。
+`<source src="…">` 是 `<video>`/`<audio>` 的媒体地址，不是图片，**不碰**；
+`data:` 开头的 srcset 含逗号，整条跳过（切开会把一个地址切成好几段）。
+
+**顺带的两处解析器提速（负结果：都在噪声内）**：把 `hasPrefixFold` 里
+`strings.EqualFold(string(b[:n]), prefix)` 的临时字符串去掉、以及 Markdown/HTML
+两个主循环改用 `bytes.IndexByte` 直接跳到下一个 `!` / `<`。
+`tools/bench -bench parse` 实测 306 → 304 → 296–304 MB/s，**与改前一致**
+（300 篇 / 2.8 MB / 14700→16500 allocs 属测量口径差异），说明瓶颈在系统调用而不是这里。
+改动保留了：它让「每个字节都问一次 masked[i]」这种写法不再出现在热路径上。
+
+**回归测试**：`TestScanHTML` 新增 8 个用例（srcset 两项、与 src 并存、无描述符、
+带宽度描述符、`<source srcset>`、`<source src>` 不算图、data URI、`<picture>` 里两张）；
+`internal/conv` 新增 `TestSrcsetImagesAreAllConverted`（4 处地址全部替换、描述符保留、
+输出里不留任何 `img/` 本地路径）。fuzz 60 秒 20,617,368 次执行无失败。

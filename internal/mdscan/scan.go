@@ -70,19 +70,29 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 		def, ok := defs[normalizeLabel(label)]
 		return def, ok
 	}
-	for i := 0; i+1 < len(src); i++ {
-		if masked[i] || src[i] != '!' || src[i+1] != '[' {
+	for i := 0; i+1 < len(src); {
+		next := bytes.IndexByte(src[i:], '!')
+		if next < 0 {
+			break
+		}
+		i += next
+		if i+1 >= len(src) {
+			break
+		}
+		if masked[i] || src[i+1] != '[' {
+			i++
 			continue
 		}
-		if ref, next, ok := parseMarkdownImage(src, i); ok {
+		if ref, nextEnd, ok := parseMarkdownImage(src, i); ok {
 			ref.Kind = KindMarkdown
 			ref.Line = lineOf(lineStarts, i)
 			d.Refs = append(d.Refs, ref)
-			i = next - 1
+			i = nextEnd
 			continue
 		}
-		ref, next, label, ok := parseReferenceImage(src, i)
+		ref, nextEnd, label, ok := parseReferenceImage(src, i)
 		if !ok {
+			i++
 			continue
 		}
 		def, found := lookupRef(label)
@@ -91,30 +101,42 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 			// 这种情况没法安全替换，只提示一句。
 			d.Warnings = append(d.Warnings,
 				i18n.T(lang, i18n.KeyConvReferenceStyle, lineOf(lineStarts, i)))
-			i = next - 1
+			i = nextEnd
 			continue
 		}
 		ref.Kind = KindMarkdown
 		ref.Target = def.dest
 		ref.Line = lineOf(lineStarts, i)
 		d.Refs = append(d.Refs, ref)
-		i = next - 1
+		i = nextEnd
 	}
 
-	// HTML 语法：<img src="...">
-	for i := 0; i+3 < len(src); i++ {
-		if masked[i] || src[i] != '<' {
+	// HTML 语法：<img src="...">、<img srcset="a 1x, b 2x">、<source srcset="...">
+	// 用 IndexByte 直接跳到下一个 '<'：逐字节问 masked[i] 在这类大文档上是纯浪费。
+	for i := 0; i+3 < len(src); {
+		next := bytes.IndexByte(src[i:], '<')
+		if next < 0 {
+			break
+		}
+		i += next
+		if i+3 >= len(src) {
+			break
+		}
+		if masked[i] || (!hasPrefixFold(src[i:], "<img") && !hasPrefixFold(src[i:], "<source")) {
+			i++
 			continue
 		}
-		if !hasPrefixFold(src[i:], "<img") {
+		refs, nextTag, ok := parseHTMLImage(src, i)
+		if !ok {
+			i++
 			continue
 		}
-		if ref, next, ok := parseHTMLImage(src, i); ok {
+		for _, ref := range refs {
 			ref.Kind = KindHTML
 			ref.Line = lineOf(lineStarts, i)
 			d.Refs = append(d.Refs, ref)
-			i = next - 1
 		}
+		i = nextTag
 	}
 
 	sort.Slice(d.Refs, func(a, b int) bool { return d.Refs[a].Start < d.Refs[b].Start })
@@ -319,12 +341,21 @@ func looseTitleStart(src []byte, start, end int) int {
 	return -1
 }
 
-// parseHTMLImage 解析从 start（指向 '<'）开始的 <img ...> 标签。
-func parseHTMLImage(src []byte, start int) (Ref, int, bool) {
+// parseHTMLImage 解析从 start（指向 '<'）开始的 <img ...> 或 <source ...> 标签，
+// 返回标签里所有能替换的地址。
+//
+// src 只给一个地址，srcset 给一串（`img/a.png 1x, img/b.png 2x` 是两张图，
+// 只换第一张会留下一个本地路径，页面在 2x 屏上照样裂图）。
+func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
+	nameLen := len("<img")
+	isSource := hasPrefixFold(src[start:], "<source")
+	if isSource {
+		nameLen = len("<source")
+	}
 	// 标签名后必须是空白、'/' 或 '>'
-	p := start + 4
+	p := start + nameLen
 	if p < len(src) && !isHTMLSpace(src[p]) && src[p] != '/' && src[p] != '>' {
-		return Ref{}, 0, false
+		return nil, 0, false
 	}
 
 	// 找到标签结束的 '>'，跳过引号内的内容
@@ -337,17 +368,18 @@ func parseHTMLImage(src []byte, start int) (Ref, int, bool) {
 				k++
 			}
 			if k >= len(src) {
-				return Ref{}, 0, false
+				return nil, 0, false
 			}
 		}
 		k++
 	}
 	if k >= len(src) {
-		return Ref{}, 0, false
+		return nil, 0, false
 	}
 	tagEnd := k + 1
 
-	// 在标签范围内查找 src 属性
+	var refs []Ref
+	// 在标签范围内查找 src / srcset 属性
 	i := p
 	for i < k {
 		// 跳过分隔符
@@ -402,8 +434,10 @@ func parseHTMLImage(src []byte, start int) (Ref, int, bool) {
 			valueEnd = i
 		}
 
-		if name == "src" {
-			return Ref{
+		switch {
+		case name == "src" && !isSource:
+			// <source src="…"> 是 <video>/<audio> 的媒体地址，不是图片，不能传。
+			refs = append(refs, Ref{
 				Kind:     KindHTML,
 				Start:    start,
 				End:      tagEnd,
@@ -411,10 +445,57 @@ func parseHTMLImage(src []byte, start int) (Ref, int, bool) {
 				URLEnd:   valueEnd,
 				Target:   string(src[valueStart:valueEnd]),
 				Quote:    quote,
-			}, tagEnd, true
+			})
+		case name == "srcset":
+			refs = append(refs, srcsetRefs(src, start, tagEnd, valueStart, valueEnd)...)
 		}
 	}
-	return Ref{}, 0, false
+	if len(refs) == 0 {
+		return nil, 0, false
+	}
+	return refs, tagEnd, true
+}
+
+// srcsetRefs 把 srcset 属性值切成一张张图，例如 `img/a.png 1x, img/b.png 2x`。
+//
+// 每张图单独给一个替换区间，只覆盖地址本身，宽度描述符（`1x`、`640w`）原样留着；
+// 整个属性的引号与逗号也不动。只换第一张是错的：2x 屏上照样会去加载本地那张。
+func srcsetRefs(src []byte, tagStart, tagEnd, valueStart, valueEnd int) []Ref {
+	value := src[valueStart:valueEnd]
+	// data: 里含逗号，按逗号切会把一个地址切成好几段，干脆整条跳过。
+	if hasPrefixFold(value, "data:") {
+		return nil
+	}
+	var refs []Ref
+	i := 0
+	for i < len(value) {
+		for i < len(value) && (isHTMLSpace(value[i]) || value[i] == ',') {
+			i++
+		}
+		if i >= len(value) {
+			break
+		}
+		urlStart := i
+		for i < len(value) && !isHTMLSpace(value[i]) && value[i] != ',' {
+			i++
+		}
+		urlEnd := i
+		if urlEnd > urlStart {
+			refs = append(refs, Ref{
+				Kind:     KindHTML,
+				Start:    tagStart,
+				End:      tagEnd,
+				URLStart: valueStart + urlStart,
+				URLEnd:   valueStart + urlEnd,
+				Target:   string(value[urlStart:urlEnd]),
+			})
+		}
+		// 跳到下一个逗号，把描述符（1x / 640w）连同逗号一起略过
+		for i < len(value) && value[i] != ',' {
+			i++
+		}
+	}
+	return refs
 }
 
 // protectedMask 标记不应被当作图片语法解析的区域：围栏代码块、行内代码、HTML 注释。
@@ -608,11 +689,27 @@ func isHTMLSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\r' || c == '\n'
 }
 
+// hasPrefixFold 判断 b 是否以 prefix 开头（ASCII 大小写不敏感）。
+//
+// 这里不用 strings.EqualFold(string(b[:n]), prefix)：那会把一小段字节转成字符串，
+// 在「每个 '<' 都要问一次」的热路径上是一笔纯浪费的分配。
 func hasPrefixFold(b []byte, prefix string) bool {
 	if len(b) < len(prefix) {
 		return false
 	}
-	return strings.EqualFold(string(b[:len(prefix)]), prefix)
+	for i := 0; i < len(prefix); i++ {
+		c, d := b[i], prefix[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if 'A' <= d && d <= 'Z' {
+			d += 'a' - 'A'
+		}
+		if c != d {
+			return false
+		}
+	}
+	return true
 }
 
 // indexFold 在 b 里找 ASCII 大小写不敏感的 needle，找不到返回 -1。

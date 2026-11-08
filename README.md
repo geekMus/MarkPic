@@ -101,6 +101,8 @@ convert-md-picture .\docs --dry-run
 ![图片](<images/带 空格.png>)
 ![](images/有(括号).png)
 <img src="images/a.png" width="60">
+<img srcset="images/a.png 1x, images/a@2x.png 2x">   <!-- 每一张都换 -->
+<source srcset="images/wide.png 640w">               <!-- <picture> 里的多分辨率 -->
 ![x](images/a.png) 和 ![y](images/a.png)   <!-- 一行多张，只上传一次 -->
 ![完整][ref1]  ![折叠][]  ![简写]           <!-- 引用式，定义写在文档别处 -->
 [ref1]: images/a.png
@@ -109,6 +111,10 @@ convert-md-picture .\docs --dry-run
 ```
 
 跳过：网络图片（`http://`、`https://`、`data:` 等）、不存在的本地文件。
+`<img srcset="a.png 1x, b.png 2x">`、`<source srcset="…">`（`<picture>` 里的多分辨率写法）
+会把里面每一张都换掉，`1x`、`640w` 这些描述符原样留着 —— 只换第一张的话，
+高分屏上照样会去加载本地那张图。
+`<source src="clip.mp4">` 这种不是图片的媒体地址不会被碰。
 引用式图片（`![alt][label]`、`![alt][]`、`![alt]`）会就地改成等价的 `![alt](地址)`，
 文档末尾那几行链接定义原样保留；标签在文档里找不到定义时才提示并跳过。
 代码块（``` 或 ~~~ 围栏）、行内代码、HTML 注释里的内容不会被当作图片处理，

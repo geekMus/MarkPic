@@ -69,6 +69,14 @@ func TestScanHTML(t *testing.T) {
 		{"自闭合", `<img src="p.png"/>`, []string{"p.png"}},
 		{"多行标签", "<img\n  src=\"p.png\"\n>", []string{"p.png"}},
 		{"无 src", `<img alt="x">`, nil},
+		{"srcset 两项", `<img srcset="a.png 1x, b.png 2x">`, []string{"a.png", "b.png"}},
+		{"srcset 与 src 并存", `<img src="a.png" srcset="b.png 2x">`, []string{"a.png", "b.png"}},
+		{"srcset 无描述符", `<img srcset="a.png,b.png">`, []string{"a.png", "b.png"}},
+		{"srcset 带宽度", `<img srcset="a.png 640w, b.png 1280w">`, []string{"a.png", "b.png"}},
+		{"source srcset", `<source srcset="a.png 2x">`, []string{"a.png"}},
+		{"source 的 src 不是图片", `<source src="clip.mp4">`, nil},
+		{"srcset 是 data URI", `<img srcset="data:image/png;base64,AAA 1x">`, nil},
+		{"picture 里两张", `<picture><source srcset="a.png"><img src="b.png"></picture>`, []string{"a.png", "b.png"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

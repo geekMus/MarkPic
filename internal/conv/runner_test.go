@@ -1120,3 +1120,47 @@ func TestRateLimitBurstIsRetriedNotFailed(t *testing.T) {
 func okUploadBody() []byte {
 	return []byte(`{"success":true,"result":["https://cdn.example.com/a.png"]}`)
 }
+
+// srcset 里的每一张图都要换：只换第一张的话，2x 屏上照样会去加载本地那张，
+// 用户看到的现象就是「跑完了，图还是裂的」。
+func TestSrcsetImagesAreAllConverted(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"one.png", "wide.png", "narrow.png"} {
+		writeFile(t, filepath.Join(dir, "img", name), "x")
+	}
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, strings.Join([]string{
+		`<img src="img/one.png" alt="a">`,
+		`<img srcset="img/wide.png 2x, img/narrow.png 1x" alt="b">`,
+		`<source srcset="img/wide.png 640w">`,
+		"",
+	}, "\n"))
+
+	srv, _ := fakePicGo(t, nil)
+	results, sum := NewRunner(baseCfg(srv.URL), i18n.ZH, "run-srcset", nil).RunCollect(context.Background(), []string{doc})
+
+	// 4 处地址：src 一处、srcset 两处、source 一处。wide.png 被引用两次，只传一次。
+	if sum.Uploaded != 4 || sum.Failed != 0 {
+		t.Fatalf("汇总不对：uploaded=%d failed=%d，%+v", sum.Uploaded, sum.Failed, sum)
+	}
+
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	for _, keep := range []string{
+		`srcset="https://cdn.example.com/wide.png 2x, https://cdn.example.com/narrow.png 1x"`,
+		`<source srcset="https://cdn.example.com/wide.png 640w">`,
+	} {
+		if !strings.Contains(text, keep) {
+			t.Fatalf("srcset 里的地址没换干净（描述符要原样留着）：%s", text)
+		}
+	}
+	if strings.Contains(text, "img/") {
+		t.Fatalf("还留着本地路径：%s", text)
+	}
+	if len(results) != 1 || results[0].Uploaded != 4 {
+		t.Fatalf("逐文件计数不对：%+v", results)
+	}
+}
