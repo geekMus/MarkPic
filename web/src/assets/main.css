@@ -587,8 +587,7 @@ select {
   min-width: 0;
 }
 
-.field + .field,
-.field-row + .field {
+.field + .field {
   margin-top: 12px;
 }
 
@@ -616,14 +615,6 @@ select {
 
 .field__row .input {
   min-width: 0;
-}
-
-.field-row {
-  display: grid;
-  /* 两列各自按内容宽度排，整体靠左；数字字段不用去撑满整行。 */
-  grid-template-columns: repeat(2, auto);
-  justify-content: start;
-  gap: 10px;
 }
 
 .segmented + .field,

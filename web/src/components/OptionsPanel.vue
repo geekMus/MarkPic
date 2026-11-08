@@ -77,34 +77,32 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 
         <section class="section">
           <h3 class="section__title">并发与重试</h3>
-          <div class="field-row">
-            <label class="field">
-              <span class="field__label">并发数</span>
-              <input
-                class="input input--short num"
-                type="number"
-                min="1"
-                max="16"
-                step="1"
-                :value="settings.concurrency"
-                @change="emit('update', { concurrency: clampValue($event, 1, 16, 4) })"
-              />
-              <span class="field__hint">1 – 16</span>
-            </label>
-            <label class="field">
-              <span class="field__label">失败重试</span>
-              <input
-                class="input input--short num"
-                type="number"
-                min="0"
-                max="5"
-                step="1"
-                :value="settings.retries"
-                @change="emit('update', { retries: clampValue($event, 0, 5, 2) })"
-              />
-              <span class="field__hint">0 – 5</span>
-            </label>
-          </div>
+          <label class="field">
+            <span class="field__label">并发数</span>
+            <input
+              class="input input--short num"
+              type="number"
+              min="1"
+              max="16"
+              step="1"
+              :value="settings.concurrency"
+              @change="emit('update', { concurrency: clampValue($event, 1, 16, 4) })"
+            />
+            <span class="field__hint">1 – 16</span>
+          </label>
+          <label class="field">
+            <span class="field__label">失败重试</span>
+            <input
+              class="input input--short num"
+              type="number"
+              min="0"
+              max="5"
+              step="1"
+              :value="settings.retries"
+              @change="emit('update', { retries: clampValue($event, 0, 5, 2) })"
+            />
+            <span class="field__hint">0 – 5</span>
+          </label>
         </section>
 
         <section class="section">
