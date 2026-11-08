@@ -57,6 +57,7 @@ const (
 	KeyConvReferenceStyle     Key = "conv.referenceStyle"
 	KeyConvLoosePath          Key = "conv.loosePath"
 	KeyConvEndpointDead       Key = "conv.endpointDead"
+	KeyConvEndpointBusy       Key = "conv.endpointBusy"
 	KeyConvWriteReadOnly      Key = "conv.writeReadOnly"
 	KeyConvWriteLocked        Key = "conv.writeLocked"
 	KeyConvReadLocked         Key = "conv.readLocked"
@@ -250,6 +251,10 @@ var catalog = map[Key]entry{
 	KeyConvEndpointDead: {
 		"连续 %d 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上：%s",
 		"%d images in a row failed to upload without a single success, so the run was stopped early — the host is probably unreachable: %s",
+	},
+	KeyConvEndpointBusy: {
+		"图床一直回「请求太频繁」（连续 %d 张没成），已停止本次运行——它是通的，过一会儿再试，或把并发调小：%s",
+		"The host kept asking us to slow down (%d images in a row failed), so the run was stopped early — it is reachable, so try again in a while or lower the concurrency: %s",
 	},
 
 	KeyUpdateBadURL: {

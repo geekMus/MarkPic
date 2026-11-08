@@ -82,9 +82,12 @@ type Runner struct {
 	// 且这一轮一张都没成功过，就判定图床不可用，提前收工。
 	succeeded  atomic.Bool
 	failStreak atomic.Int32
-	abortMu    sync.Mutex
-	abortRun   context.CancelFunc
-	abortWhy   string
+	// 限流（429/503）另算一条线：图床是活的，只是让我们慢一点，
+	// 一直限流时给用户的说法也不一样。
+	limitStreak atomic.Int32
+	abortMu     sync.Mutex
+	abortRun    context.CancelFunc
+	abortWhy    string
 }
 
 // abortsAfterFailures 是「认定图床不可用」的连续失败张数。
@@ -154,6 +157,27 @@ func (r *Runner) abortReason() string {
 	r.abortMu.Lock()
 	defer r.abortMu.Unlock()
 	return r.abortWhy
+}
+
+// noteRateLimited 记一次「图床让我们慢一点」（429/503）。
+//
+// 和 noteUploadFailure 分开记：图床是活的，报「连不上」会把人带偏。
+// 一直限流（连续 abortsAfterFailures 张都没成）同样先停下来，
+// 但说的是「请求太频繁」而不是「连不上」。
+func (r *Runner) noteRateLimited() {
+	if r.succeeded.Load() {
+		return
+	}
+	if r.limitStreak.Add(1) < abortsAfterFailures {
+		return
+	}
+	r.abortMu.Lock()
+	defer r.abortMu.Unlock()
+	if r.abortWhy != "" || r.abortRun == nil {
+		return
+	}
+	r.abortWhy = fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvEndpointBusy), abortsAfterFailures, r.client.Endpoint)
+	r.abortRun()
 }
 
 // NewRunner 创建运行器。
@@ -262,6 +286,14 @@ func (r *Runner) Run(ctx context.Context, paths []string) Summary {
 func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, Summary) {
 	started := time.Now()
 	sum := Summary{RunID: r.runID}
+
+	// 每一轮都从零开始记：Runner 会被复用（测试里、界面里都会）。
+	r.succeeded.Store(false)
+	r.failStreak.Store(0)
+	r.limitStreak.Store(0)
+	r.abortMu.Lock()
+	r.abortWhy = ""
+	r.abortMu.Unlock()
 
 	// 自己也能掐断这一轮：图床成片失败时（见 noteUploadFailure）用它提前收工，
 	// 调用方的取消信号照样能透传下来。
@@ -744,7 +776,11 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 			return "", StatusCancelled, err
 		}
 		// 只有「领头」的那个协程会走到这儿，失败计数不会被重复累加。
-		r.noteUploadFailure()
+		if picgo.IsRateLimited(err) {
+			r.noteRateLimited()
+		} else {
+			r.noteUploadFailure()
+		}
 		return "", StatusFailed, err
 	}
 	r.noteUploadSuccess()

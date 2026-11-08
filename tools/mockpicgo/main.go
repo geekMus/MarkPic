@@ -27,6 +27,8 @@ func main() {
 	delay := flag.Duration("delay", 5*time.Millisecond, "每次上传的模拟耗时")
 	fail := flag.String("fail", "", "失败比例，形如 1/13；留空表示全部成功")
 	work := flag.Duration("work", 0, "在返回前额外空转的时长（模拟 CPU 型图床）")
+	rateLimit := flag.Int("ratelimit", 0, "前多少次上传返回 429（模拟图床限流）")
+	retryAfter := flag.Duration("retry-after", time.Second, "返回 429 时给出的 Retry-After")
 	quiet := flag.Bool("quiet", false, "不打印每次上传")
 	flag.Parse()
 
@@ -44,7 +46,7 @@ func main() {
 		failEvery, failAt = b, a
 	}
 
-	var total, failed int64
+	var total, failed, limited int64
 	started := time.Now()
 
 	mux := http.NewServeMux()
@@ -55,6 +57,12 @@ func main() {
 		body, _ := io.ReadAll(r.Body)
 		if err := json.Unmarshal(body, &req); err != nil || len(req.List) == 0 {
 			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// 限流：前 N 次上传直接回 429，并带上 Retry-After。
+		if *rateLimit > 0 && atomic.AddInt64(&limited, 1) <= int64(*rateLimit) {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
 		if *delay > 0 {
@@ -93,12 +101,13 @@ func main() {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"uploads":  atomic.LoadInt64(&total),
 			"failed":   atomic.LoadInt64(&failed),
+			"limited":  atomic.LoadInt64(&limited),
 			"uptimeMs": time.Since(started).Milliseconds(),
 		})
 	})
 
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
-	log.Printf("[mock] 假图床在 http://%s（每张 %s，失败比例 %q）", addr, *delay, *fail)
+	log.Printf("[mock] 假图床在 http://%s（每张 %s，失败比例 %q，限流 %d 次/Retry-After %s）", addr, *delay, *fail, *rateLimit, *retryAfter)
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

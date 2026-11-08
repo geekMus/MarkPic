@@ -822,3 +822,98 @@ func TestOutputNamesAreDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// 图床活着但在限流：一样会提前收工，但说法必须是「请求太频繁」而不是「连不上」——
+// 这两句会把用户带向完全不同的排查方向。
+func TestAbortsWhenEndpointRateLimits(t *testing.T) {
+	dir := t.TempDir()
+	const files = 13
+	paths := make([]string, 0, files)
+	for i := 0; i < files; i++ {
+		name := fmt.Sprintf("doc-%02d", i)
+		writeFile(t, filepath.Join(dir, "img", name+".png"), "png")
+		doc := filepath.Join(dir, name+".md")
+		writeFile(t, doc, fmt.Sprintf("![x](img/%s.png)\n", name))
+		paths = append(paths, doc)
+	}
+
+	// 一律 429：图床是通的，只是让我们慢一点。Retry-After 写 0，
+	// 让这次的等待走默认冷却，别把用例拖太久。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0")
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := baseCfg(srv.URL)
+	cfg.Concurrency = files
+
+	r := NewRunner(cfg, i18n.ZH, "run1", nil)
+	sum := r.Run(context.Background(), paths)
+
+	if sum.AbortReason == "" {
+		t.Fatalf("一直限流时该给出终止原因，实际为空（失败 %d 张）", sum.FailedImages)
+	}
+	if !sum.Cancelled {
+		t.Errorf("提前掐掉的这一轮应该算「已取消」")
+	}
+	if !strings.Contains(sum.AbortReason, "请求太频繁") {
+		t.Errorf("限流时的说法应该是「请求太频繁」，实际：%s", sum.AbortReason)
+	}
+	if strings.Contains(sum.AbortReason, "连不上") {
+		t.Errorf("限流不该说「连不上」——图床明明是通的：%s", sum.AbortReason)
+	}
+}
+
+// 图床只是偶发限流（一部分请求 429）时，重试应该把这一批救回来，一张都不该失败。
+func TestRateLimitBurstIsRetriedNotFailed(t *testing.T) {
+	dir := t.TempDir()
+	const files = 6
+	paths := make([]string, 0, files)
+	for i := 0; i < files; i++ {
+		name := fmt.Sprintf("doc-%02d", i)
+		writeFile(t, filepath.Join(dir, "img", name+".png"), "png")
+		doc := filepath.Join(dir, name+".md")
+		writeFile(t, doc, fmt.Sprintf("![x](img/%s.png)\n", name))
+		paths = append(paths, doc)
+	}
+
+	// 前 3 次请求 429（Retry-After: 0 → 走默认冷却），之后一律成功。
+	var n int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		cur := n
+		mu.Unlock()
+		if cur <= 3 {
+			w.Header().Set("Retry-After", "0")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(okUploadBody())
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := baseCfg(srv.URL)
+	cfg.Concurrency = 2
+
+	r := NewRunner(cfg, i18n.ZH, "run1", nil)
+	sum := r.Run(context.Background(), paths)
+
+	if sum.AbortReason != "" {
+		t.Fatalf("偶发限流不该掐掉整轮：%s", sum.AbortReason)
+	}
+	if sum.FailedImages != 0 {
+		t.Fatalf("重试该把限流救回来，实际失败 %d 张", sum.FailedImages)
+	}
+	if sum.OK != files {
+		t.Fatalf("应该 6 个文件全部成功，实际 %d", sum.OK)
+	}
+}
+
+// okUploadBody 是假 PicGo 的成功响应。
+func okUploadBody() []byte {
+	return []byte(`{"success":true,"result":["https://cdn.example.com/a.png"]}`)
+}

@@ -226,3 +226,183 @@ func TestNewTrimsTrailingSlash(t *testing.T) {
 		t.Fatalf("默认超时 = %v", c.HTTP.Timeout)
 	}
 }
+
+// --- 图床限流（第 22 轮）---
+
+// 图床回 429 时应该重试，而不是直接把这批图判死。
+func TestUploadRetriesWhenRateLimited(t *testing.T) {
+	defer shrinkCooldown(t)()
+
+	srv, calls := fakeServer(t, func(n int32, w http.ResponseWriter) {
+		if n <= 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte("slow down"))
+			return
+		}
+		w.Write(okBody("https://cdn.example.com/a.png"))
+	})
+
+	c := New(srv.URL, 3, 5*time.Second, i18n.ZH)
+	got, err := c.Upload(context.Background(), `C:\docs\a.png`)
+	if err != nil {
+		t.Fatalf("限流后重试应该能成功: %v", err)
+	}
+	if got != "https://cdn.example.com/a.png" {
+		t.Fatalf("URL = %q", got)
+	}
+	if *calls != 3 {
+		t.Fatalf("应该试 3 次，实际 %d 次", *calls)
+	}
+}
+
+// 503（暂时不可用）和 429 一样要重试。
+func TestUploadRetriesOnServiceUnavailable(t *testing.T) {
+	defer shrinkCooldown(t)()
+
+	srv, calls := fakeServer(t, func(n int32, w http.ResponseWriter) {
+		if n == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Write(okBody("https://cdn.example.com/a.png"))
+	})
+
+	c := New(srv.URL, 2, 5*time.Second, i18n.ZH)
+	if _, err := c.Upload(context.Background(), `C:\docs\a.png`); err != nil {
+		t.Fatalf("503 后重试应该能成功: %v", err)
+	}
+	if *calls != 2 {
+		t.Fatalf("应该试 2 次，实际 %d 次", *calls)
+	}
+}
+
+// Retry-After 说等多久就等多久（这里写 1 秒，实际至少等 900ms）。
+func TestUploadHonorsRetryAfterSeconds(t *testing.T) {
+	srv, _ := fakeServer(t, func(n int32, w http.ResponseWriter) {
+		if n == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Write(okBody("https://cdn.example.com/a.png"))
+	})
+
+	c := New(srv.URL, 2, 10*time.Second, i18n.ZH)
+	start := time.Now()
+	if _, err := c.Upload(context.Background(), `C:\docs\a.png`); err != nil {
+		t.Fatalf("上传失败: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Fatalf("应该按 Retry-After 等 1 秒，实际只等了 %s", elapsed)
+	}
+}
+
+// 重试次数用完还是 429，最后报的应该是带状态码的错误。
+func TestUploadGivesUpWhenAlwaysRateLimited(t *testing.T) {
+	defer shrinkCooldown(t)()
+
+	srv, calls := fakeServer(t, func(n int32, w http.ResponseWriter) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		w.Write([]byte("slow down"))
+	})
+
+	c := New(srv.URL, 2, 5*time.Second, i18n.ZH)
+	_, err := c.Upload(context.Background(), `C:\docs\a.png`)
+	if err == nil {
+		t.Fatal("一直限流应该报错")
+	}
+	if !strings.Contains(err.Error(), "429") {
+		t.Fatalf("错误里应该带状态码，实际: %v", err)
+	}
+	// 限流有自己的、更宽松的预算（图床是活的，多等两轮很正常）。
+	if want := int32(rateLimitRetries + 1); *calls != want {
+		t.Fatalf("应该试满 %d 次，实际 %d 次", want, *calls)
+	}
+}
+
+// 一个协程被限流之后，别的协程也要一起等（共用同一个冷却闸门）。
+func TestCooldownGateBlocksOtherUploads(t *testing.T) {
+	c := New("http://127.0.0.1:1", 0, time.Second, i18n.ZH)
+
+	// 没有冷却时几乎不花时间
+	start := time.Now()
+	if err := c.waitTurn(context.Background()); err != nil {
+		t.Fatalf("waitTurn: %v", err)
+	}
+	if d := time.Since(start); d > 50*time.Millisecond {
+		t.Fatalf("没有冷却时不该等：%s", d)
+	}
+
+	c.cool(400 * time.Millisecond)
+	start = time.Now()
+	if err := c.waitTurn(context.Background()); err != nil {
+		t.Fatalf("waitTurn: %v", err)
+	}
+	if d := time.Since(start); d < 300*time.Millisecond {
+		t.Fatalf("冷却期间应该等，实际只等了 %s", d)
+	}
+
+	// 更短的冷却不能把已经定好的截止时间提前
+	c.cool(10 * time.Millisecond)
+	if c.gateUntil.Before(time.Now()) {
+		t.Fatal("更短的冷却把截止时间提前了")
+	}
+}
+
+// 取消时 waitTurn 要立刻返回，而不是把冷却等完。
+func TestWaitTurnReturnsWhenCanceled(t *testing.T) {
+	c := New("http://127.0.0.1:1", 0, time.Second, i18n.ZH)
+	c.cool(5 * time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	if err := c.waitTurn(ctx); err == nil {
+		t.Fatal("取消后应该返回错误")
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Fatalf("取消应该立刻返回，实际等了 %s", d)
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	future := time.Now().Add(3 * time.Second).UTC().Format(http.TimeFormat)
+	past := time.Now().Add(-3 * time.Second).UTC().Format(http.TimeFormat)
+	cases := []struct {
+		in   string
+		want time.Duration
+		zero bool
+	}{
+		{"", 0, true},
+		{"0", 0, true},
+		{"-1", 0, true},
+		{"abc", 0, true},
+		{"5", 5 * time.Second, false},
+		{" 7 ", 7 * time.Second, false},
+		{future, 0, false}, // 只要大于 0 就算对
+		{past, 0, true},
+	}
+	for _, tc := range cases {
+		got := parseRetryAfter(tc.in)
+		if tc.zero {
+			if got != 0 {
+				t.Fatalf("parseRetryAfter(%q) = %s，应该是 0", tc.in, got)
+			}
+			continue
+		}
+		if got <= 0 {
+			t.Fatalf("parseRetryAfter(%q) = %s，应该大于 0", tc.in, got)
+		}
+		if tc.want > 0 && got != tc.want {
+			t.Fatalf("parseRetryAfter(%q) = %s，想要 %s", tc.in, got, tc.want)
+		}
+	}
+}
+
+// shrinkCooldown 把默认冷却调小，返回恢复函数，让用例不必真等一秒。
+func shrinkCooldown(t *testing.T) func() {
+	t.Helper()
+	previous := defaultCooldown
+	defaultCooldown = 20 * time.Millisecond
+	return func() { defaultCooldown = previous }
+}
