@@ -38,12 +38,13 @@ const statusMeta = computed<{ tone: Tone; label: string }>(() => {
   if (props.row.phase === 'running') return { tone: 'accent', label: '上传中' }
   if (props.row.phase === 'cancelled') return { tone: 'warning', label: '已取消' }
   if (props.row.phase === 'settled') return { tone: 'neutral', label: '已结束' }
+  if (props.row.missing) return { tone: 'neutral', label: '未找到文件' }
   return { tone: 'neutral', label: '待转换' }
 })
 
 const countLabel = computed(() => {
   const images = props.row.result?.images ?? props.row.images
-  if (images === null || images === undefined) return '待统计'
+  if (images === null || images === undefined) return props.row.missing ? '—' : '待统计'
   return `${images} 张图`
 })
 
@@ -51,6 +52,7 @@ const reason = computed(() => {
   const result = props.row.result
   if (!result) {
     if (props.row.phase === 'cancelled') return '已取消，未处理的图片保持原样'
+    if (props.row.missing) return '这个路径下没有 Markdown 文件'
     return ''
   }
   if (result.error) return result.error
@@ -89,6 +91,11 @@ function itemDetail(item: ImageItem): string {
   if (item.status === 'pending') return '本地文件存在，尚未上传'
   return item.url ?? ''
 }
+
+/** 只有真正改写过的引用才配得上一条强调色的替换箭头。 */
+function replaced(status: ImageStatus): boolean {
+  return status === 'uploaded' || status === 'reused'
+}
 </script>
 
 <template>
@@ -110,12 +117,13 @@ function itemDetail(item: ImageItem): string {
           <span class="row__name">{{ row.name }}</span>
           <span class="row__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
-
-        <span class="row__meta">
-          <span class="row__count num">{{ countLabel }}</span>
-          <StatusPill :label="statusMeta.label" :tone="statusMeta.tone" compact />
-        </span>
       </button>
+
+      <span class="row__count num">{{ countLabel }}</span>
+
+      <span class="row__status">
+        <StatusPill :label="statusMeta.label" :tone="statusMeta.tone" compact />
+      </span>
 
       <button
         v-if="!busy"
@@ -131,9 +139,9 @@ function itemDetail(item: ImageItem): string {
 
     <p v-if="reason" class="row__reason">{{ reason }}</p>
 
-    <div v-if="barVisible" class="row__bar" :class="{ 'row__bar--indeterminate': indeterminate }">
-      <div v-if="!indeterminate" class="row__bar-fill" :style="{ width: `${percent}%` }" />
-      <div v-else class="row__bar-slide" />
+    <div v-if="barVisible" class="row__rail" :class="{ 'row__rail--indeterminate': indeterminate }">
+      <div v-if="!indeterminate" class="row__rail-fill" :style="{ width: `${percent}%` }" />
+      <div v-else class="row__rail-slide" />
     </div>
 
     <div v-if="expanded" :id="detailsId" class="row__details">
@@ -150,7 +158,14 @@ function itemDetail(item: ImageItem): string {
               {{ IMAGE_STATUS_META[item.status].label }}
             </span>
             <span class="item__target mono" :title="item.absolutePath">{{ item.target }}</span>
-            <span class="item__detail mono" :class="{ 'item__detail--muted': item.status !== 'failed' }">
+            <span
+              class="item__arrow"
+              :class="{ 'item__arrow--on': replaced(item.status) }"
+              aria-hidden="true"
+            >
+              →
+            </span>
+            <span class="item__detail mono" :class="{ 'item__detail--muted': !replaced(item.status) }">
               {{ itemDetail(item) }}
             </span>
           </li>
@@ -158,7 +173,7 @@ function itemDetail(item: ImageItem): string {
         <p v-else class="row__note">该文件未引用本地图片</p>
 
         <p v-if="row.result.outputPath" class="row__note">
-          输出：<span class="mono">{{ row.result.outputPath }}</span>
+          输出 <span class="mono">{{ row.result.outputPath }}</span>
         </p>
 
         <ul v-if="row.result.warnings?.length" class="warnings">
@@ -175,11 +190,13 @@ function itemDetail(item: ImageItem): string {
 </template>
 
 <style scoped>
+/* 台账的列宽必须与 FileQueue 的列头保持一致：
+   文件 minmax(0,1fr) / 引用 64px / 状态 92px / 移除 30px */
 .row {
   position: relative;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
-  --tone: var(--text-3);
+  --tone: var(--ink-3);
 }
 
 .row:last-child {
@@ -191,17 +208,18 @@ function itemDetail(item: ImageItem): string {
 }
 
 .row[data-tone='success'] {
-  --tone: var(--success);
+  --tone: var(--ok);
 }
 
 .row[data-tone='warning'] {
-  --tone: var(--warning);
+  --tone: var(--warn);
 }
 
 .row[data-tone='danger'] {
-  --tone: var(--danger);
+  --tone: var(--bad);
 }
 
+/* 状态脊线：整份台账左边缘连续的一列颜色，扫一眼就知道哪几行没走通 */
 .row::before {
   content: '';
   position: absolute;
@@ -211,9 +229,10 @@ function itemDetail(item: ImageItem): string {
 }
 
 .row__head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 92px 30px;
   align-items: center;
-  gap: 2px;
+  column-gap: 8px;
   padding-right: 6px;
 }
 
@@ -221,20 +240,19 @@ function itemDetail(item: ImageItem): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
   min-width: 0;
-  padding: 9px 6px 9px 13px;
+  padding: 9px 0 9px 13px;
   border: none;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--dur-hover) var(--ease);
+  transition: background-color var(--t-fast) var(--ease);
 }
 
 .row__toggle:hover {
-  background: var(--surface-2);
+  background: var(--sunk);
 }
 
 .row__chev {
@@ -243,13 +261,15 @@ function itemDetail(item: ImageItem): string {
   width: 16px;
   height: 16px;
   flex: none;
-  color: var(--text-3);
-  transition: transform var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease);
+  color: var(--ink-3);
+  transition:
+    transform var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .row__chev--open {
   transform: rotate(180deg);
-  color: var(--text-2);
+  color: var(--ink-2);
 }
 
 .row__id {
@@ -261,8 +281,8 @@ function itemDetail(item: ImageItem): string {
 }
 
 .row__name {
-  color: var(--text-1);
-  font-size: 12.5px;
+  color: var(--ink);
+  font-size: var(--fs-body);
   font-weight: 550;
   line-height: 1.35;
   overflow: hidden;
@@ -271,30 +291,29 @@ function itemDetail(item: ImageItem): string {
 }
 
 .row__dir {
-  color: var(--text-3);
-  font-size: 11px;
+  color: var(--ink-3);
+  font-size: var(--fs-label);
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.row__meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
+.row__count {
+  color: var(--ink-3);
+  font-size: var(--fs-label);
+  text-align: right;
+  white-space: nowrap;
 }
 
-.row__count {
-  color: var(--text-3);
-  font-size: 11.5px;
-  white-space: nowrap;
+.row__status {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .row__remove {
   opacity: 0;
-  transition: opacity var(--dur-hover) var(--ease);
+  transition: opacity var(--t-fast) var(--ease);
 }
 
 .row:hover .row__remove,
@@ -305,48 +324,47 @@ function itemDetail(item: ImageItem): string {
 .row__reason {
   padding: 0 13px 8px 39px;
   color: var(--tone);
-  font-size: 11.5px;
+  font-size: var(--fs-label);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.row__bar {
+.row__rail {
   position: relative;
   height: 2px;
-  margin-left: 2px;
   overflow: hidden;
-  background: var(--surface-3);
+  background: var(--track);
 }
 
-.row__bar-fill {
+.row__rail-fill {
   height: 100%;
   background: var(--tone);
-  transition: width var(--dur-progress) var(--ease);
+  transition: width var(--t-slow) var(--ease);
 }
 
-.row__bar-slide {
+.row__rail-slide {
   width: 30%;
   height: 100%;
   background: var(--tone);
-  animation: bar-slide 1.1s var(--ease) infinite;
+  animation: rail-slide 1.1s var(--ease) infinite;
 }
 
 .row__details {
-  padding: 9px 13px 11px 39px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-  animation: details-in var(--dur-enter) var(--ease);
+  padding: 10px 13px 12px 39px;
+  border-top: 1px solid var(--line);
+  background: var(--sunk);
+  animation: details-in var(--t-base) var(--ease);
 }
 
 .row__stats {
-  color: var(--text-2);
-  font-size: 11.5px;
+  color: var(--ink-2);
+  font-size: var(--fs-label);
 }
 
 .row__note {
   margin-top: 6px;
-  color: var(--text-3);
-  font-size: 11.5px;
+  color: var(--ink-3);
+  font-size: var(--fs-label);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -354,21 +372,21 @@ function itemDetail(item: ImageItem): string {
 .items {
   display: flex;
   flex-direction: column;
-  margin-top: 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
   background: var(--surface);
   overflow: hidden;
 }
 
 .item {
   display: grid;
-  grid-template-columns: 34px 52px minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-columns: 34px 52px minmax(0, 1fr) 12px minmax(0, 1.1fr);
   align-items: baseline;
   gap: 6px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  padding: 6px 9px;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-label);
 }
 
 .item:last-child {
@@ -376,36 +394,34 @@ function itemDetail(item: ImageItem): string {
 }
 
 .item__line {
-  color: var(--text-3);
+  color: var(--ink-3);
   font-size: 10.5px;
 }
 
 .item__status {
-  color: var(--text-2);
-  font-size: 10.5px;
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
 .item__status[data-tone='success'] {
-  color: var(--success);
+  color: var(--ok);
 }
 
 .item__status[data-tone='accent'] {
-  color: var(--accent-text);
+  color: var(--accent-ink);
 }
 
 .item__status[data-tone='warning'] {
-  color: var(--warning);
+  color: var(--warn);
 }
 
 .item__status[data-tone='danger'] {
-  color: var(--danger);
+  color: var(--bad);
 }
 
 .item__target,
 .item__detail {
   min-width: 0;
-  font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -414,15 +430,24 @@ function itemDetail(item: ImageItem): string {
 /* 不使用 direction: rtl 做「左侧省略」：bidi 重排会把开头的 ./ 或盘符挪到末尾，
    反而读不出路径。这里正常书写方向截断，完整路径由 title 提供。 */
 .item__target {
-  color: var(--text-2);
+  color: var(--ink-2);
 }
 
 .item__detail {
-  color: var(--text-2);
+  color: var(--ink-2);
 }
 
 .item__detail--muted {
-  color: var(--text-3);
+  color: var(--ink-3);
+}
+
+.item__arrow {
+  color: var(--line-2);
+  text-align: center;
+}
+
+.item__arrow--on {
+  color: var(--accent);
 }
 
 .warnings {
@@ -436,13 +461,13 @@ function itemDetail(item: ImageItem): string {
   display: flex;
   align-items: flex-start;
   gap: 5px;
-  color: var(--warning);
-  font-size: 11px;
+  color: var(--warn);
+  font-size: var(--fs-label);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
 
-@keyframes bar-slide {
+@keyframes rail-slide {
   from {
     transform: translateX(-100%);
   }

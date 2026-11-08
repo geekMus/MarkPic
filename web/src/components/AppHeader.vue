@@ -50,27 +50,35 @@ const runVisible = computed(
 const runLabel = computed(() => {
   if (props.phase === 'preparing') return '正在启动'
   if (props.phase === 'cancelling') return '正在取消'
-  return `运行中 · ${props.completed}/${props.total}`
+  return `运行中 ${props.completed}/${props.total}`
 })
 
 const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主题' : '切换到深色主题'))
 </script>
 
 <template>
-  <header class="header">
-    <div class="header__brand">
-      <svg class="header__logo" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="1.5" y="1.5" width="21" height="21" rx="6.5" fill="var(--accent)" />
+  <header class="bar">
+    <div class="bar__brand">
+      <svg class="bar__mark" viewBox="0 0 24 24" aria-hidden="true">
+        <rect
+          x="1.5"
+          y="1.5"
+          width="21"
+          height="21"
+          rx="6.5"
+          fill="var(--mark)"
+          stroke="var(--line-2)"
+        />
         <path
           d="M8.6 8.4h4.2a1.6 1.6 0 0 1 1.6 1.6v4.2"
-          stroke="var(--accent-fg)"
+          stroke="var(--mark-ink)"
           stroke-width="1.6"
           stroke-linecap="round"
           fill="none"
         />
         <path
           d="M15.4 8.6v6.8H8.6"
-          stroke="var(--accent-fg)"
+          stroke="var(--mark-ink)"
           stroke-width="1.6"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -78,33 +86,35 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
         />
         <path
           d="M10.6 13.4l4.8-4.8"
-          stroke="var(--accent-fg)"
+          stroke="var(--mark-ink)"
           stroke-width="1.6"
           stroke-linecap="round"
           fill="none"
         />
       </svg>
 
-      <h1 class="header__title">Markdown 图片图床化</h1>
-      <span v-if="versionLabel" class="tag header__version" :title="`本地服务版本 ${versionLabel}`">
+      <h1 class="bar__title">Markdown 图片图床化</h1>
+      <span v-if="versionLabel" class="tag" :title="`本地服务版本 ${versionLabel}`">
         {{ versionLabel }}
       </span>
     </div>
 
-    <div class="header__actions">
-      <span v-if="runVisible" class="header__run" role="status" aria-live="polite">
+    <div class="bar__right">
+      <span v-if="runVisible" class="bar__run" role="status" aria-live="polite">
         <StatusPill tone="accent" :label="runLabel" pulse />
       </span>
 
       <button
         type="button"
-        class="header__health"
+        class="bar__health"
         :title="picgoTitle"
         :aria-label="picgoTitle"
         @click="emit('refresh-health')"
       >
         <StatusPill :tone="picgoTone" :label="picgoLabel" :pulse="healthChecking" />
       </button>
+
+      <span class="bar__sep" aria-hidden="true" />
 
       <button
         type="button"
@@ -131,80 +141,75 @@ const themeTitle = computed(() => (props.theme === 'dark' ? '切换到浅色主�
 </template>
 
 <style scoped>
-.header {
+.bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 56px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--border);
+  height: 52px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--line);
   background: var(--surface);
   z-index: 20;
 }
 
-.header__brand {
+.bar__brand {
   display: flex;
   align-items: center;
   gap: 9px;
   min-width: 0;
 }
 
-.header__logo {
+.bar__mark {
   width: 22px;
   height: 22px;
   flex: none;
 }
 
-.header__title {
-  color: var(--text-1);
-  font-size: 13.5px;
+.bar__title {
+  color: var(--ink);
+  font-size: var(--fs-title);
   font-weight: 600;
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
-.header__version {
-  font-variant-numeric: tabular-nums;
-}
-
-.header__actions {
+.bar__right {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
 }
 
-.header__run {
+.bar__run {
   display: inline-flex;
   margin-right: 2px;
 }
 
-.header__health {
+.bar__health {
   display: inline-flex;
-  padding: 0;
+  padding: 3px 6px;
   border: none;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-2);
   background: transparent;
   cursor: pointer;
-  transition: opacity var(--dur-hover) var(--ease);
+  transition: background-color var(--t-fast) var(--ease);
 }
 
-.header__health:hover {
-  opacity: 0.82;
+.bar__health:hover {
+  background: var(--sunk);
+}
+
+.bar__sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--line);
 }
 
 @media (max-width: 780px) {
-  .header__version {
+  .bar__title {
     display: none;
-  }
-
-  .header__health :deep(.pill__label) {
-    display: none;
-  }
-
-  .header__health :deep(.pill) {
-    padding: 0 8px;
   }
 }
 </style>

@@ -26,6 +26,8 @@ export interface RunRow {
   phase: RowPhase
   uploaded: number
   total: number
+  /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
+  missing?: boolean
 }
 
 export interface RunRowView extends RunRow {
@@ -197,16 +199,21 @@ function ensureRowFromResult(result: FileResult): void {
 }
 
 function applyStarted(files: RunFileInfo[]): void {
-  rows.value = files.map(file => ({
+  const started = files.map(file => ({
     id: file.id,
     path: file.path,
     name: file.name,
     dir: file.dir,
     images: file.images,
-    phase: 'queued',
+    phase: 'queued' as const,
     uploaded: 0,
     total: file.images,
   }))
+  // 后端只会回传真正找到的文件。用户加进来、但一个文件都没匹配上的路径要留在队列里，
+  // 否则一点「开始转换」它就凭空消失，用户无从知道这条路径被忽略了。
+  const known = new Set(files.map(file => pathKey(file.path)))
+  const kept = rows.value.filter(row => row.missing && !known.has(pathKey(row.path)))
+  rows.value = [...started, ...kept]
   results.clear()
 }
 
@@ -420,7 +427,7 @@ function applyPreview(result: PreviewResult): void {
 
   rows.value = rows.value.map(row => {
     const exact = byPath.get(pathKey(row.path))
-    if (exact) return { ...row, images: exact.images, total: exact.images }
+    if (exact) return { ...row, images: exact.images, total: exact.images, missing: false }
 
     const prefix = `${pathKey(row.path)}\\`
     let sum = 0
@@ -431,7 +438,9 @@ function applyPreview(result: PreviewResult): void {
         matched = true
       }
     }
-    return matched ? { ...row, images: sum, total: sum } : row
+    // 预览返回的是「真正找到的文件」；什么都没匹配上说明这个路径不存在，
+    // 或者目录里没有 Markdown —— 明确说出来，别让行停在「待统计」。
+    return matched ? { ...row, images: sum, total: sum, missing: false } : { ...row, missing: true }
   })
 }
 

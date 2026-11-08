@@ -18,6 +18,8 @@ const emit = defineEmits<{
   reveal: []
 }>()
 
+type Part = { text: string; tone: 'plain' | 'warn' | 'bad' }
+
 const settled = computed(
   () =>
     props.phase === 'running' ||
@@ -26,33 +28,48 @@ const settled = computed(
     props.phase === 'cancelled',
 )
 
-const summaryText = computed(() => {
+/** 状态栏读数：文件数、引用数，跑完之后追加替换与失败计数。 */
+const parts = computed<Part[]>(() => {
   const stats = props.stats
-  if (stats.files === 0) return '队列为空'
+  if (stats.files === 0) return [{ text: '队列为空', tone: 'plain' }]
 
-  const parts = [`${stats.files} 个文件`]
-  parts.push(stats.images > 0 ? `${stats.images} 张图` : '未发现图片')
+  const list: Part[] = [{ text: `${stats.files} 个文件`, tone: 'plain' }]
+  list.push(
+    stats.images > 0
+      ? { text: `${stats.images} 张图`, tone: 'plain' }
+      : { text: '未发现图片', tone: 'plain' },
+  )
   if (settled.value) {
-    parts.push(`替换 ${stats.uploaded}`)
-    if (stats.failed > 0) parts.push(`失败 ${stats.failed}`)
+    list.push({ text: `替换 ${stats.uploaded}`, tone: 'plain' })
+    if (stats.failed > 0) list.push({ text: `失败 ${stats.failed}`, tone: 'bad' })
   }
-  if (props.phase === 'cancelled') parts.push('已取消')
-  return parts.join(' · ')
+  if (props.phase === 'cancelled') list.push({ text: '已取消', tone: 'warn' })
+  return list
 })
 
 const showReveal = computed(
   () => props.canReveal && (props.phase === 'done' || props.phase === 'cancelled'),
 )
+
+const showShortcut = computed(() => props.canStart && !props.busy)
 </script>
 
 <template>
   <footer class="footer">
-    <div class="footer__summary">
-      <span class="footer__text num" role="status" aria-live="polite">{{ summaryText }}</span>
-      <span v-if="dryRun" class="tag footer__dry">试运行</span>
+    <div class="footer__readout" role="status" aria-live="polite">
+      <template v-for="(part, i) in parts" :key="part.text">
+        <span v-if="i > 0" class="footer__sep" aria-hidden="true">·</span>
+        <span class="footer__part num" :data-tone="part.tone">{{ part.text }}</span>
+      </template>
+      <span v-if="dryRun" class="tag tag--warn footer__dry">试运行</span>
     </div>
 
     <div class="footer__actions">
+      <span v-if="showShortcut" class="footer__kbd">
+        <span class="kbd">Ctrl</span>
+        <span class="kbd">Enter</span>
+      </span>
+
       <button
         v-if="showReveal"
         type="button"
@@ -92,33 +109,49 @@ const showReveal = computed(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 56px;
-  padding: 0 14px;
-  border-top: 1px solid var(--border);
+  height: 44px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
   background: var(--surface);
   z-index: 20;
 }
 
-.footer__summary {
+.footer__readout {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
 }
 
-.footer__text {
-  color: var(--text-2);
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.footer__part {
+  color: var(--ink-2);
+  font-size: var(--fs-data);
   white-space: nowrap;
 }
 
+.footer__sep {
+  color: var(--line-2);
+}
+
+.footer__part[data-tone='bad'] {
+  color: var(--bad);
+}
+
+.footer__part[data-tone='warn'] {
+  color: var(--warn);
+}
+
 .footer__dry {
-  border-color: var(--warning-border);
-  background: var(--warning-soft);
-  color: var(--warning);
   flex: none;
+}
+
+.footer__kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-label);
 }
 
 .footer__actions {
@@ -126,5 +159,11 @@ const showReveal = computed(
   align-items: center;
   gap: 8px;
   flex: none;
+}
+
+@media (max-width: 720px) {
+  .footer__kbd {
+    display: none;
+  }
 }
 </style>

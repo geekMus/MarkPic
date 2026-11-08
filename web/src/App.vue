@@ -134,13 +134,27 @@ async function handlePickDir(): Promise<void> {
   }
 }
 
+/** Ctrl/Cmd + Enter 开始转换；Esc 收起手动输入。 */
+function handleKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && manualOpen.value) {
+    manualOpen.value = false
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && canStart.value) {
+    event.preventDefault()
+    handleRun()
+  }
+}
+
 onMounted(() => {
   connect()
   void refreshHealth()
   void loadSettings()
+  window.addEventListener('keydown', handleKeydown)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
   disconnect()
 })
 </script>
@@ -161,36 +175,38 @@ onBeforeUnmount(() => {
       @toggle-settings="optionsOpen = !optionsOpen"
     />
 
-    <main class="app__main" :class="{ 'app__main--aside': optionsOpen }">
-      <FileQueue
-        :rows="rowViews"
-        :phase="phase"
-        :completed="completedCount"
-        :total="totalCount"
-        :manual-open="manualOpen"
-        @pick-files="pick('files')"
-        @pick-folder="pick('folder')"
-        @submit-paths="enqueue"
-        @remove="removeRow"
-        @clear="clearQueue"
-        @update:manual-open="manualOpen = $event"
-      />
+    <main class="app__main">
+      <div class="shell" :class="{ 'shell--rail': optionsOpen }">
+        <FileQueue
+          :rows="rowViews"
+          :phase="phase"
+          :completed="completedCount"
+          :total="totalCount"
+          :manual-open="manualOpen"
+          @pick-files="pick('files')"
+          @pick-folder="pick('folder')"
+          @submit-paths="enqueue"
+          @remove="removeRow"
+          @clear="clearQueue"
+          @update:manual-open="manualOpen = $event"
+        />
 
-      <OptionsPanel
-        v-if="optionsOpen"
-        :settings="settings"
-        :dirty="dirty"
-        :loaded="settingsLoaded"
-        :loading="settingsLoading"
-        :saving="settingsSaving"
-        :load-error="settingsError"
-        @update="updateSettings"
-        @save="handleSaveSettings"
-        @discard="discardSettings"
-        @retry="loadSettings"
-        @close="optionsOpen = false"
-        @pick-dir="handlePickDir"
-      />
+        <OptionsPanel
+          v-if="optionsOpen"
+          :settings="settings"
+          :dirty="dirty"
+          :loaded="settingsLoaded"
+          :loading="settingsLoading"
+          :saving="settingsSaving"
+          :load-error="settingsError"
+          @update="updateSettings"
+          @save="handleSaveSettings"
+          @discard="discardSettings"
+          @retry="loadSettings"
+          @close="optionsOpen = false"
+          @pick-dir="handlePickDir"
+        />
+      </div>
     </main>
 
     <AppFooter
@@ -212,29 +228,49 @@ onBeforeUnmount(() => {
 <style scoped>
 .app {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 56px;
+  grid-template-rows: 52px minmax(0, 1fr) 44px;
   height: 100vh;
   background: var(--bg);
-  color: var(--text-1);
+  color: var(--ink);
 }
 
 .app__main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
   min-height: 0;
-  padding: 12px 14px;
-  overflow: hidden;
+  padding: 14px 16px;
 }
 
-.app__main--aside {
+/* 一体外壳：左台账与右设置轨共用一层边框，读起来是一台仪表，而不是两张卡片 */
+.shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: var(--surface);
+}
+
+.shell--rail {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
+.shell--rail > :last-child {
+  border-left: 1px solid var(--line);
+}
+
 @media (max-width: 900px) {
-  .app__main--aside {
+  .app__main {
+    padding: 12px;
+  }
+
+  .shell--rail {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(220px, 42vh);
+    grid-template-rows: minmax(0, 1fr) minmax(240px, 42vh);
+  }
+
+  .shell--rail > :last-child {
+    border-top: 1px solid var(--line);
+    border-left: none;
   }
 }
 </style>

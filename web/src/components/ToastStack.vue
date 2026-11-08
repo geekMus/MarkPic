@@ -17,7 +17,13 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
 <template>
   <aside class="toasts" aria-label="通知" aria-live="polite">
     <TransitionGroup name="toast">
-      <div v-for="toast in toasts" :key="toast.id" class="toast" :data-tone="toast.tone" role="status">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        class="toast"
+        :data-tone="toast.tone"
+        role="status"
+      >
         <span class="toast__icon" aria-hidden="true">
           <AppIcon :name="ICON_BY_TONE[toast.tone]" :size="15" />
         </span>
@@ -38,27 +44,41 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
 <style scoped>
 .toasts {
   position: fixed;
-  right: 16px;
-  bottom: 68px;
+  left: 16px;
+  bottom: 56px;
   z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(384px, calc(100vw - 32px));
+  width: min(392px, calc(100vw - 32px));
   pointer-events: none;
 }
 
 .toast {
+  --tone: var(--accent);
+
   display: flex;
   align-items: flex-start;
   gap: 9px;
   padding: 9px 8px 9px 11px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--text-3);
-  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--tone);
+  border-radius: var(--r-2);
   background: var(--surface);
   box-shadow: var(--shadow-pop);
   pointer-events: auto;
+}
+
+.toast[data-tone='success'] {
+  --tone: var(--ok);
+}
+
+.toast[data-tone='warning'] {
+  --tone: var(--warn);
+}
+
+.toast[data-tone='danger'] {
+  --tone: var(--bad);
 }
 
 .toast__icon {
@@ -68,15 +88,15 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
   height: 18px;
   flex: none;
   margin-top: 1px;
-  color: var(--text-3);
+  color: var(--tone);
 }
 
 .toast__text {
   flex: 1;
   min-width: 0;
-  color: var(--text-1);
-  font-size: 12.5px;
-  line-height: 1.45;
+  color: var(--ink);
+  font-size: var(--fs-data);
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
@@ -88,49 +108,25 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
   flex: none;
   padding: 0;
   border: none;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-1);
   background: transparent;
-  color: var(--text-3);
+  color: var(--ink-3);
   cursor: pointer;
-  transition: background-color var(--dur-hover) var(--ease), color var(--dur-hover) var(--ease);
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
 }
 
 .toast__close:hover {
-  background: var(--surface-3);
-  color: var(--text-1);
-}
-
-.toast[data-tone='success'] {
-  border-left-color: var(--success);
-}
-
-.toast[data-tone='success'] .toast__icon {
-  color: var(--success);
-}
-
-.toast[data-tone='warning'] {
-  border-left-color: var(--warning);
-}
-
-.toast[data-tone='warning'] .toast__icon {
-  color: var(--warning);
-}
-
-.toast[data-tone='danger'] {
-  border-left-color: var(--danger);
-}
-
-.toast[data-tone='danger'] .toast__icon {
-  color: var(--danger);
-}
-
-.toast[data-tone='info'] .toast__icon {
-  color: var(--accent-text);
+  background: var(--sunk);
+  color: var(--ink);
 }
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity var(--dur-enter) var(--ease), transform var(--dur-enter) var(--ease);
+  transition:
+    opacity var(--t-base) var(--ease),
+    transform var(--t-base) var(--ease);
 }
 
 .toast-enter-from,

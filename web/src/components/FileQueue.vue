@@ -54,17 +54,17 @@ function submitManual(): void {
 </script>
 
 <template>
-  <section class="card queue">
-    <div class="card__head">
-      <div class="card__headline">
-        <h2 class="card__title">文件队列</h2>
-        <span v-if="rows.length > 0" class="tag num">{{ rows.length }} 个文件</span>
-        <span v-if="busy" class="queue__running num" role="status" aria-live="polite">
+  <section class="pane queue">
+    <div class="pane__head">
+      <div class="pane__headline">
+        <h2 class="pane__title">待转换文件</h2>
+        <span v-if="rows.length > 0" class="pane__note num">{{ rows.length }} 个文件</span>
+        <span v-if="busy" class="pane__note queue__running num" role="status" aria-live="polite">
           {{ completed }}/{{ total }} 已完成
         </span>
       </div>
 
-      <div class="card__actions">
+      <div class="pane__actions">
         <button
           type="button"
           class="icon-btn"
@@ -95,6 +95,9 @@ function submitManual(): void {
         >
           <AppIcon name="terminal" :size="15" />
         </button>
+
+        <span class="queue__sep" aria-hidden="true" />
+
         <button
           type="button"
           class="icon-btn"
@@ -108,7 +111,7 @@ function submitManual(): void {
       </div>
     </div>
 
-    <div class="card__body queue__body">
+    <div class="pane__body queue__body">
       <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
         <label class="manual__label" for="queue-manual">
           每行一个路径，支持 .md 文件或包含 .md 的文件夹
@@ -132,15 +135,25 @@ function submitManual(): void {
         </div>
       </form>
 
-      <ul v-if="rows.length > 0" class="queue__list">
-        <FileRow
-          v-for="row in rows"
-          :key="row.id"
-          :row="row"
-          :busy="busy"
-          @remove="emit('remove', $event)"
-        />
-      </ul>
+      <template v-if="rows.length > 0">
+        <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 引用 64px / 状态 92px / 移除 30px -->
+        <div class="ledger__head" aria-hidden="true">
+          <span class="ledger__col">文件</span>
+          <span class="ledger__col ledger__col--num">引用</span>
+          <span class="ledger__col ledger__col--num">状态</span>
+          <span />
+        </div>
+
+        <ul class="queue__list">
+          <FileRow
+            v-for="row in rows"
+            :key="row.id"
+            :row="row"
+            :busy="busy"
+            @remove="emit('remove', $event)"
+          />
+        </ul>
+      </template>
 
       <EmptyState
         v-else-if="!manualOpen"
@@ -154,9 +167,14 @@ function submitManual(): void {
 
 <style scoped>
 .queue__running {
-  color: var(--accent-text);
-  font-size: 11.5px;
-  white-space: nowrap;
+  color: var(--accent-ink);
+}
+
+.queue__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--line);
 }
 
 .queue__body {
@@ -169,18 +187,41 @@ function submitManual(): void {
   flex-direction: column;
 }
 
+/* 台账列头 */
+.ledger__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 92px 30px;
+  align-items: center;
+  column-gap: 8px;
+  flex: none;
+  height: 28px;
+  padding: 0 6px 0 37px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+}
+
+.ledger__col {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.ledger__col--num {
+  text-align: right;
+}
+
 .manual {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px 12px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-2);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sunk);
+  animation: manual-in var(--t-base) var(--ease);
 }
 
 .manual__label {
-  color: var(--text-2);
-  font-size: 11.5px;
+  color: var(--ink-2);
+  font-size: var(--fs-label);
 }
 
 .manual__foot {
@@ -192,7 +233,16 @@ function submitManual(): void {
 .manual__hint {
   flex: 1;
   min-width: 0;
-  color: var(--text-3);
-  font-size: 11px;
+  color: var(--ink-3);
+  font-size: var(--fs-label);
+}
+
+@keyframes manual-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 </style>

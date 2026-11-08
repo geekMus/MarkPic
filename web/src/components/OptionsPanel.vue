@@ -38,17 +38,17 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 </script>
 
 <template>
-  <aside class="card panel">
-    <div class="card__head">
-      <div class="card__headline">
-        <h2 class="card__title">选项</h2>
+  <aside class="pane panel">
+    <div class="pane__head">
+      <div class="pane__headline">
+        <h2 class="pane__title">设置</h2>
       </div>
-      <div class="card__actions">
+      <div class="pane__actions">
         <button
           type="button"
           class="icon-btn"
-          title="隐藏选项面板"
-          aria-label="隐藏选项面板"
+          title="隐藏设置面板"
+          aria-label="隐藏设置面板"
           @click="emit('close')"
         >
           <AppIcon name="x" :size="15" />
@@ -56,7 +56,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
       </div>
     </div>
 
-    <div class="card__body panel__body">
+    <div class="pane__body panel__body">
       <template v-if="loaded">
         <section class="group">
           <h3 class="group__title">PicGo 服务</h3>
@@ -193,7 +193,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
       </div>
     </div>
 
-    <div v-if="loaded" class="panel__foot">
+    <div v-if="loaded" class="pane__foot">
       <button
         type="button"
         class="btn btn--ghost btn--sm"
@@ -216,157 +216,7 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 
 <style scoped>
 .panel__body {
-  padding: 12px;
+  padding: 13px 14px 16px;
   overflow-y: auto;
-}
-
-.group + .group {
-  margin-top: 14px;
-  padding-top: 13px;
-  border-top: 1px solid var(--border);
-}
-
-.group__title {
-  margin-bottom: 9px;
-  color: var(--text-2);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.field + .field,
-.field-row + .field,
-.segmented + .field {
-  margin-top: 10px;
-}
-
-.field__label {
-  color: var(--text-2);
-  font-size: 11.5px;
-}
-
-.field__hint {
-  color: var(--text-3);
-  font-size: 11px;
-}
-
-.field__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.field__row .input {
-  flex: 1;
-  min-width: 0;
-}
-
-.field-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.segmented {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-}
-
-.segmented__item {
-  height: 24px;
-  padding: 0 4px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--text-2);
-  font-family: inherit;
-  font-size: 11.5px;
-  cursor: pointer;
-  transition:
-    background-color var(--dur-hover) var(--ease),
-    color var(--dur-hover) var(--ease);
-}
-
-.segmented__item:hover {
-  color: var(--text-1);
-}
-
-.segmented__item[aria-pressed='true'] {
-  background: var(--surface);
-  color: var(--accent-text);
-  font-weight: 600;
-  box-shadow: var(--shadow-1);
-}
-
-.check {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  color: var(--text-2);
-  font-size: 11.5px;
-  line-height: 1.5;
-  cursor: pointer;
-}
-
-.check + .check {
-  margin-top: 8px;
-}
-
-.check input {
-  flex: none;
-  width: 13px;
-  height: 13px;
-  margin: 2px 0 0;
-  accent-color: var(--accent);
-}
-
-.notice {
-  margin-top: 9px;
-  padding: 7px 9px;
-  border-left: 2px solid var(--warning);
-  border-radius: 4px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 9px;
-  padding: 6px 2px;
-  color: var(--text-3);
-  font-size: 11.5px;
-}
-
-.placeholder__error {
-  color: var(--danger);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-
-.panel__foot {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  flex: none;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
 }
 </style>

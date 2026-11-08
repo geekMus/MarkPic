@@ -21,26 +21,20 @@ withDefaults(
 </template>
 
 <style scoped>
+/* 读数而不是徽章：圆点带颜色，文字保持安静，省掉一圈边框噪声 */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-pill);
-  background: var(--surface-2);
-  color: var(--text-2);
-  font-size: 11.5px;
+  color: var(--ink-3);
+  font-size: var(--fs-data);
   font-weight: 500;
   white-space: nowrap;
 }
 
 .pill--compact {
-  height: 20px;
-  padding: 0 8px;
-  font-size: 11px;
   gap: 5px;
+  font-size: var(--fs-label);
 }
 
 .pill__dot {
@@ -59,36 +53,20 @@ withDefaults(
   line-height: 1;
 }
 
-.pill[data-tone='neutral'] {
-  color: var(--text-2);
-}
-
-.pill[data-tone='neutral'] .pill__dot {
-  background: var(--text-3);
-}
-
 .pill[data-tone='accent'] {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-  color: var(--accent-text);
+  color: var(--accent-ink);
 }
 
 .pill[data-tone='success'] {
-  border-color: var(--success-border);
-  background: var(--success-soft);
-  color: var(--success);
+  color: var(--ok);
 }
 
 .pill[data-tone='warning'] {
-  border-color: var(--warning-border);
-  background: var(--warning-soft);
-  color: var(--warning);
+  color: var(--warn);
 }
 
 .pill[data-tone='danger'] {
-  border-color: var(--danger-border);
-  background: var(--danger-soft);
-  color: var(--danger);
+  color: var(--bad);
 }
 
 @keyframes pill-pulse {
@@ -97,7 +75,7 @@ withDefaults(
     opacity: 1;
   }
   50% {
-    opacity: 0.35;
+    opacity: 0.3;
   }
 }
 </style>
