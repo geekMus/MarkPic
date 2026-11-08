@@ -126,16 +126,17 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 			i++
 			continue
 		}
-		refs, nextTag, ok := parseHTMLImage(src, i)
+		added := len(d.Refs)
+		refs, nextTag, ok := parseHTMLImage(src, i, d.Refs)
 		if !ok {
 			i++
 			continue
 		}
-		for _, ref := range refs {
-			ref.Kind = KindHTML
-			ref.Line = lineOf(lineStarts, i)
-			d.Refs = append(d.Refs, ref)
+		line := lineOf(lineStarts, i)
+		for k := added; k < len(refs); k++ {
+			refs[k].Line = line
 		}
+		d.Refs = refs
 		i = nextTag
 	}
 
@@ -342,11 +343,14 @@ func looseTitleStart(src []byte, start, end int) int {
 }
 
 // parseHTMLImage 解析从 start（指向 '<'）开始的 <img ...> 或 <source ...> 标签，
-// 返回标签里所有能替换的地址。
+// 把标签里能替换的地址追加到 dst 后面并返回它。
+//
+// 追加进调用方已有的切片（而不是自己 new 一个再返回）是为了不让返回值逃逸到堆上：
+// 每个 <img> 都多一次分配，在一篇几百张图的文档里就是几百次。
 //
 // src 只给一个地址，srcset 给一串（`img/a.png 1x, img/b.png 2x` 是两张图，
 // 只换第一张会留下一个本地路径，页面在 2x 屏上照样裂图）。
-func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
+func parseHTMLImage(src []byte, start int, dst []Ref) ([]Ref, int, bool) {
 	nameLen := len("<img")
 	isSource := hasPrefixFold(src[start:], "<source")
 	if isSource {
@@ -355,7 +359,7 @@ func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
 	// 标签名后必须是空白、'/' 或 '>'
 	p := start + nameLen
 	if p < len(src) && !isHTMLSpace(src[p]) && src[p] != '/' && src[p] != '>' {
-		return nil, 0, false
+		return dst, 0, false
 	}
 
 	// 找到标签结束的 '>'，跳过引号内的内容
@@ -368,17 +372,18 @@ func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
 				k++
 			}
 			if k >= len(src) {
-				return nil, 0, false
+				return dst, 0, false
 			}
 		}
 		k++
 	}
 	if k >= len(src) {
-		return nil, 0, false
+		return dst, 0, false
 	}
 	tagEnd := k + 1
 
-	var refs []Ref
+	// 绝大多数标签只有 1 个地址，用栈上数组兜住，别为每个 <img> 分配一个切片。
+	refs := dst
 	// 在标签范围内查找 src / srcset 属性
 	i := p
 	for i < k {
@@ -447,11 +452,11 @@ func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
 				Quote:    quote,
 			})
 		case name == "srcset":
-			refs = append(refs, srcsetRefs(src, start, tagEnd, valueStart, valueEnd)...)
+			refs = appendSrcsetRefs(refs, src, start, tagEnd, valueStart, valueEnd)
 		}
 	}
-	if len(refs) == 0 {
-		return nil, 0, false
+	if len(refs) == len(dst) {
+		return dst, 0, false
 	}
 	return refs, tagEnd, true
 }
@@ -460,13 +465,13 @@ func parseHTMLImage(src []byte, start int) ([]Ref, int, bool) {
 //
 // 每张图单独给一个替换区间，只覆盖地址本身，宽度描述符（`1x`、`640w`）原样留着；
 // 整个属性的引号与逗号也不动。只换第一张是错的：2x 屏上照样会去加载本地那张。
-func srcsetRefs(src []byte, tagStart, tagEnd, valueStart, valueEnd int) []Ref {
+func appendSrcsetRefs(dst []Ref, src []byte, tagStart, tagEnd, valueStart, valueEnd int) []Ref {
 	value := src[valueStart:valueEnd]
 	// data: 里含逗号，按逗号切会把一个地址切成好几段，干脆整条跳过。
 	if hasPrefixFold(value, "data:") {
-		return nil
+		return dst
 	}
-	var refs []Ref
+	refs := dst
 	i := 0
 	for i < len(value) {
 		for i < len(value) && (isHTMLSpace(value[i]) || value[i] == ',') {

@@ -1116,6 +1116,38 @@ func TestRateLimitBurstIsRetriedNotFailed(t *testing.T) {
 	}
 }
 
+// 磁盘上真的有个叫 `井号#1.png` 的文件时，`#` 是文件名的一部分而不是 URL 片段。
+// 这类文件名在 Windows 上是合法的，只是不能直接贴进 URL，用户手写路径时很自然会这么写。
+func TestHashInFileNameResolves(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "井号#1.png"), "x")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![井号](img/井号#1.png)\n")
+
+	srv, hits := fakePicGo(t, nil)
+	results, sum := NewRunner(baseCfg(srv.URL), i18n.ZH, "run-hash", nil).RunCollect(context.Background(), []string{doc})
+
+	if sum.Uploaded != 1 || sum.Failed != 0 {
+		t.Fatalf("带 # 的文件名应该能找到：uploaded=%d failed=%d，%+v", sum.Uploaded, sum.Failed, sum)
+	}
+	if len(hits()) != 1 {
+		t.Fatalf("应该只传一张：%v", hits())
+	}
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "https://cdn.example.com/") {
+		t.Fatalf("没替换：%s", out)
+	}
+	if strings.Contains(string(out), "(img/") {
+		t.Fatalf("还留着本地路径：%s", out)
+	}
+	if len(results) != 1 || len(results[0].Warnings) != 0 {
+		t.Fatalf("不该有提示：%+v", results)
+	}
+}
+
 // okUploadBody 是假 PicGo 的成功响应。
 func okUploadBody() []byte {
 	return []byte(`{"success":true,"result":["https://cdn.example.com/a.png"]}`)

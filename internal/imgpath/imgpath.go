@@ -51,24 +51,45 @@ func Classify(raw string) Kind {
 // 支持的写法：相对路径、绝对路径（C:\ 或 / 开头）、百分号编码、file:// URI、
 // Windows 反斜杠、以及 `?raw=1`、`#frag` 之类的后缀。
 func Resolve(docPath, target string) (string, bool) {
-	return resolve(docPath, target, true)
+	return resolve(docPath, target, true, true)
 }
 
-// ResolveAll 给出按优先级排好的候选路径：先按 URL 语义做百分号解码，解码得到的
-// 文件不存在时再退回「文档里逐字写的那一份」——文件名里真的带 `%20` 的图片，
-// 只有逐字那一份能找到文件。绝大多数情况下两个候选是同一个路径。
+// ResolveAll 给出按优先级排好的候选路径，调用方按「文件是否真的存在」挑第一个能用的。
+//
+// 三种候选，从最常见的写法往少见的写法退：
+//  1. 按 URL 语义处理（`%20` 解码、`?query` 与 `#fragment` 砍掉）—— 正常情况；
+//  2. 逐字不解码 —— 磁盘上真的有个叫 `图%20片.png` 的文件时，只有这一份能找到；
+//  3. 逐字不砍后缀 —— 磁盘上真的有个叫 `井号#1.png` 的文件时，`#` 不是片段而是文件名的一部分。
+//
+// 绝大多数情况下只有一个候选，退化的两种只有在文件确实长成那样时才会命中。
 func ResolveAll(docPath, target string) []string {
-	decoded, ok := resolve(docPath, target, true)
+	primary, ok := resolve(docPath, target, true, true)
 	if !ok {
 		return nil
 	}
-	if literal, ok2 := resolve(docPath, target, false); ok2 && !strings.EqualFold(literal, decoded) {
-		return []string{decoded, literal}
+	out := []string{primary}
+	for _, opt := range []struct{ unescape, stripSuffix bool }{
+		{false, true},
+		{false, false},
+		{true, false},
+	} {
+		if cand, ok := resolve(docPath, target, opt.unescape, opt.stripSuffix); ok && !containsFold(out, cand) {
+			out = append(out, cand)
+		}
 	}
-	return []string{decoded}
+	return out
 }
 
-func resolve(docPath, target string, unescape bool) (string, bool) {
+func containsFold(list []string, s string) bool {
+	for _, item := range list {
+		if strings.EqualFold(item, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolve(docPath, target string, unescape, stripSuffix bool) (string, bool) {
 	kind := Classify(target)
 	if kind != Local {
 		return "", false
@@ -83,7 +104,7 @@ func resolve(docPath, target string, unescape bool) (string, bool) {
 			// file://server/share/x.png
 			s = "//" + u.Host + u.Path
 		}
-	} else {
+	} else if stripSuffix {
 		// 去掉 ?query 与 #fragment
 		if i := strings.IndexAny(s, "?#"); i >= 0 {
 			s = s[:i]

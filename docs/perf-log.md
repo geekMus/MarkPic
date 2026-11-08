@@ -1567,3 +1567,84 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 带宽度描述符、`<source srcset>`、`<source src>` 不算图、data URI、`<picture>` 里两张）；
 `internal/conv` 新增 `TestSrcsetImagesAreAllConverted`（4 处地址全部替换、描述符保留、
 输出里不留任何 `img/` 本地路径）。fuzz 60 秒 20,617,368 次执行无失败。
+## 第 34 轮：文件名里带 `#` 的图片找不到（顺带纠正上一轮的一个误判）
+
+**先说纠正**：第 32 轮我记了「多级 `..` 解析有问题（`../../` 不行）」，复测后确认**判断错了**。
+`posts/post.md` 里的 `../../shared/img/shared.png` 从 `posts/` 出发确实会走到上一级再上一级，
+那里没有 `shared` 目录，所以报缺失是对的；`posts/deep/nested/doc.md` 里的 `../../../shared/img/shared.png`
+能正常替换。路径解析一直是对的，这条不算 bug，只是我夹具搭错了层级。
+
+**这一轮的真 bug**：磁盘上有 `img/井号#1.png`，文档写 `![井号](img/井号#1.png)` → 报
+「找不到文件（本地文件不存在：井号）」。原因是 `imgpath.resolve` 无条件砍掉 `#` 之后的部分
+（URL 语义上 `#` 起片段），而 Windows 文件名里 `#` 完全合法，手写路径时谁也不会去写 `%23`。
+
+**改法**：`ResolveAll` 从「两种候选」扩成「四种候选」，让调用方按「文件是否真的存在」挑：
+
+| # | 处理方式 | 命中场景 |
+| --- | --- | --- |
+| 1 | 解码 + 砍 `?`/`#` | 正常写法（绝大多数） |
+| 2 | 不解码 + 砍 `?`/`#` | 文件名真的带 `%20` |
+| 3 | 不解码 + 不砍 | 文件名真的带 `#` 或 `?` |
+| 4 | 解码 + 不砍 | 文件名带 `#` 且带百分号编码 |
+
+`Resolve`（单值版）保持原语义不变，其他调用点与既有测试不受影响；候选去重时按大小写不敏感比较。
+
+**实测**（夹具 `%TEMP%\cmp-hash`，磁盘上 `img/井号#1.png`）：
+
+| 写法 | 改之前 | 改之后 |
+| --- | --- | --- |
+| `![井号](img/井号#1.png)` | 找不到文件（`井号`） | **替换成功** |
+| `![百分号](img/%E4%BA%95%E5%8F%B7%231.png)` | 替换成功 | 替换成功（两种写法都认） |
+
+**回归测试**：`TestResolveAllKeepsLiteralFallback` 加两组（裸 `#` 的两个候选、带 query 的两个候选）；
+`internal/conv` 加 `TestHashInFileNameResolves`（上传 1 张、0 失败、输出里不留本地路径、无提示）。
+
+**性能**：`ResolveAll` 每个引用多做最多 3 次纯字符串解析（没有系统调用），
+`tools/bench -bench parse` 与 e2e 都在噪声内；真正的 `os.Stat` 仍被 `fileStamp` 缓存
+按小写绝对路径去重，候选变多不会让 stat 次数跟着变多（第一次命中就停）。
+## 第 35 轮：解析器 300 → 425 MB/s（`bytes.IndexByte` 跳转 + 不让切片逃逸）
+
+第 33 轮我在 perf-log 里写「两处提速都在噪声内」，**那句话是错的** —— 当时我用的是
+「改完之后单次跑几次」，而不是「同一台机器上前后两个二进制交替跑」。改成 A/B 之后
+（`git worktree add` 取出改前的提交，分别编译 `bench-before.exe` / `bench-after.exe`，
+9 轮交替、取中位），差距非常稳定。
+
+**测量方法**（可复现）：
+
+```powershell
+git worktree add $env:TEMP\cmp-wt-before 8f49b4a
+# 分别 go build -o bench-before.exe / bench-after.exe ./tools/bench
+# 交替跑，参数固定
+bench-before.exe -bench parse -files 300 -refs 30 -pool 60 -kb 8 -prose 8 -repeat 21 -quiet
+bench-after.exe  -bench parse -files 300 -refs 30 -pool 60 -kb 8 -prose 8 -repeat 21 -quiet
+```
+
+**结果（7 轮交替，中位）**：
+
+| 版本 | 吞吐 | allocs/op |
+| --- | --- | --- |
+| 改前（8f49b4a） | **300 MB/s** | 14700 |
+| 改后 | **425 MB/s** | 14700 |
+
+单轮数字：before 308/306/310/282/300/290/299；after 430/432/421/429/425/409/425 ——
+没有重叠，不是噪声。
+
+**三处改动**：
+
+1. Markdown 主循环：`for i := 0; i+1 < len(src); i++ { if masked[i] || src[i] != '!' … }`
+   → `bytes.IndexByte(src[i:], '!')` 直接跳到下一个 `!`。2.8 MB 的文档里 `!` 大概每
+   200 字节才出现一次，逐字节判断等于白跑 200 次。
+2. HTML 主循环：同样改成 `bytes.IndexByte(src[i:], '<')`。
+3. `parseHTMLImage` 不再自己 `var refs []Ref` 再返回（那会让切片逃逸到堆上，每个
+   `<img>` 多一次分配 —— 我第一版就是这个错，allocs 从 14700 涨到 16500），改成把
+   结果 `append` 进调用方的 `d.Refs` 并返回它，`srcsetRefs` 同理改成 `appendSrcsetRefs`。
+
+**为什么之前没发现**：第 13 轮我给 `protectedMask` 里的 `<pre>` 扫描做过同样的
+`IndexByte` 改造（当时 247 → 299 MB/s），但**主循环这两处一直是逐字节的**，
+而它们的迭代次数是全文长度级别的。这次是先把「改前/改后」两个二进制放在一起交替跑，
+才看清 300 和 425 的差距。
+
+**功能回归**：`go test ./...` 10 个包全绿；fuzz 45 秒 15,397,894 次执行无失败；
+`-bench both -verify` 300/300 全绿、残留本地引用 0、远程/代码块/缺失各 300/300 保留；
+e2e 最好 197 ms（中位 204 ms）、峰值堆 18.3 MB —— 解析变快没有让端到端变慢
+（端到端本来就卡在建文件上，第 2 轮已经测过）。
