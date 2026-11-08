@@ -12,7 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/imgpath"
@@ -20,6 +19,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/platform"
 	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/convert-md-picture/internal/textenc"
 	"github.com/geekMus/convert-md-picture/internal/uploadcache"
 )
 
@@ -341,8 +341,10 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 			for i := range prescan {
 				n := 0
 				if data, rerr := os.ReadFile(files[i]); rerr == nil {
-					if utf8.Valid(data) {
-						doc := mdscan.ScanLang(data, r.lang)
+					// 预检也要按同一套解码来数引用：UTF-16/ANSI 的文档
+					// 在这里就得先转成 UTF-8，否则它的图片数永远是 0。
+					if text, derr := textenc.Decode(data, textenc.Detect(data)); derr == nil {
+						doc := mdscan.ScanLang(text, r.lang)
 						n = len(doc.Refs)
 						r.rememberDoc(files[i], doc)
 					}
@@ -457,13 +459,17 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		}
 		return res
 	}
-	if !utf8.Valid(data) {
+	// 记事本存的 UTF-16、老中文文档的本机 ANSI，都在这里先转成 UTF-8 再扫。
+	// 扫描和替换靠字节区间，内部只能有一种编码；写回去的时候再转回原编码。
+	enc := textenc.Detect(data)
+	text, derr := textenc.Decode(data, enc)
+	if derr != nil {
 		res.Status = FileFailed
 		res.Error = i18n.T(r.lang, i18n.KeyConvNotUTF8)
 		return res
 	}
 
-	doc := mdscan.ScanLang(data, r.lang)
+	doc := mdscan.ScanLang(text, r.lang)
 	res.Warnings = append(res.Warnings, doc.Warnings...)
 
 	// 地址里有空格又没写 <地址> 的写法（CommonMark 不允许，但不少编辑器照样生成）：
@@ -472,6 +478,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	refs := make([]mdscan.Ref, 0, len(doc.Refs))
 	for _, ref := range doc.Refs {
 		if ref.Loose && !r.looseTargetExists(path, ref.Target) {
+			continue
+		}
+		// 附件（.ps/.eps/.pdf 之类）不上传：图床当图片渲染不了它们，传上去也用不了。
+		// 只跳本地路径 —— 远程地址本来就原样留着，不该多一条提示。
+		if imgpath.Classify(ref.Target) == imgpath.Local && isAttachment(ref.Target) {
+			res.Warnings = append(res.Warnings, i18n.T(r.lang, i18n.KeyConvAttachmentSkipped, ref.Line, ref.Target))
 			continue
 		}
 		if ref.Loose {
@@ -609,12 +621,20 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		repls = append(repls, mdscan.Repl{Start: ref.URLStart, End: ref.URLEnd, Text: text})
 	}
 
-	out, aerr := mdscan.Apply(data, repls)
+	out, aerr := mdscan.Apply(text, repls)
 	if aerr != nil {
 		res.Status = FileFailed
 		res.Error = i18n.T(r.lang, i18n.KeyConvRewriteFailed, aerr)
 		return res
 	}
+	// 原样写回原编码：UTF-16 的文档不应该因为我们处理过就变成 UTF-8。
+	encoded, eerr := textenc.Encode(out, enc)
+	if eerr != nil {
+		res.Status = FileFailed
+		res.Error = i18n.T(r.lang, i18n.KeyConvEncodeFailed, enc.String())
+		return res
+	}
+	out = encoded
 
 	target, perr := r.planOutput(path, true)
 	if perr != nil {
@@ -649,6 +669,25 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		res.Status = FilePartial
 	}
 	return res
+}
+
+// attachmentExtensions 是「用图片语法引用了、但图床不会当图片渲染」的格式。
+// 排版工具导出的插图（PostScript / EPS / PDF）最常这样：正文里用 ![](figure.ps)
+// 引一下，文件其实躺在同一个目录里。它们不该上传 —— 传上去也用不了（浏览器显示
+// 不了，图床的图片外链也拿不到），还会白占一份配额。
+//
+// 这里刻意只列「明确不是图片」的几种，不做图片后缀白名单：没有后缀的文件、
+// 用奇怪后缀存真图的情况都得照旧能传（第 15 轮的后缀矩阵测过）。
+var attachmentExtensions = map[string]bool{
+	".ps": true, ".eps": true, ".pdf": true,
+	".ai": true, ".psd": true, ".sketch": true, ".fig": true, ".drawio": true,
+}
+
+// isAttachment 判断这处引用的目标是不是附件而不是图片。
+// 只看扩展名，不看文件内容：探测文件头要为每个引用多读一次盘，而且误判代价不对称 ——
+// 漏判只是多传一张（现在的行为），错判会让用户该传的图片没传。
+func isAttachment(target string) bool {
+	return attachmentExtensions[strings.ToLower(filepath.Ext(target))]
 }
 
 // uploadGroups 并发上传去重后的图片，并把结果写回对应的引用项。

@@ -43,6 +43,7 @@ const (
 	KeyConvPathMissing        Key = "conv.pathMissing"
 	KeyConvReadFailed         Key = "conv.readFailed"
 	KeyConvNotUTF8            Key = "conv.notUTF8"
+	KeyConvEncodeFailed       Key = "conv.encodeFailed"
 	KeyConvEmptyTarget        Key = "conv.emptyTarget"
 	KeyConvUnresolvedTarget   Key = "conv.unresolvedTarget"
 	KeyConvFileMissing        Key = "conv.fileMissing"
@@ -56,6 +57,7 @@ const (
 	KeyConvOutDirCreateFailed Key = "conv.outDirCreateFailed"
 	KeyConvReferenceStyle     Key = "conv.referenceStyle"
 	KeyConvLoosePath          Key = "conv.loosePath"
+	KeyConvAttachmentSkipped  Key = "conv.attachmentSkipped"
 	KeyConvEndpointDead       Key = "conv.endpointDead"
 	KeyConvEndpointBusy       Key = "conv.endpointBusy"
 	KeyConvWriteReadOnly      Key = "conv.writeReadOnly"
@@ -177,8 +179,12 @@ var catalog = map[Key]entry{
 		"Could not read the file: %v",
 	},
 	KeyConvNotUTF8: {
-		"文件不是 UTF-8 编码，暂不支持（请转存为 UTF-8 后重试）",
-		"The file is not UTF-8 encoded. Save it as UTF-8 and try again.",
+		"认不出这个文件的编码：不是 UTF-8，不是带 BOM 的 UTF-16，也不是本机 ANSI 编码。请另存为 UTF-8 后重试",
+		"Unrecognized encoding: not UTF-8, not UTF-16 with a BOM, and not this machine's ANSI code page. Save it as UTF-8 and try again.",
+	},
+	KeyConvEncodeFailed: {
+		"替换后的内容没法用原编码（%s）写回去，请另存为 UTF-8 后重试",
+		"The result cannot be written back in the original encoding (%s); save the document as UTF-8 and try again.",
 	},
 	KeyConvEmptyTarget: {
 		"图片地址为空",
@@ -247,6 +253,10 @@ var catalog = map[Key]entry{
 	KeyConvLoosePath: {
 		"第 %d 行：图片路径里有空格，规范写法是 <路径> 或把空格写成 %%20（已按原样处理）",
 		"Line %d: the image path contains a space; the standard form is <path> or %%20 (handled as written)",
+	},
+	KeyConvAttachmentSkipped: {
+		"第 %d 行：%s 是附件、不是图片（图床当图片渲染不了），已跳过",
+		"Line %d: %s is an attachment, not an image (image hosts cannot render it), so it was skipped",
 	},
 	KeyConvEndpointDead: {
 		"连续 %d 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上：%s",

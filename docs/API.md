@@ -58,8 +58,9 @@ type FileResult = {
   skipped: number
   outputPath?: string
   error?: string
-  warnings?: string[]   // 扫描阶段的提示，例如「检测到引用式图片 ![]\[id\]，暂不支持」
-                        // 以及「图片路径里有空格」；界面和命令行都会显示，命令行缩进成「提示  …」
+  warnings?: string[]   // 扫描阶段的提示，例如「引用式图片的标签没有定义」「图片路径里有空格」
+                        // 以及「这处引用是附件（.ps/.eps/.pdf…），已跳过」；界面和命令行都会显示，
+                        // 命令行缩进成「提示  …」
   items: ImageItem[]    // 逐图明细，任何时候都会返回（失败/预检也带），界面展开靠它
 }
 

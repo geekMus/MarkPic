@@ -1361,3 +1361,73 @@ $owner = (Get-NetTCPConnection -LocalPort 17991 -State Listen).OwningProcess
 - 探针里**不要**用 `page.fill()` 灌 1000 行路径（第 10 轮量过，15 万字符要 24 秒且是平方级开销），
   用 `page.evaluate` 赋值 + 派发 `input` 事件，1 ms 完成；
 - 每轮以「`取消` 按钮出现再消失」为结束信号，比等页脚文字稳。
+## 第 28 轮：文档编码（UTF-16 / 本机 ANSI）从「拒收」变成「支持」
+
+**缺口**：`runner.go` 原来的判断是 `if !utf8.Valid(data) { 失败：「文件不是 UTF-8 编码，暂不支持」 }`。
+记事本「Unicode」存出来的 UTF-16、老中文文档的 GBK，整份都被拒收 —— 一个字都没换。
+
+**实现**（新增 `internal/textenc`，不引第三方库、不碰 cgo）：
+
+- `Detect`：`FF FE` → UTF-16LE、`FE FF` → UTF-16BE、其余只要 `utf8.Valid` 就当 UTF-8、否则当本机 ANSI。
+  **没有 BOM 的 UTF-16 不猜**（猜错代价太大）。UTF-8 BOM 归到 UTF-8 并当内容原样保留。
+- UTF-16 用 `unicode/utf8` 手写码元转换；孤立代理项、奇数长度一律报错，不写替换字符。
+- ANSI 走系统 API（`MultiByteToWideChar` / `WideCharToMultiByte`，CP_ACP，中文机器上是 936），
+  写回时带 `WC_NO_BEST_FIT_CHARS` + `lpUsedDefaultChar`：**表达不了就报错，不悄悄写 `?`**。
+- 安全阀：`Decode` 的 ANSI 分支解出来以后**立刻 `Encode` 回去和原文逐字节比**，不一致就拒收。
+  于是「只要读进来了，写回必定逐字节一致」，不会把非 ASCII 部分改坏。
+- 接线三处：预扫（不解码的话 UTF-16 文档在界面上永远显示 0 张图）、`processFile` 读入、
+  **写回前按原编码再编回去**（UTF-16 的文档不该因为我们处理过就变成 UTF-8）。
+
+**真机验证**（`%TEMP%\cmp-enc` 五个文件：deep / gbk / utf16 / utf8 / utf8bom）：
+
+| 文件 | 改之前 | 改之后 | 输出编码（用 .NET 独立解码核对） |
+| --- | --- | --- | --- |
+| gbk.md | 失败：不是 UTF-8 | 2 张成功 1 张失败 | GBK，首字节 `23 20 D6 D0 CE C4`（「中文」） |
+| utf16.md | 失败：不是 UTF-8 | 2 张成功 1 张失败 | UTF-16LE，`FF FE` 开头 |
+| utf8.md / utf8bom.md | 2 张成功 1 张失败 | 同左 | UTF-8 / UTF-8 + BOM（BOM 保留） |
+| deep.md（长路径） | 1 张图片 | 同左 | UTF-8 |
+
+「1 张失败」是夹具里故意留的 `img/missing.png`。把原文件的两处地址换成图床地址后与输出**逐字节相等**；
+五个源文件的 SHA-256 跑完一个都没变。
+
+**性能：GBK 不比 UTF-8 慢**（`tools/bench`，1000 篇 / 12000 处引用 / 假图床 5 ms / 5 轮）：
+
+| 夹具 | 中位墙钟 | 峰值堆 | totalAlloc |
+| --- | --- | --- | --- |
+| UTF-8 | 3.222 s | 20.9 MB | 42.9 MB |
+| GBK（1000 篇全部转成 GBK） | 3.228 s | 21.8 MB | 81.8 MB |
+
+端到端没有可测差异（0.2%，在噪声内）。多出来的分配是「解码 + 编码 + 逐字节比对」那点垃圾：
+1000 篇多 39 MB，平摊每篇 39 KB，GC 完全无感。
+
+**已知局限**（写在 README 里）：没有 BOM 的 UTF-16 认不出来；非本机代码页的老编码
+（例如中文机器上的 Shift-JIS）会被当 ANSI 解，可能解出乱码路径 —— 但**绝不会改坏字节**：
+要么解出的内容能逐字节写回（那就照常处理，只是路径可能找不到文件），要么直接拒收并提示另存为 UTF-8。
+
+## 第 29 轮：PostScript 这类附件不再被当图片上传
+
+**缺口**：`![示意图](img/figure.ps)` 会被当成普通图片上传。排版工具导出的插图常常和正文放在一起，
+正文里顺手用图片语法引一下，于是每次运行都往图床传一份 `.ps` —— 图床给了外链也渲染不了，
+白占一份配额（第 15 轮的后缀矩阵只验证了「什么后缀都能传」，没验证「该不该传」）。
+
+**实现**（`internal/conv/runner.go`）：
+
+- 新增 `attachmentExtensions`（`.ps` `.eps` `.pdf` `.ai` `.psd` `.sketch` `.fig` `.drawio`）与
+  `isAttachment(target)`：只看扩展名、大小写不敏感。**刻意不做图片后缀白名单** —— 没有后缀的文件、
+  用奇怪后缀存真图的情况照旧要能传。
+- 过滤发生在 `processFile` 处理引用列表时，**只跳本地路径**（远程地址本来就原样留着，不该多一条提示）：
+  被跳过的引用不进展、不上传、不算失败，只在 `Warnings` 里留一句
+  `第 N 行：img/figure.ps 是附件、不是图片（图床当图片渲染不了），已跳过`（中英双语）。
+- 地址原样保留：附件那行一个字节都不动。
+
+**真机验证**（`%TEMP%\cmp-attach`：`img/real.png` + `img/figure.ps` + 缺图，假图床 36678）：
+
+- 改之前：`3 处引用 · 2 处待上传 · 1 处找不到文件` —— `.ps` 被当成图片准备上传。
+- 改之后：`1 张成功，1 张失败`，提示行 `提示  第 4 行：img/figure.ps 是附件、不是图片（图床当图片渲染不了），已跳过`；
+  输出里 `![示意图](img/figure.ps)` **原样保留**，图床只收到 `real.png` 一张。
+  走 API 预检 + `Accept-Language: en-US` 得到
+  `Line 4: img/figure.ps is an attachment, not an image (image hosts cannot render it), so it was skipped`。
+
+**回归测试**：`TestAttachmentReferencesAreSkipped`（一篇文档里放真图、`.ps`、`.pdf`、大写 `.PS`、
+远程 `https://…/remote.ps`：断言只上传 1 张、0 失败、3 条附件提示、四处引用该留的都留着）、
+`TestAttachmentSkippedInPreview`（预检同样计数、同样带提示）。

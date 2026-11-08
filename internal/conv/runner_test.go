@@ -554,6 +554,100 @@ func TestCancelIsNotFailure(t *testing.T) {
 
 // TestLiteralPercentNameResolves：文件名里真的带 %20 时也要能找到它。
 // 按 URL 语义解码得到的名字（「图 片.png」）在磁盘上不存在，得退回文档里逐字写的那一份。
+func TestAttachmentReferencesAreSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "real.png"), "x")
+	writeFile(t, filepath.Join(dir, "img", "figure.ps"), "%!PS-Adobe-3.0\n")
+	writeFile(t, filepath.Join(dir, "img", "paper.pdf"), "%PDF-1.4\n")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, strings.Join([]string{
+		"![真图](img/real.png)",
+		"![示意图](img/figure.ps)",
+		"![论文](img/paper.pdf)",
+		"![大写也认](img/FIGURE.PS)",
+		"![远程附件](https://example.com/remote.ps)",
+		"",
+	}, "\n"))
+
+	srv, hitCount := fakePicGo(t, nil)
+
+	results, sum := NewRunner(baseCfg(srv.URL), i18n.ZH, "run-attach", nil).RunCollect(context.Background(), []string{doc})
+
+	// 只有 real.png 该被上传；两个附件既不上传也不算失败。
+	if sum.Uploaded != 1 || sum.Failed != 0 {
+		t.Fatalf("汇总不对：uploaded=%d failed=%d，%+v", sum.Uploaded, sum.Failed, sum)
+	}
+	// 计数口径：Images 数的是「留下的引用处」（真图 1 处 + 远程那处），附件三处不算。
+	if sum.Images != 2 {
+		t.Fatalf("图片数应该只算留下的引用：images=%d", sum.Images)
+	}
+	if hits := hitCount(); len(hits) != 1 || hits["real.png"] != 1 {
+		t.Fatalf("传给图床的文件不对：%v", hits)
+	}
+	if len(results) != 1 {
+		t.Fatalf("结果条数不对：%+v", results)
+	}
+	// 逐图明细里应该只有「真图」和「远程附件」两条：被跳过的附件不该作为失败项出现。
+	items := results[0].Items
+	if len(items) != 2 {
+		t.Fatalf("逐图明细不对：%+v", items)
+	}
+	for _, it := range items {
+		if it.Status != StatusUploaded && it.Status != StatusRemote {
+			t.Fatalf("附件不该出现在明细里（也不该算失败）：%+v", it)
+		}
+	}
+	// 附件要留下提示，用户才知道它被有意跳过了。
+	warns := results[0].Warnings
+	if len(warns) != 3 {
+		t.Fatalf("应该有 3 条附件提示（本地 ps、本地 pdf、大写 ps），实际 %d 条：%v", len(warns), warns)
+	}
+	for _, w := range warns {
+		if !strings.Contains(w, "是附件、不是图片") {
+			t.Fatalf("提示文案不对：%s", w)
+		}
+	}
+
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(out)
+	if !strings.Contains(text, "https://cdn.example.com/real.png") {
+		t.Fatalf("真图没被替换：%s", text)
+	}
+	for _, keep := range []string{"(img/figure.ps)", "(img/paper.pdf)", "(img/FIGURE.PS)", "(https://example.com/remote.ps)"} {
+		if !strings.Contains(text, keep) {
+			t.Fatalf("附件/远程引用应该原样保留，却少了 %s：%s", keep, text)
+		}
+	}
+}
+
+func TestAttachmentSkippedInPreview(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "real.png"), "x")
+	writeFile(t, filepath.Join(dir, "img", "figure.eps"), "%!PS-Adobe-3.0 EPSF-3.0\n")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![真图](img/real.png)\n![示意图](img/figure.eps)\n")
+
+	cfg := baseCfg("http://127.0.0.1:1")
+	cfg.DryRun = true
+	results, sum := NewRunner(cfg, i18n.ZH, "run-attach-preview", nil).RunCollect(context.Background(), []string{doc})
+
+	if sum.Failed != 0 || sum.Images != 1 {
+		t.Fatalf("预检汇总不对：%+v", sum)
+	}
+	if len(results) != 1 || results[0].Images != 1 {
+		t.Fatalf("预检的图片数不对：%+v", results)
+	}
+	if len(results[0].Warnings) != 1 {
+		t.Fatalf("预检也该带上附件提示：%v", results[0].Warnings)
+	}
+	if results[0].Status != FilePreview {
+		t.Fatalf("预检状态不对：%+v", results[0])
+	}
+}
+
 func TestLiteralPercentNameResolves(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "img", "图%20片.png"), "x")
