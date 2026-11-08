@@ -68,6 +68,14 @@ const (
 	// maxCooldown 是单次最多等多久：再长就不礼貌了，用户随时可以取消，
 	// 而且单个请求的总超时是 60 秒。
 	maxCooldown = 10 * time.Second
+
+	// maxRetryAfter 是 Retry-After 能接受的等待上限。两个理由：
+	// 一是别让超大数字把 int64 撑爆（fuzz 用 "9227000000" 抓到过：
+	// 9227000000 秒 ≈ 9.227e18 纳秒，刚好越过 int64 的天花板，
+	// 乘法回绕成负数，冷却闸门就被绕过去了）；
+	// 二是协议上超过一天的等待本来就没有意义——真要等那么久，
+	// 调用方也会把它截到 maxCooldown。
+	maxRetryAfter = 24 * time.Hour
 )
 
 // defaultCooldown 是图床没给 Retry-After 时我们自己退避的时长。
@@ -95,7 +103,8 @@ func IsRateLimited(err error) bool {
 }
 
 // parseRetryAfter 解析 Retry-After 头：可以是多少秒，也可以是 HTTP 日期。
-// 解析不出来（或已经过期）返回 0，调用方会退回默认冷却。
+// 解析不出来（或已经过期）返回 0，调用方会退回默认冷却；
+// 超过 maxRetryAfter 的一律按 maxRetryAfter 处理（避免乘法溢出，见上面的注释）。
 func parseRetryAfter(value string) time.Duration {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -105,10 +114,16 @@ func parseRetryAfter(value string) time.Duration {
 		if secs <= 0 {
 			return 0
 		}
+		if secs > int(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
 		return time.Duration(secs) * time.Second
 	}
 	if when, err := http.ParseTime(value); err == nil {
 		if d := time.Until(when); d > 0 {
+			if d > maxRetryAfter {
+				return maxRetryAfter
+			}
 			return d
 		}
 	}

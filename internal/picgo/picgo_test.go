@@ -381,6 +381,12 @@ func TestParseRetryAfter(t *testing.T) {
 		{" 7 ", 7 * time.Second, false},
 		{future, 0, false}, // 只要大于 0 就算对
 		{past, 0, true},
+		// fuzz 抓到的溢出输入：9227000000 秒 ≈ 9.227e18 纳秒，刚好越过 int64 的
+		// 天花板，直接相乘会回绕成负数（冷却闸门就被绕过去了）。一律截到上限。
+		{"9227000000", maxRetryAfter, false},
+		{"99999999999", maxRetryAfter, false},
+		{"86401", maxRetryAfter, false},
+		{"86400", maxRetryAfter, false},
 	}
 	for _, tc := range cases {
 		got := parseRetryAfter(tc.in)
