@@ -253,6 +253,10 @@ func remoteOutcome(res remoteimg.Result, err error, lang i18n.Lang) remoteFile {
 		if errors.Is(err, remoteimg.ErrPartial) {
 			return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemotePartial)}
 		}
+		// 证书没过校验：连接是通的，让对方去查网络只会越查越远。
+		if remoteimg.IsCertificateError(err) {
+			return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteBadCert)}
+		}
 		// 重试用完了还在被限流：对方是通的，只是始终没让我们进去。报「连不上」
 		// 会把人引到网络上去查，可问题在我们敲门太勤。
 		if remoteimg.IsRateLimitedErr(err) {
@@ -317,6 +321,10 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 	if remoteimg.IsRateLimitedErr(err) {
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(
 			i18n.T(lang, i18n.KeyConvRemoteTooBusy), err, remoteimg.RateLimitRetries)}
+	}
+	// 证书没过校验：与「下载失败」分开说，否则用户会去查网络，而问题在证书。
+	if remoteimg.IsCertificateError(err) {
+		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteBadCert)}
 	}
 	// 对方中途把连接关了：传输层只会给一个光秃秃的 EOF，谁看了也不知道该怎么办。
 	// 说清「重试也没成、多半是一时的」，人才知道过会儿再来，而不是跑去查自己的网络。

@@ -70,10 +70,12 @@ const (
 	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
 	KeyConvRemoteDirIsFile    Key = "conv.remoteDirIsFile"
 
-	KeyConvRemoteDead         Key = "conv.remoteDead"
-	KeyConvRemoteStatus       Key = "conv.remoteStatus"
-	KeyConvRemoteNotImage     Key = "conv.remoteNotImage"
-	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
+	KeyConvRemoteDead        Key = "conv.remoteDead"
+	KeyConvRemoteStatus      Key = "conv.remoteStatus"
+	KeyConvRemoteNotImage    Key = "conv.remoteNotImage"
+	KeyConvRemoteUnreachable Key = "conv.remoteUnreachable"
+	// 证书校验没过：连接是通的，问题在证书（自签名、过期、域名对不上）。
+	KeyConvRemoteBadCert      Key = "conv.remoteBadCert"
 	KeyConvRemoteTooBusy      Key = "conv.remoteTooBusy"
 	KeyConvRemoteUnsupported  Key = "conv.remoteUnsupported"
 	KeyConvRemoteBadURL       Key = "conv.remoteBadURL"
@@ -320,6 +322,10 @@ var catalog = map[Key]entry{
 	KeyConvRemoteUnreachable: {
 		"连不上这个地址：%v",
 		"Could not reach that address: %v",
+	},
+	KeyConvRemoteBadCert: {
+		"对方证书没过校验：多半是自签名、证书过期或者域名对不上。连接其实是通的，问题只在证书 —— 这是你自己的图床时，把它的证书装进系统的受信任根，或者换一张带正规证书的地址。",
+		"That host's certificate did not verify: usually self-signed, expired, or issued for another name. The connection itself works — the problem is only the certificate. For your own image host, add its certificate to the system trust store, or use an address with a proper certificate.",
 	},
 	// KeyConvRemoteTooBusy 专门给「图床让我们慢一点」用。报成「连不上」会把人引到
 	// 网络上去查（防火墙、DNS、代理），可对方明明答话了，只是让我们排队。

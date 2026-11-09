@@ -7,6 +7,7 @@ package remoteimg
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -1440,6 +1441,28 @@ func IsRateLimitedErr(err error) bool {
 		return isRateLimited(serr.Status)
 	}
 	return false
+}
+
+// IsCertificateError 判断这次失败是不是「对方证书没通过校验」。
+//
+// 与「连不上」分开说的理由：连接其实通了，问题在证书。自签名证书、过期证书、
+// 域名对不上都会落到这里 —— 私有图床最常见的三种情况，把它们报成「连不上这个
+// 地址」会让人去查网络、查代理，越查越远。
+func IsCertificateError(err error) bool {
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return true
+	}
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &invalid) {
+		return true
+	}
+	var hostname x509.HostnameError
+	if errors.As(err, &hostname) {
+		return true
+	}
+	var roots x509.SystemRootsError
+	return errors.As(err, &roots)
 }
 
 // RateLimitRetries 是限流专用的重试轮数（普通失败是 2 次）。

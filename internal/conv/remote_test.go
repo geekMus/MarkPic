@@ -1929,3 +1929,34 @@ func TestRemoteProgressReportsDoneNotUploaded(t *testing.T) {
 		}
 	}
 }
+func TestRemoteSelfSignedCertSaysCertificateProblem(t *testing.T) {
+	// 私有图床最省事的做法就是自签名证书。以前这种情况报「连不上这个地址」，
+	// 用户会跑去查网络、查代理；其实连接是通的，问题在证书。
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 'I', 'H', 'D', 'R'})
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "# t\n\n![x]("+srv.URL+"/a.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:1/picgo", settings.RemoteCheck)
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	if sum.RemoteDead != 1 {
+		t.Fatalf("自签名证书该被报成失效，实际 dead=%d", sum.RemoteDead)
+	}
+	if len(results[0].Items) != 1 {
+		t.Fatalf("该有一条明细，实际 %d", len(results[0].Items))
+	}
+	msg := results[0].Items[0].Error
+	if !strings.Contains(msg, "证书") {
+		t.Fatalf("说明里该点出是证书问题，实际 %q", msg)
+	}
+	if strings.Contains(msg, "连不上这个地址") {
+		t.Fatalf("证书问题不该说成连不上，实际 %q", msg)
+	}
+}
