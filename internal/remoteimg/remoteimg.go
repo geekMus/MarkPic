@@ -27,12 +27,24 @@ import (
 type Client struct {
 	http *http.Client
 
-	// 全体共享的冷却闸门：一个协程撞上限流，其它协程一起等。
+	// hosts 是**每个主机各一份**的自适应节奏。限流是主机的属性，不是全局的：
+	// 一家图床让我们慢一点，不代表另一家也受不了同样的节奏。早先这里只有一个全局
+	// 速率，实测一篇文章里混着「5 张慢图床 + 200 张正常图床」时，正常那 200 张被
+	// 拖到 17.3 秒（本来 0.7 秒）。
 	//
-	// 没有它的时候，16 路并发会在同一秒里把额度撞满，然后**每一张**都拿到 429 ——
-	// 实测一台 5 次/秒的图床，100 个全都有效的地址里有 85 个被报成「失效」。
-	// 那不是图的问题，是我们自己在敲门。
-	gateMu    sync.Mutex
+	// hostsMu 一把锁同时管 map 和里面每个 limiter 的字段：临界区都只有几行算术，
+	// 分开加锁只会多一层「不可重入」的坑。
+	hostsMu sync.Mutex
+	hosts   map[string]*hostLimiter
+}
+
+// hostLimiter 是一台主机当前的节奏。
+//
+// 没有它的时候，16 路并发会在同一秒里把额度撞满，然后**每一张**都拿到 429 ——
+// 实测一台 5 次/秒的图床，100 个全都有效的地址里有 85 个被报成「失效」。
+// 那不是图的问题，是我们自己在敲门。
+type hostLimiter struct {
+	// gateUntil 是「这台主机先别敲了，等到这一刻」。
 	gateUntil time.Time
 	// rate 是当前允许的请求速率（次/秒，0 表示不限制）。光「一起等一秒」不够：
 	// 16 路会在同一毫秒醒来，再一起把下一轮的额度撞满，于是又整批 429。
@@ -50,18 +62,51 @@ func New(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	return &Client{http: &http.Client{
-		Timeout:   timeout,
-		Transport: newTransport(defaultIdleConns),
-		// 图片站跳转很常见（图床换域名、CDN 摘链），跟随即可；
-		// 但要有个上限，别被循环跳转拖死。
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 8 {
-				return http.ErrUseLastResponse
-			}
-			return nil
+	return &Client{
+		http: &http.Client{
+			Timeout:   timeout,
+			Transport: newTransport(defaultIdleConns),
+			// 图片站跳转很常见（图床换域名、CDN 摘链），跟随即可；
+			// 但要有个上限，别被循环跳转拖死。
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 8 {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			},
 		},
-	}}
+		hosts: make(map[string]*hostLimiter),
+	}
+}
+
+// limiterFor 取出（或建立）某台主机的节奏。
+// 拿不到主机名（畸形地址）就返回 nil，调用方按「不限速」处理。
+func (c *Client) limiterFor(rawURL string) *hostLimiter {
+	host := hostOf(rawURL)
+	if host == "" {
+		return nil
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	if c.hosts == nil {
+		c.hosts = make(map[string]*hostLimiter)
+	}
+	l, ok := c.hosts[host]
+	if !ok {
+		l = &hostLimiter{}
+		c.hosts[host] = l
+	}
+	return l
+}
+
+// hostOf 从地址里取主机名（含端口）。主机名不区分大小写，统一折成小写，
+// 免得 `Host/x.png` 和 `host/x.png` 各自养一份节奏。
+func hostOf(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return strings.ToLower(u.Host)
 }
 
 // defaultIdleConns 是每个图片站保留的空闲连接数。
@@ -204,24 +249,28 @@ const (
 	rateLimitRetries = 4
 )
 
-// waitTurn 在对方要求的冷却结束前等一等，并按当前节奏排队。
+// waitTurn 在对方要求的冷却结束前等一等，并按这台主机当前的节奏排队。
 //
-// 两件事都要做：gateUntil 是「大家都别敲了，等到这一刻」，spacing 是「之后按这个
+// 两件事都要做：gateUntil 是「这台主机先别敲了，等到这一刻」，rate 是「之后按这个
 // 间隔一个一个来」。只有前者的时候，16 路协程会在同一毫秒一起醒来、再一起把下一轮
 // 额度撞满 —— 实测 100 个有效地址仍有 17 个被报成「失效」。
-func (c *Client) waitTurn(ctx context.Context) error {
-	c.gateMu.Lock()
+func (c *Client) waitTurn(ctx context.Context, rawURL string) error {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return nil
+	}
+	c.hostsMu.Lock()
 	slot := time.Now()
-	if c.gateUntil.After(slot) {
-		slot = c.gateUntil
+	if l.gateUntil.After(slot) {
+		slot = l.gateUntil
 	}
-	if c.nextSlot.After(slot) {
-		slot = c.nextSlot
+	if l.nextSlot.After(slot) {
+		slot = l.nextSlot
 	}
-	// 这里必须直接读 rate 算间隔，不能调 c.spacing()：那个函数也要 gateMu，
+	// 这里必须直接读 l.rate 算间隔，不能调 c.spacing()：那个函数也要 hostsMu，
 	// 而 Go 的 Mutex 不可重入 —— 会当场死锁（我踩过一次，测试直接挂住）。
-	c.nextSlot = slot.Add(gapFor(c.rate))
-	c.gateMu.Unlock()
+	l.nextSlot = slot.Add(gapFor(l.rate))
+	c.hostsMu.Unlock()
 
 	wait := time.Until(slot)
 	if wait <= 0 {
@@ -235,7 +284,7 @@ func (c *Client) waitTurn(ctx context.Context) error {
 	}
 }
 
-// cool 撞上限流时调用：全体停一下，并把请求速率砍半。
+// cool 撞上限流时调用：这台主机全体停一下，并把请求速率砍半。
 //
 // 速率用 AIMD（乘性减、加性增）调整，跟 TCP 拥塞控制一个道理：撞墙就砍半退开，
 // 顺利就一点点试探回来。这个形状是被实测逼出来的 ——
@@ -245,18 +294,22 @@ func (c *Client) waitTurn(ctx context.Context) error {
 //
 // 加性增必须加在**速率**上：从 5 次/秒往回试探时，+0.5 次/秒是立刻能感觉到的，
 // 而对应的间隔从 200ms 到 182ms 只差一点点。
-func (c *Client) cool(d time.Duration) {
+func (c *Client) cool(rawURL string, d time.Duration) {
 	if d <= 0 {
 		d = defaultCooldown
 	}
 	if d > maxCooldown {
 		d = maxCooldown
 	}
-	c.gateMu.Lock()
-	defer c.gateMu.Unlock()
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
 	now := time.Now()
-	if until := now.Add(d); until.After(c.gateUntil) {
-		c.gateUntil = until
+	if until := now.Add(d); until.After(l.gateUntil) {
+		l.gateUntil = until
 	}
 	// 一次「撞墙」只降一次速率，而不是每个 429 都降一次。
 	//
@@ -266,55 +319,74 @@ func (c *Client) cool(d time.Duration) {
 	//
 	// 判据是「我们是不是已经在这个冷却窗口里了」：已经在等，说明这次 429 是上一批
 	// 请求的回声，不该再降。
-	if now.Before(c.cooledUntil) {
+	if now.Before(l.cooledUntil) {
 		return
 	}
-	c.cooledUntil = now.Add(d)
+	l.cooledUntil = now.Add(d)
 	// 撞墙的位置就是「对方容忍的上限」，记下来当作天花板：之后试探到它跟前就停，
 	// 不再一头撞回去。没有这条，加性增会一路涨到刚才撞墙的那个速率上，然后又挨一次
 	// 429 —— 实测 100 张图 308 次请求里 109 次是 429，光等冷却就耗掉大半时间。
-	if c.rate > 0 {
-		c.ceiling = c.rate * ceilingRatio
-		c.rate *= decreaseRatio
+	if l.rate > 0 {
+		l.ceiling = l.rate * ceilingRatio
+		l.rate *= decreaseRatio
 	} else {
 		// 第一次撞墙：从 0（不限速）退到一个大多数图床都受得了的位置。
-		c.ceiling = probeRate * ceilingRatio
-		c.rate = probeRate * decreaseRatio
+		l.ceiling = probeRate * ceilingRatio
+		l.rate = probeRate * decreaseRatio
 	}
-	if c.rate < minRate {
-		c.rate = minRate
+	if l.rate < minRate {
+		l.rate = minRate
 	}
 }
 
 // relax 表示这一趟顺利：把速率往上加一小步，但绝不越过天花板。
-func (c *Client) relax() {
-	c.gateMu.Lock()
-	defer c.gateMu.Unlock()
-	if c.rate <= 0 {
+func (c *Client) relax(rawURL string) {
+	l := c.limiterFor(rawURL)
+	if l == nil {
 		return
 	}
-	c.rate += rateStep
-	if c.ceiling > 0 && c.rate > c.ceiling {
-		c.rate = c.ceiling
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	if l.rate <= 0 {
+		return
 	}
-	if c.rate > maxRate {
-		c.rate = maxRate
+	l.rate += rateStep
+	if l.ceiling > 0 && l.rate > l.ceiling {
+		l.rate = l.ceiling
+	}
+	if l.rate > maxRate {
+		l.rate = maxRate
 	}
 }
 
-// spacing 是当前速率对应的请求间隔（0 表示不限制）。
-func (c *Client) spacing() time.Duration {
-	c.gateMu.Lock()
-	rate := c.rate
-	c.gateMu.Unlock()
+// spacing 是某台主机当前速率对应的请求间隔（0 表示不限制）。
+func (c *Client) spacing(rawURL string) time.Duration {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return 0
+	}
+	c.hostsMu.Lock()
+	rate := l.rate
+	c.hostsMu.Unlock()
 	return gapFor(rate)
 }
 
-// currentRate 返回当前允许的请求速率（次/秒，0 表示不限速）。给测试用。
-func (c *Client) currentRate() float64 {
-	c.gateMu.Lock()
-	defer c.gateMu.Unlock()
-	return c.rate
+// currentRate 返回某台主机当前允许的请求速率（次/秒，0 表示不限速）。给测试用。
+func (c *Client) currentRate(rawURL string) float64 {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return 0
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	return l.rate
+}
+
+// trackedHosts 返回当前有几台主机被记着节奏。给测试用。
+func (c *Client) trackedHosts() int {
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	return len(c.hosts)
 }
 
 // gapFor 把速率换算成间隔。抽出来是为了让 waitTurn 能在持锁时直接算，
@@ -384,6 +456,7 @@ func isRateLimited(status int) bool {
 func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) {
 	var res Result
 	var err error
+	var lastRate float64
 	// 两本独立的预算：普通瞬时故障 2 次，限流 5 次。写成死循环 + 两处显式
 	// return 是故意的 —— 用 `attempt < 2 || limited <= 4` 当条件，遇到 502 这种
 	// 「可重试但不算限流」的回答时两本预算都还在，循环永远退不出去。
@@ -395,29 +468,38 @@ func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) 
 			case <-time.After(retryDelay << uint(attempt-1)):
 			}
 		}
-		if werr := c.waitTurn(ctx); werr != nil {
+		if werr := c.waitTurn(ctx, rawURL); werr != nil {
 			return res, err
 		}
 		res, err = c.probeAt(ctx, rawURL)
 		if err == nil {
 			// 这一趟成了：说明现在的间隔是安全的，放松一档。
-			c.relax()
+			c.relax(rawURL)
 			return res, err
 		}
 		if !worthRetrying(res, err) {
 			return res, err
 		}
 		if isRateLimited(res.Status) {
-			limited++
+			// 只有在「这一轮没有取得任何进展」时才扣预算。
+			//
+			// 排队本身是要花时间的：100 张图、2 次/秒，队尾那张要等 50 秒才轮上，
+			// 期间可能连着吃几次 429 —— 可速率其实一直在往下走，我们正在收敛。
+			// 按「吃了几次 429」扣预算，等于惩罚排队排得久的那张，实测 100 张里
+			// 总有 1 张被这样误判成失效。速率降了就算有进展，不扣。
+			if rate := c.currentRate(rawURL); rate >= lastRate {
+				limited++
+			}
+			lastRate = c.currentRate(rawURL)
 			if limited > rateLimitRetries {
 				return res, err
 			}
 			// 全体一起等：光自己退避没用，其它协程还在往里冲。
-			c.cool(rateLimitWait(res, limited))
+			c.cool(rawURL, rateLimitWait(res, limited))
 			continue
 		}
 		// 这一趟成了：说明刚才的间隔是安全的，可以往回放松一档。
-		c.relax()
+		c.relax(rawURL)
 		attempt++
 		if attempt >= 2 {
 			return res, err
@@ -689,6 +771,7 @@ const downloadAttempts = 3
 func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
 	var res Result
 	var err error
+	var lastRate float64
 	// 与 probeRetry 同构：两本预算分开算，普通故障和限流各走各的上限。
 	for attempt, limited := 0, 0; ; {
 		if attempt > 0 {
@@ -698,13 +781,13 @@ func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, 
 			case <-time.After(retryDelay << uint(attempt-1)):
 			}
 		}
-		if werr := c.waitTurn(ctx); werr != nil {
+		if werr := c.waitTurn(ctx, rawURL); werr != nil {
 			return res, err
 		}
 		var written int64
 		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes)
 		if err == nil {
-			c.relax()
+			c.relax(rawURL)
 			return res, err
 		}
 		if !worthRetrying(res, err) {
@@ -714,14 +797,19 @@ func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, 
 			return res, err
 		}
 		if isRateLimited(res.Status) {
-			limited++
+			// 和 probeRetry 同一条道理：速率还在往下走就说明我们在收敛，
+			// 排队排得久不是这张图的错，不扣它的预算。
+			if rate := c.currentRate(rawURL); rate >= lastRate {
+				limited++
+			}
+			lastRate = c.currentRate(rawURL)
 			if limited > rateLimitRetries {
 				return res, err
 			}
-			c.cool(rateLimitWait(res, limited))
+			c.cool(rawURL, rateLimitWait(res, limited))
 			continue
 		}
-		c.relax()
+		c.relax(rawURL)
 		attempt++
 		if attempt >= downloadAttempts {
 			return res, err
@@ -1041,3 +1129,42 @@ func urlExt(rawURL string) string {
 	}
 	return ""
 }
+
+// expireCooldown 把「这次撞墙的冷却」拨到过去，用来模拟「冷却窗口已经过去」。
+// 只有测试会调它：真实运行里时间自己会往前走。
+func (c *Client) expireCooldown(rawURL string) {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return
+	}
+	c.hostsMu.Lock()
+	l.cooledUntil = time.Now().Add(-time.Second)
+	c.hostsMu.Unlock()
+}
+
+// ceilingOf 返回某台主机试探的上限（0 表示还没撞过墙）。给测试用。
+func (c *Client) ceilingOf(rawURL string) float64 {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return 0
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	return l.ceiling
+}
+
+// IsRateLimitedErr 判断这个错误是不是「对方在让我们慢一点」（429/503）。
+//
+// 上层要拿它区分两种完全不同的处境：「连不上」（该查网络）和「对方让我们排队」
+// （该等一会儿或调小并发）。两者的处置办法相反，说法也必须分开。
+func IsRateLimitedErr(err error) bool {
+	var serr *statusError
+	if errors.As(err, &serr) {
+		return isRateLimited(serr.Status)
+	}
+	return false
+}
+
+// RateLimitRetries 是限流专用的重试轮数（普通失败是 2 次）。
+// 导出是因为上层要把它写进「等了 N 轮还没轮上」那句话里。
+const RateLimitRetries = rateLimitRetries

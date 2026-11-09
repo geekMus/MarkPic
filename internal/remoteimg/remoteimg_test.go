@@ -31,6 +31,9 @@ var tinyPNG = []byte{
 	0x42, 0x60, 0x82,
 }
 
+// testHost 是那些不真发请求的单元测试用的「主机名」。
+const testHost = "https://images.example.com/a.png"
+
 func newClient(t *testing.T) *Client {
 	t.Helper()
 	return New(5 * time.Second)
@@ -808,8 +811,12 @@ func TestProbeDoesNotSlowDownHealthyHost(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("正常图床被拖慢了：60 个本地请求花了 %v", elapsed)
 	}
-	if rate := c.currentRate(); rate != 0 {
+	if rate := c.currentRate(srv.URL + "/img/0.png"); rate != 0 {
 		t.Fatalf("没被限流就不该限速，当前速率 = %v 次/秒", rate)
+	}
+	// 一篇文章里只有一台主机时，不该为别的站台记一堆状态。
+	if n := c.trackedHosts(); n != 1 {
+		t.Fatalf("只碰过一台主机，却记了 %d 份节奏", n)
 	}
 }
 
@@ -820,26 +827,24 @@ func TestProbeDoesNotSlowDownHealthyHost(t *testing.T) {
 // 一次，不是每个丢包一次。
 func TestRateLimitDecreaseHappensOncePerEvent(t *testing.T) {
 	c := New(5 * time.Second)
-	c.cool(time.Second) // 第一次撞墙：进入限速状态
+	c.cool(testHost, time.Second) // 第一次撞墙：进入限速状态
 
-	first := c.currentRate()
+	first := c.currentRate(testHost)
 	if first <= 0 {
 		t.Fatalf("撞墙之后应该开始限速，当前速率 = %v", first)
 	}
 	// 模拟同一批请求的回声：冷却窗口内再来 15 个 429。
 	for i := 0; i < 15; i++ {
-		c.cool(time.Second)
+		c.cool(testHost, time.Second)
 	}
-	if got := c.currentRate(); got != first {
+	if got := c.currentRate(testHost); got != first {
 		t.Fatalf("同一批 429 只该降一次速率：%v → %v", first, got)
 	}
 
 	// 冷却窗口过去之后，再撞墙才该继续降。
-	c.gateMu.Lock()
-	c.cooledUntil = time.Now().Add(-time.Second)
-	c.gateMu.Unlock()
-	c.cool(time.Second)
-	if got := c.currentRate(); got >= first {
+	c.expireCooldown(testHost)
+	c.cool(testHost, time.Second)
+	if got := c.currentRate(testHost); got >= first {
 		t.Fatalf("冷却过去后再撞墙该继续降：%v → %v", first, got)
 	}
 }
@@ -847,22 +852,18 @@ func TestRateLimitDecreaseHappensOncePerEvent(t *testing.T) {
 // TestRateLimitRecoversGradually 验证「顺利就慢慢试探回来」，但绝不越过天花板。
 func TestRateLimitRecoversGradually(t *testing.T) {
 	c := New(5 * time.Second)
-	c.cool(time.Second)
-	low := c.currentRate()
+	c.cool(testHost, time.Second)
+	low := c.currentRate(testHost)
 
 	for i := 0; i < 200; i++ {
-		c.gateMu.Lock()
-		c.cooledUntil = time.Now().Add(-time.Second)
-		c.gateMu.Unlock()
-		c.relax()
+		c.expireCooldown(testHost)
+		c.relax(testHost)
 	}
-	high := c.currentRate()
+	high := c.currentRate(testHost)
 	if high <= low {
 		t.Fatalf("一路顺利该把速率试探回来：%v → %v", low, high)
 	}
-	c.gateMu.Lock()
-	ceiling := c.ceiling
-	c.gateMu.Unlock()
+	ceiling := c.ceilingOf(testHost)
 	if high > ceiling+0.001 {
 		t.Fatalf("试探不该越过撞过墙的位置：速率 %v > 天花板 %v", high, ceiling)
 	}
@@ -937,5 +938,81 @@ func TestProbeRateLimitsOnGetFallback(t *testing.T) {
 		if err != nil || !res.OK() {
 			t.Fatalf("第 %d 个地址被限流判死了：res=%+v err=%v", i, res, err)
 		}
+	}
+}
+
+// TestRateLimitIsPerHostNotGlobal 守住一个真被踩过的坑。
+//
+// 限速是**主机的属性**，不是全局的。早先这里只有一份速率，实测一篇文章里混着
+// 「5 张慢图床 + 200 张正常图床」时，正常那 200 张被拖到 17.3 秒（本来 0.7 秒）——
+// 一家图床让我们慢一点，凭什么另一家也跟着慢。
+func TestRateLimitIsPerHostNotGlobal(t *testing.T) {
+	var mu sync.Mutex
+	var window int64
+	var used int
+
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now().Unix()
+		mu.Lock()
+		if now != window {
+			window = now
+			used = 0
+		}
+		allowed := used < 2
+		if allowed {
+			used++
+		}
+		mu.Unlock()
+		if !allowed {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(tinyPNG)
+		}
+	}))
+	defer slow.Close()
+
+	fast := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(tinyPNG)
+		}
+	}))
+	defer fast.Close()
+
+	c := newClient(t)
+	// 先把慢图床惹毛，让它进入限速状态。
+	for i := 0; i < 5; i++ {
+		_, _ = c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", slow.URL, i))
+	}
+	if rate := c.currentRate(slow.URL + "/img/0.png"); rate <= 0 {
+		t.Fatalf("慢图床应该已经进入限速状态，当前速率 = %v", rate)
+	}
+	if rate := c.currentRate(fast.URL + "/img/0.png"); rate != 0 {
+		t.Fatalf("另一台主机不该被牵连，当前速率 = %v", rate)
+	}
+
+	// 真正要守的是这个：快的那台不能被慢的那台拖住。
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			res, err := c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", fast.URL, i))
+			if err != nil || !res.OK() {
+				t.Errorf("正常图床的地址不该失败：res=%+v err=%v", res, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("正常图床被慢图床拖慢了：100 个本地请求花了 %v", elapsed)
+	}
+	if n := c.trackedHosts(); n != 2 {
+		t.Fatalf("两台主机该各有一份节奏，实际 %d 份", n)
 	}
 }

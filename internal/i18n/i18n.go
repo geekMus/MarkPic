@@ -71,6 +71,7 @@ const (
 	KeyConvRemoteDead         Key = "conv.remoteDead"
 	KeyConvRemoteNotImage     Key = "conv.remoteNotImage"
 	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
+	KeyConvRemoteTooBusy      Key = "conv.remoteTooBusy"
 	KeyConvRemoteUnsupported  Key = "conv.remoteUnsupported"
 	KeyConvRemoteTooLarge     Key = "conv.remoteTooLarge"
 	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
@@ -299,6 +300,12 @@ var catalog = map[Key]entry{
 	KeyConvRemoteUnreachable: {
 		"连不上这个地址：%v",
 		"Could not reach that address: %v",
+	},
+	// KeyConvRemoteTooBusy 专门给「图床让我们慢一点」用。报成「连不上」会把人引到
+	// 网络上去查（防火墙、DNS、代理），可对方明明答话了，只是让我们排队。
+	KeyConvRemoteTooBusy: {
+		"这个地址的图床一直在让我们慢一点（%v），等了 %d 轮还没轮上——它没坏，过一会儿再跑，或把并发调小",
+		"That image host kept asking us to slow down (%v) and never let us through in %d rounds — it is not broken, so try again later or lower the concurrency",
 	},
 	KeyConvRemoteUnsupported: {
 		"只支持 http/https 地址，这种没法检测或下载：%s",

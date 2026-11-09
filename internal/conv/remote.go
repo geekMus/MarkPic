@@ -243,6 +243,12 @@ func remoteOutcome(res remoteimg.Result, err error, lang i18n.Lang) remoteFile {
 		if errors.Is(err, remoteimg.ErrPartial) {
 			return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemotePartial)}
 		}
+		// 重试用完了还在被限流：对方是通的，只是始终没让我们进去。报「连不上」
+		// 会把人引到网络上去查，可问题在我们敲门太勤。
+		if remoteimg.IsRateLimitedErr(err) {
+			return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(
+				i18n.T(lang, i18n.KeyConvRemoteTooBusy), err, remoteimg.RateLimitRetries)}
+		}
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteUnreachable), err)}
 	case res.OK():
 		return remoteFile{status: StatusRemoteOK}
@@ -289,6 +295,10 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 	}
 	if errors.Is(err, remoteimg.ErrPartial) {
 		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemotePartial)}
+	}
+	if remoteimg.IsRateLimitedErr(err) {
+		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(
+			i18n.T(lang, i18n.KeyConvRemoteTooBusy), err, remoteimg.RateLimitRetries)}
 	}
 	// 404/410 是「这张图没了」，不是「这次没下成」：跟检测模式一个说法，
 	// 别让同一件事在两个模式下有两个名字。5xx 重试完还是 5xx 才算失败。

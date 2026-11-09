@@ -1248,3 +1248,34 @@ func TestRemoteRequestsDecodeEscapesAndEntities(t *testing.T) {
 		t.Errorf("出现了奇怪的查询串: %v", got)
 	}
 }
+
+// TestRemoteRateLimitSaysWhatItIs 守住一个说法问题。
+//
+// 限流重试用完之后，原来报的是「连不上这个地址：HTTP 429」—— 这句话把人引到网络
+// 上去查（防火墙、DNS、代理），可对方明明答话了，只是让我们排队。两种处境的处置
+// 办法相反，说法也必须分开。
+func TestRemoteRateLimitSaysWhatItIs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "0") // 别让测试真等一秒
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![x]("+srv.URL+"/always-429.png)\n")
+
+	r := NewRunner(remoteCfg("http://127.0.0.1:1", settings.RemoteCheck), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+	res := results[0]
+	if sum.RemoteDead != 1 {
+		t.Fatalf("这个地址该算失效：dead=%d", sum.RemoteDead)
+	}
+	msg := res.Items[0].Error
+	if strings.Contains(msg, "连不上") {
+		t.Fatalf("限流不是「连不上」，措辞要分开：%s", msg)
+	}
+	if !strings.Contains(msg, "慢一点") && !strings.Contains(msg, "排队") {
+		t.Fatalf("该说清楚是对方在让我们慢一点：%s", msg)
+	}
+}
