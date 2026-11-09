@@ -67,6 +67,8 @@ export interface RunStats {
   remoteDead: number
   /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
   remoteUnsupported: number
+  /** 检测/下载模式里引用了、但磁盘上找不到的本地图片总数。 */
+  localMissing: number
   filesChecked: number
   remoteReused: number
 }
@@ -133,6 +135,7 @@ const live = reactive({
   remoteChecked: 0,
   remoteDead: 0,
   remoteUnsupported: 0,
+  localMissing: 0,
   filesChecked: 0,
   remoteReused: 0,
   settled: 0,
@@ -183,6 +186,7 @@ const stats = computed<RunStats>(() => {
       remoteChecked: finished.remoteChecked ?? 0,
       remoteDead: finished.remoteDead ?? 0,
       remoteUnsupported: finished.remoteUnsupported ?? 0,
+      localMissing: finished.localMissing ?? 0,
       filesChecked: finished.filesChecked ?? 0,
       remoteReused: finished.remoteReused ?? 0,
     }
@@ -203,6 +207,7 @@ const stats = computed<RunStats>(() => {
     remoteChecked: live.remoteChecked,
     remoteDead: live.remoteDead,
     remoteUnsupported: live.remoteUnsupported,
+    localMissing: live.localMissing,
     filesChecked: live.filesChecked,
     remoteReused: live.remoteReused,
   }
@@ -266,6 +271,7 @@ function liveReset(): void {
   live.remoteChecked = 0
   live.remoteDead = 0
   live.remoteUnsupported = 0
+  live.localMissing = 0
   live.filesChecked = 0
   live.settled = 0
   lastReveal.value = null
@@ -369,6 +375,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.remoteChecked -= row.result.checked ?? 0
     live.remoteDead -= row.result.dead ?? 0
     live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
+    live.localMissing -= row.result.localMissing ?? 0
     scoreStatus(row.result.status, -1)
   } else {
     live.images -= row.images ?? row.total
@@ -383,6 +390,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.remoteChecked += result.checked ?? 0
   live.remoteDead += result.dead ?? 0
   live.remoteUnsupported += result.remoteUnsupported ?? 0
+  live.localMissing += result.localMissing ?? 0
   scoreStatus(result.status, 1)
   if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 

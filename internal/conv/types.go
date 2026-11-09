@@ -67,7 +67,11 @@ type FileResult struct {
 	// RemoteFailed 是「远程地址这次没拿到图」的引用数（download 模式下下载失败、
 	// 超时、连不上）。它同时算在 Failed 里——文件确实是「部分完成」——但界面要按
 	// 地址去重地列一份「没下载回来」的清单，光看 Failed 会混进本地图片的失败。
-	RemoteFailed int      `json:"remoteFailed"`
+	RemoteFailed int `json:"remoteFailed"`
+	// LocalMissing 是「只做检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
+	// 这两个模式不碰本地图（用户在意的正是反方向），可缺图照样是文档坏了：
+	// 以前这类引用直接从报告里消失，一篇缺图的文档读起来跟完全正常一样。
+	LocalMissing int      `json:"localMissing"`
 	Failed       int      `json:"failed"`
 	Skipped      int      `json:"skipped"`
 	OutputPath   string   `json:"outputPath,omitempty"`
@@ -105,6 +109,8 @@ type Summary struct {
 	RemoteDead      int `json:"remoteDead"`
 	// RemoteUnsupported 是碰不了的远程地址数（ftp://、data: 之类）。
 	RemoteUnsupported int `json:"remoteUnsupported"`
+	// LocalMissing 是「只检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
+	LocalMissing int `json:"localMissing"`
 	// FilesChecked 是「只做检测、没改写文档」的文件数。
 	FilesChecked int  `json:"filesChecked"`
 	Cancelled    bool `json:"cancelled"`

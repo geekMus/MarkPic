@@ -91,6 +91,8 @@ export type FileResult = {
   remoteUnsupported?: number
   /** download 模式：远程地址这次没拿到图（连不上、超时）。同时也算在 failed 里。 */
   remoteFailed?: number
+  /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
+  localMissing?: number
   outputPath?: string
   error?: string
   warnings?: string[]
@@ -126,6 +128,8 @@ export type RunSummary = {
   remoteUnsupported?: number
   /** download 模式：远程地址这次没拿到图（连不上、超时）。同时也算在 failed 里。 */
   remoteFailed?: number
+  /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
+  localMissing?: number
   /** check 模式：这一轮有几个文件只是被检测（没写输出）。 */
   filesChecked?: number
   /** 上次已经下过、这次没再下载的远程图张数（按去重后的图片算）。 */

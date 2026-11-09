@@ -1419,3 +1419,50 @@ func TestDryRunStillChecksRemoteImages(t *testing.T) {
 		t.Fatal("预检不该创建本地图片目录")
 	}
 }
+
+// TestRemoteCheckReportsMissingLocalImages 守住「缺本地图不该一声不吭」：
+// 检测模式不碰本地图，可引用的文件根本不在时它照样是坏链接 —— 早先这种情况
+// 直接从报告里消失，输出只剩「远程图 1 张，失效 0 张」，看着像一切正常。
+func TestRemoteCheckReportsMissingLocalImages(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	if err := os.WriteFile(filepath.Join(dir, "here.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "# 标题\n\n![在](here.png)\n\n![缺](missing.png)\n\n![远程好图](" + host.URL + "/ok.png)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	for _, mode := range []string{settings.RemoteCheck, settings.RemoteDownload} {
+		cfg := remoteCfg(host.URL+"/picgo", mode)
+		r := NewRunner(cfg, i18n.ZH, "run", nil)
+		results, sum := r.RunCollect(context.Background(), []string{doc})
+
+		res := results[0]
+		if res.LocalMissing != 1 {
+			t.Fatalf("%s 模式该记下 1 张缺图，实际 %d: %+v", mode, res.LocalMissing, res.Items)
+		}
+		if sum.LocalMissing != 1 {
+			t.Fatalf("%s 模式汇总也要带上缺图数，实际 %d", mode, sum.LocalMissing)
+		}
+		// 在的那张不能被算成缺的。
+		for _, it := range res.Items {
+			base := filepath.Base(it.Target)
+			if base != "here.png" && base != "missing.png" {
+				continue
+			}
+			if it.Status != StatusLocalKept {
+				t.Fatalf("本地图该保持「保留原样」，实际 %q", it.Status)
+			}
+			if filepath.Base(it.Target) == "here.png" && it.Error != "" {
+				t.Fatalf("存在的本地图不该报错，实际 %q", it.Error)
+			}
+			if filepath.Base(it.Target) == "missing.png" && it.Error == "" {
+				t.Fatal("缺的那张必须写明原因")
+			}
+		}
+		if got, _ := os.ReadFile(doc); string(got) != src {
+			t.Fatalf("%s 模式不该改文档:\n%s", mode, got)
+		}
+	}
+}

@@ -129,6 +129,7 @@ export const zh = {
   'row.status.checked': '已检测',
   'row.item.localKept': '本地图片保持原样（这个模式不上传）',
   'row.status.remote': '远程链接',
+  'row.status.localMissing': '本地缺图',
   'row.status.remoteUnsupported': '没法处理',
   'row.status.missing': '文件缺失',
   'row.status.uploadFailed': '上传失败',
@@ -146,6 +147,7 @@ export const zh = {
   'report.dead.more': '…',
   'row.reason.remoteFailed': '其中 {count} 个地址没下载回来',
   'row.reason.dead': '其中 {count} 个地址打不开',
+  'row.reason.localMissing': '其中 {count} 张本地图找不到',
   'row.details.empty': '这个文件里没有可处理的本地图片。',
   'row.details.expand': '展开图片明细',
   'row.details.collapse': '收起图片明细',
@@ -200,6 +202,7 @@ export const zh = {
   'footer.remoteDeadDownloaded': '没下载回来 {count}',
   'footer.checked': '检测 {count} 个文件',
   'footer.remoteUnsupported': '{count} 处地址没法处理',
+  'footer.localMissing': '{count} 张本地图找不到',
   'error.remoteDirRequired': '请填写图片要放到哪个子目录',
 
   // 关于与更新

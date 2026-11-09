@@ -95,6 +95,10 @@ const parts = computed<Part[]>(() => {
     } else if (stats.filesChecked > 0) {
       list.push({ text: t('footer.checked', { count: stats.filesChecked }), tone: 'plain' })
     }
+    if (stats.localMissing > 0) {
+      // 检测/下载模式都不碰本地图，缺图却是文档自己的毛病，页脚也得说一句。
+      list.push({ text: t('footer.localMissing', { count: stats.localMissing }), tone: 'warn' })
+    }
     if (stats.remoteUnsupported > 0) {
       // ftp://、data: 这类地址既不算检测过、也不算失效，不单列就没人知道它们存在。
       list.push({

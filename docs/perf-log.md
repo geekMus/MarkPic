@@ -2860,3 +2860,79 @@ http://h/%zz.png 这个地址写坏了，百分号转义、括号或空格可能
 
 教训一句话：**分类先于措辞**。同一句话里塞两种处境，报告读起来就像在说另一件事；
 而「要打印给别人看的东西」得先过一遍凭据。
+
+## 缺掉的本地图在「只检测」里一声不吭
+
+一篇文档里写着 `![缺](missing.png)`，另外挂着一个正常的远程图。跑：
+
+```
+convert-md-picture docs\doc.md --remote check
+```
+
+输出是：
+
+```
+  [检测]  doc.md        远程图 1 张，失效 0 张
+```
+
+**缺的那张本地图一个字都没提。** 用户看到的结论是「这篇没问题」，复制出来的失效
+清单里也只有远程地址，照着修文档的时候根本不知道还有一张图不在。
+
+根因在 `internal/conv/runner.go`：
+
+```go
+if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
+    it.Status = StatusLocalKept
+    items[i] = it
+    continue
+}
+```
+
+这两个模式不碰本地图是对的（用户在意的正是反方向，顺手把本地图传出去就完全走反了），
+但「不碰」被顺手写成了「不看」—— 连 `stat` 都不做，一个坏链接就这样从报告里蒸发。
+这是本项目第三次踩同一个坑：先是 `ftp://` / `data:` 从报告里消失（`RemoteUnsupported`），
+再是预检把「只检测」整段跳过（449 篇语料里 380 处死链一条没查），这次轮到本地缺图。
+
+改法是把「不碰」和「不看」拆开：
+
+```go
+if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
+    // 这两个模式不碰本地图（用户在意的正是反方向），但「引用的本地图
+    // 根本不存在」还是得说出来：以前这类引用直接从报告里消失了，一篇
+    // 文档缺一张图也照样报「失效 0 张」，看着像一切正常。
+    if abs, ok := imgpath.ResolveExisting(path, ref.Target, r.fileExists); !ok || !r.fileExists(abs) {
+        res.LocalMissing++
+        it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(ref.Target))
+    }
+    it.Status = StatusLocalKept
+    items[i] = it
+    continue
+}
+```
+
+`FileResult` 与 `Summary` 各加一个 `LocalMissing`，命令行明细给它一个单独的标签：
+
+```
+  [检测]  doc.md        远程图 1 张，失效 0 张，另有 1 张本地图找不到
+                      第 3 行  本地缺图  missing.png（本地文件不存在：missing.png）
+
+共 1 个文件 · 检测 1 个文件 · 远程图 1 张 · 本地图找不到 1 张 · 用时 0.0s
+```
+
+界面上同一份信息出现在三处：行内橙字「其中 1 张本地图找不到」、展开明细的
+「本地缺图 / 本地文件不存在：missing.png」、页脚「1 张本地图找不到」。顺带把展开区
+那两个统计数修对了 —— 缺图原本被同时算进「本地保留」和「跳过」（后端把 `local-kept`
+计进 `skipped`，前端减掉的是**全部**本地保留，于是缺图在「跳过」里又露了一次）。
+
+退出码只在一个地方变：`--remote check`。那一档本来就是「帮我看看这篇文档有没有坏图」，
+缺一张本地图同样是坏图，脚本里 `|| echo 有坏图` 应该能察觉。`download` 模式不算 ——
+那一轮的成败标准是「远程图取回来了没有」，本地图本来就归上传管。
+
+回归 `TestRemoteCheckReportsMissingLocalImages`（`internal/conv/remote_test.go`）：
+一篇里同时有「在的本地图」「缺的本地图」「正常的远程图」，`check` 与 `download`
+两种模式各跑一遍，断言 `LocalMissing == 1`、汇总同步、存在的那张不报错、
+文档一个字节不变。**这条测试承重验证过**：把 `res.LocalMissing++` 注释掉，
+立刻 FAIL「check 模式该记下 1 张缺图，实际 0」。
+
+教训：**「不碰」不等于「不看」。** 一个功能主动跳过某类输入时，最容易一起丢掉的
+就是「这类输入有没有问题」的判断 —— 而那恰恰是用户打开检测功能的理由。

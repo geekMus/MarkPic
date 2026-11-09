@@ -66,6 +66,11 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	if cfg.Remote != settings.RemoteIgnore && sum.RemoteDead > 0 {
 		return 1
 	}
+	// 只检测这一档本来就是「帮我看看这篇文档有没有坏图」，缺一张本地图同样是坏图。
+	// 下载模式不算：那一轮的成败标准是「远程图取回来了没有」，本地图本来就归上传管。
+	if cfg.Remote == settings.RemoteCheck && sum.LocalMissing > 0 {
+		return 1
+	}
 	// 一个文件都没处理（路径全都不存在、通配符没匹配到、目录里没有 Markdown）：
 	// 脚本里 `convert-md-picture docs/*.md || echo 出错了` 应该能察觉，所以也算失败。
 	if sum.Files == 0 {
@@ -248,6 +253,9 @@ func checkDesc(r *conv.FileResult) string {
 	if n := unsupportedCount(r); n > 0 {
 		desc += fmt.Sprintf("，另有 %d 处没法检测", n)
 	}
+	if r.LocalMissing > 0 {
+		desc += fmt.Sprintf("，另有 %d 张本地图找不到", r.LocalMissing)
+	}
 	return desc
 }
 
@@ -311,6 +319,14 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 			}
 		case conv.StatusRemoteBad:
 			label = "远程失效"
+		case conv.StatusLocalKept:
+			// 这两个模式不碰本地图，所以状态仍然是「保留原样」；但引用的文件
+			// 根本不在时它是坏链接，得单独说一句，否则一篇缺图在检测报告里
+			// 读起来跟完全正常一模一样。
+			if it.Error == "" {
+				continue
+			}
+			label = "本地缺图"
 		case conv.StatusRemote:
 			// `ftp://`、`data:` 这类地址检测不了也下载不了。以前它们连一行提示都
 			// 没有 —— 文档里 4 张图只报「远程图 1 张」，另外 3 处悄无声息地消失。
@@ -374,6 +390,10 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	if s.RemoteUnsupported > 0 {
 		// ftp://、data: 这类地址既不算检测过也不算失效，不单列就没人知道它们存在。
 		parts = append(parts, fmt.Sprintf("%d 处没法处理", s.RemoteUnsupported))
+	}
+	if s.LocalMissing > 0 {
+		// 检测/下载模式都不碰本地图，缺图却是文档自己的毛病，不单列同样会消失。
+		parts = append(parts, fmt.Sprintf("本地图找不到 %d 张", s.LocalMissing))
 	}
 	if s.FailedImages > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))

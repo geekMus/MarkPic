@@ -465,6 +465,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.RemoteChecked += res.Checked
 		sum.RemoteDead += res.Dead
 		sum.RemoteUnsupported += res.RemoteUnsupported
+		sum.LocalMissing += res.LocalMissing
 		sum.FailedImages += res.Failed
 		switch res.Status {
 		case FileOK:
@@ -575,6 +576,13 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		// 「把图取回来」的两个模式不碰本地图片：用户在意的正是「反方向」，
 		// 顺手把本地图传出去就完全走反了。
 		if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
+			// 这两个模式不碰本地图（用户在意的正是反方向），但「引用的本地图
+			// 根本不存在」还是得说出来：以前这类引用直接从报告里消失了，一篇
+			// 文档缺一张图也照样报「失效 0 张」，看着像一切正常。
+			if abs, ok := imgpath.ResolveExisting(path, ref.Target, r.fileExists); !ok || !r.fileExists(abs) {
+				res.LocalMissing++
+				it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(ref.Target))
+			}
 			it.Status = StatusLocalKept
 			items[i] = it
 			continue

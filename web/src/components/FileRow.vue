@@ -49,6 +49,10 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
     // 检测模式下整篇「已检测」读起来是成功，但有死链的行必须一眼认出来 ——
     // 尤其点开「只看有问题的」之后，一行行全是中性的「已检测」等于没筛。
     if ((result.dead ?? 0) > 0) return { tone: 'danger', labelKey: 'row.status.checked' }
+    // 缺本地图的行只算警告（不红），但它确实有问题，筛选得能看见。
+    if ((result.localMissing ?? 0) > 0) {
+      return { tone: 'warning', labelKey: FILE_STATUS_META[result.status].labelKey }
+    }
     return FILE_STATUS_META[result.status]
   }
   if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
@@ -85,6 +89,10 @@ const reason = computed(() => {
   }
   const dead = result.dead ?? 0
   if (dead > 0) return t('row.reason.dead', { count: dead })
+  // 检测/下载模式不碰本地图，但缺图是文档自己的毛病，不单列会看着像一切正常。
+  if (localMissingCount.value > 0) {
+    return t('row.reason.localMissing', { count: localMissingCount.value })
+  }
   const warning = result.warnings?.[0]
   return warning ?? ''
 })
@@ -137,8 +145,16 @@ const localizedUniqueCount = computed(() => {
   return seen.size
 })
 
+/**
+ * 「本地保留」里有一部分其实找不到：检测/下载模式不碰本地图，但引用坏掉的
+ * 文件名还是要数出来，否则一行「本地保留 3」看着像三张图都在。
+ */
+const localMissingCount = computed(() => items.value.filter(item => item.status === 'local-kept' && item.error).length)
+
 /** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */
-const localKeptCount = computed(() => items.value.filter(item => item.status === 'local-kept').length)
+const localKeptCount = computed(
+  () => items.value.filter(item => item.status === 'local-kept' && !item.error).length,
+)
 
 /** 碰不了的远程地址（ftp://、data:）：单独数，别混进「跳过」里当没事发生。 */
 const remoteUnsupportedCount = computed(
@@ -149,7 +165,10 @@ const remoteUnsupportedCount = computed(
 const skippedOnly = computed(() =>
   Math.max(
     0,
-    (props.row.result?.skipped ?? 0) - pendingCount.value - localKeptCount.value,
+    (props.row.result?.skipped ?? 0) -
+      pendingCount.value -
+      localKeptCount.value -
+      localMissingCount.value,
   ),
 )
 
@@ -193,6 +212,10 @@ function itemLabel(item: ImageItem): string {
   if (item.status === 'remote' && item.error) {
     return t('row.status.remoteUnsupported')
   }
+  // 同一档里「保留原样」和「引用的文件根本不在」是两件事，标签得分开。
+  if (item.status === 'local-kept' && item.error) {
+    return t('row.status.localMissing')
+  }
   return t(IMAGE_STATUS_META[item.status].labelKey)
 }
 
@@ -201,6 +224,8 @@ function itemDetail(item: ImageItem): string {
   if (item.status === 'missing') return item.error ?? t('row.item.missingFile')
   // 有 error 就是「这个地址处理不了」，原因得说出来；没有才是「本来就是远程图」。
   if (item.status === 'remote') return item.error ?? t('row.item.remoteSkipped')
+  // 本地保留的行里，带 error 的是「引用的文件根本不在」，原因得说出来。
+  if (item.status === 'local-kept' && item.error) return item.error
   // 远程相关的状态：有错误就说错误，没有就显示下载后的本地相对路径
   if (item.status === 'localized') return item.url ?? ''
   if (item.status === 'remote-bad') return item.error ?? t('row.status.remoteBad')

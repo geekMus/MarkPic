@@ -147,7 +147,8 @@ function isProblem(row: RunRowView): boolean {
   if (row.missing) return true
   const res = row.result
   if (!res) return false
-  if (res.failed > 0 || (res.dead ?? 0) > 0) return true
+  // 缺本地图也算「有问题」：检测/下载模式不碰它，可它确实是坏链接。
+  if (res.failed > 0 || (res.dead ?? 0) > 0 || (res.localMissing ?? 0) > 0) return true
   return res.status === 'failed' || res.status === 'partial'
 }
 
