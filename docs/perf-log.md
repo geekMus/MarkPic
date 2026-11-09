@@ -3599,3 +3599,28 @@ after : {"width":816,"height":560}          ← 记录没被全屏尺寸覆盖
 
 - `FindWindowW('webview', $null)` 在 PowerShell 里永远返回 0：`$null` 被编组成空字符串，意思是「找标题为空字符串的窗口」，而不是「标题随便」。要传 `[NullString]::Value`。
 - `Add-Type` 里的 `DllImport` 默认 `CharSet=Ansi`，读 UTF-16 的窗口类名只会得到第一个字符（`webview` → `w`）。加 `CharSet=CharSet.Unicode` 才是对的；否则会误判「窗口没起来」。
+
+## 拿 19 个真实公网地址验收：7 个报失效，7 个都是真的坏了
+
+单元测试能覆盖「服务器怎么回答」，覆盖不了「真实的图床怎么回答」。所以每隔一阵就拿一批真实地址跑一遍，看看有没有误报。这一轮（picgo 无关，纯 `--remote check`）：
+
+```
+19 张远程图，失效 7 张，用时 5.5s（-c 8）
+```
+
+逐个核对那 7 条：
+
+| 地址 | 我们的说法 | 复核 |
+| --- | --- | --- |
+| `raw.githubusercontent.com/vuejs/core/.../logo.svg` | 打不开了（HTTP 404） | `curl` 也是 404，文件确实搬走了 |
+| `httpbin.org/html`、`httpbin.org/json` | 返回的不是图片（text/html、text/plain） | 对，它们本来就不是图 |
+| `httpbin.org/bytes/64` | 返回的不是图片（application/octet-stream） | 对，64 个随机字节 |
+| `httpbin.org/status/404` | 打不开了（HTTP 404） | 对 |
+| `httpbin.org/status/403` | 对方回了 HTTP 403，这张图没有拿到 | 对 |
+| `httpbin.org/delay/2` | （下载时）对方把连接关了 | 那个端点回的是 HTML，不是图；HEAD 能过、GET 被截断 |
+
+其余 12 个都判为有效，包括 `httpbin.org/redirect-to?url=/image/png`（跳转）、`picsum.photos`（HEAD 回 404、GET 回 307）、`placehold.co`、`via.placeholder.com`、GitHub 头像、Google 的 logo。**没有一个好图被误报。**
+
+顺手验了下载侧：12 个有效地址全部落盘，后缀按真实内容补齐 —— `1.png`、`583231.png`（GitHub 头像）、`jpeg.jpg`、`svg.svg`、`webp.webp`、`googlelogo_color_92x30dp.png`、`redirect-to.png`（跳转后的 png），文档里的链接逐个换成本地路径。
+
+这一轮之前修的三件东西在这里同时生效：报上自己的 User-Agent（维基共享资源按名字关门）、HEAD 的 404 不再当终审（`picsum.photos` 不实现 HEAD）、同一台主机一旦 HEAD 说过假话就只问 GET。没有那三条，这 19 个地址里会有 3 个被误报成失效。
