@@ -5,6 +5,7 @@ import StatusPill from './StatusPill.vue'
 import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n, type MessageKey } from '../i18n'
+import { redactUrl } from '../composables/useDeadLinks'
 
 type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
@@ -507,8 +508,8 @@ function replaced(status: ImageStatus): boolean {
         >
           <span class="items__line mono">L{{ item.line }}</span>
           <span class="items__status">{{ itemLabel(item) }}</span>
-          <span class="items__target mono" :title="item.absolutePath || item.target">
-            {{ item.target }}
+          <span class="items__target mono" :title="redactUrl(item.absolutePath || item.target)">
+            {{ redactUrl(item.absolutePath || item.target) }}
           </span>
           <span v-if="replaced(item.status)" class="items__arrow items__arrow--on" aria-hidden="true">
             <AppIcon name="chevron-down" :size="12" class="items__arrow-icon" />
