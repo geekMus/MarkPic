@@ -3,6 +3,7 @@ package conv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -337,9 +338,13 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 	if derr != nil {
 		return "", 0, "", derr
 	}
-	if serr := tmp.Sync(); serr != nil {
-		return "", 0, "", serr
-	}
+	// 这里原来有一句 tmp.Sync()，是整条下载路径上最贵的一步：Windows 上一次
+	// fsync 约 2.1 ms，2000 张图就是 4.2 秒（占单张成本的一大半），而它买到的是
+	// 「断电之后这张图不会只剩半截」。
+	//
+	// 权衡下来不值得：图片是可再生的缓存，文档本身（writeAtomic）也没有 fsync，
+	// 却比图片重要得多。真断电了最坏是多一张坏图，重跑一次就补回来；
+	// 而每个用户每一次都稳定付这 2.1 ms。
 	if cerr := tmp.Close(); cerr != nil {
 		return "", 0, "", cerr
 	}
@@ -431,20 +436,95 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result, fresh 
 		}
 		// 上一次运行留下的同名文件也算「被占了」：两个不同地址都叫 pic.png 时，
 		// 第二张若沿用同一个名字，会把先跑那篇文档里的图悄悄换掉。
-		if owner, size, ok := r.remoteCache.Owner(dir, name); ok && size > 0 && !strings.EqualFold(owner, rawURL) {
-			continue
+		//
+		// 但如果是**我们自己的**文件（缓存里记着这个地址就落在这个名字上），
+		// 那就必须沿用这个名字 —— 哪怕它已经损坏或被截断了：那正是要修的东西。
+		// 换个名字的后果是把坏文件留成永久垃圾（谁也不会再去删它），
+		// 而且文档里的链接会随着每次损坏漂成 pic-2.png、pic-3.png……
+		ours := false
+		if owner, size, ok := r.remoteCache.Owner(dir, name); ok && size > 0 {
+			if !strings.EqualFold(owner, rawURL) {
+				continue
+			}
+			ours = true
 		}
 		// 缓存关掉时（--no-reuse）没法反查归属，那就退一步看磁盘：
-		// 同名文件存在、内容又和这次下下来的不一样，那它肯定是另一张图。
-		if st, serr := os.Stat(abs); serr == nil && !st.IsDir() {
-			if same, cerr := sameFile(fresh, abs); cerr == nil && !same {
-				continue
+		// 同名文件存在、内容又和这次下下来的不一样，那它多半是另一张图。
+		//
+		// 但「残骸」不算被占：0 字节的文件、或者缺了结尾标记的半截文件（磁盘满、
+		// 杀毒软件拦到一半、同步盘只同步了一半）不可能是有用的图，覆盖它总是对的 ——
+		// 让它占着名字只会把好图挤成 pic-2.png，同时把一个永远没人再碰的坏文件
+		// 留在用户目录里。
+		if !ours {
+			if st, serr := os.Stat(abs); serr == nil && !st.IsDir() && looksComplete(abs) {
+				if same, cerr := sameFile(fresh, abs); cerr == nil && !same {
+					continue
+				}
 			}
 		}
 		r.remoteNames[key] = rawURL
 		return name
 	}
 	return fmt.Sprintf("remote-%s%s", shortHash(rawURL), ext)
+}
+
+// looksComplete 判断磁盘上那个同名文件是不是「一张写完的图」，而不是写了一半的残骸。
+//
+// 为什么要问这个：`--no-reuse` 时没法靠缓存反查「这个名字是不是我上次下的」，
+// 只能看磁盘。可残骸（0 字节、磁盘满、杀毒软件拦到一半、同步盘只同步了一半）
+// 和「另一张同名的图」在大小上没有任何区别，只能看它有没有写完：
+// 每种图片格式都有结尾标记，缺了就是没写完。
+//
+// 判断方式是「结尾附近能不能找到终止标记」而不是「终止标记正好在最后」：
+// 有些工具会在图后面追加几个字节（校验值、编辑器留下的垃圾），那种文件照样能显示，
+// 不该被当成残骸覆盖掉。
+//
+// 认不出格式的一律当「完整」—— 宁可多留一个 pic-2.png，也不能覆盖用户的图。
+func looksComplete(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+	st, err := f.Stat()
+	if err != nil || st.Size() <= 0 {
+		return false
+	}
+	size := st.Size()
+
+	head := make([]byte, 12)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return false
+	}
+	head = head[:n]
+
+	tail := make([]byte, 32)
+	if size >= int64(len(tail)) {
+		if _, err := f.ReadAt(tail, size-int64(len(tail))); err != nil {
+			return false
+		}
+	} else {
+		tail = nil
+	}
+
+	switch {
+	case bytes.HasPrefix(head, []byte("\x89PNG\r\n\x1a\n")):
+		return bytes.Contains(tail, []byte("IEND"))
+	case bytes.HasPrefix(head, []byte{0xFF, 0xD8}):
+		return bytes.Contains(tail, []byte{0xFF, 0xD9})
+	case bytes.HasPrefix(head, []byte("GIF8")):
+		return bytes.Contains(tail, []byte{0x3B})
+	case bytes.HasPrefix(head, []byte("RIFF")) && len(head) >= 12 && bytes.Equal(head[8:12], []byte("WEBP")):
+		// RIFF 头里写着总长度：文件比它短就是没写完。
+		want := int64(binary.LittleEndian.Uint32(head[4:8])) + 8
+		return size >= want
+	case bytes.HasPrefix(head, []byte("BM")) && len(head) >= 6:
+		want := int64(binary.LittleEndian.Uint32(head[2:6]))
+		return want == 0 || size >= want
+	default:
+		return true
+	}
 }
 
 // sameFile 逐字节比较两个文件。大小不同直接返回 false，省掉一次读盘。

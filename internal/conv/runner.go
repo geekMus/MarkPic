@@ -237,6 +237,9 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 	if conc < 1 {
 		conc = 1
 	}
+	// 连接池宽度跟着并发走：并发 16 却只留 2 条空闲连接，每张图都要重新握手。
+	remote := remoteimg.New(remoteimg.DefaultTimeout)
+	remote.SetConcurrency(conc)
 	return &Runner{
 		cfg:     cfg,
 		lang:    lang,
@@ -251,7 +254,7 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 		stamps:   make(map[string]stamp),
 		scanDocs: make(map[string]*mdscan.Document),
 
-		remote:      remoteimg.New(remoteimg.DefaultTimeout),
+		remote:      remote,
 		remoteFiles: make(map[string]*remoteFile),
 		remoteCache: remotecache.Open(""),
 		remoteNames: make(map[string]string),

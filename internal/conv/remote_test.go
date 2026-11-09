@@ -678,3 +678,75 @@ func TestRemoteDownloadWrapsSpacedLinkInAngleBrackets(t *testing.T) {
 		t.Fatalf("图没落盘: %v", err)
 	}
 }
+
+// 半截的图片（上次被强杀、磁盘满、杀毒软件拦截留下的 0 字节文件）要就地补好，
+// 不能让它把名字占住、把好图挤成 `pic-2.png`。
+//
+// 这条是「同名不同内容」修复的副作用：那一版见到同名但内容不同就换名字，
+// 于是一个 0 字节的坏文件会永久留在用户的 images 目录里 —— 没有任何一次运行
+// 会再去碰它，而文档里的链接每跑一次就漂一次（pic.png → pic-2.png → pic-3.png）。
+func TestRemoteDownloadHealsTruncatedFile(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cache bool
+		// partial 为真时坏文件不是 0 字节，而是只有前半截
+		// （磁盘满、杀毒软件拦到一半、同步盘写了一半都会这样）。
+		partial bool
+	}{
+		{"缓存开着", true, false},
+		{"缓存关着", false, false},
+		{"缓存开着-半截", true, true},
+		{"缓存关着-半截", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cachePath := filepath.Join(t.TempDir(), "remote-cache.json")
+			host, _ := fakeImageHost(t)
+			doc := filepath.Join(dir, "doc.md")
+			writeFile(t, doc, "![x]("+host.URL+"/ok.png)\n")
+
+			cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+			cfg.ReuseUploads = tc.cache
+
+			// 先把这张图正常下下来，然后在它应该在的位置放一个 0 字节的坏文件
+			// （上次被强杀 / 磁盘满 / 杀毒软件拦截之后就是这个样子）。
+			first := NewRunner(cfg, i18n.ZH, "run1", nil)
+			if tc.cache {
+				first.AttachRemoteCache(cachePath)
+			}
+			first.RunCollect(context.Background(), []string{doc})
+			good := filepath.Join(dir, "images", "ok.png")
+			var junk []byte
+			if tc.partial {
+				junk = pngBytes[:len(pngBytes)/2]
+			}
+			if err := os.WriteFile(good, junk, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			second := NewRunner(cfg, i18n.ZH, "run2", nil)
+			if tc.cache {
+				second.AttachRemoteCache(cachePath)
+			}
+			second.RunCollect(context.Background(), []string{doc})
+
+			conv, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(conv), "![x](images/ok.png)") {
+				t.Fatalf("链接应该还是 images/ok.png，实际是: %s", conv)
+			}
+			st, err := os.Stat(good)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Size() != int64(len(pngBytes)) {
+				t.Fatalf("坏文件应该被补好，实际 %d 字节", st.Size())
+			}
+			if _, err := os.Stat(filepath.Join(dir, "images", "ok-2.png")); err == nil {
+				t.Fatal("不该多出一个 ok-2.png：坏文件占着名字，把好图挤走了")
+			}
+		})
+	}
+}

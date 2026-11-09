@@ -2186,3 +2186,78 @@ CommonMark 里 `![a](images/4 x.png)` 的地址在第一个空格处就结束了
 之后是 **229 ns/op**（`BenchmarkOwner60k`），与 `Lookup`（418 ns）同量级。索引在
 `Open`、`Store`、`Save`（合并磁盘条目后）三处重建，三条回归各盯一个：
 `TestOwnerSeesEntriesMergedFromDisk`、`TestStoreReleasesTheOldName`、`TestPruneAlsoClearsTheIndex`。
+
+## 远程图下载：那 2 毫秒不是网络，是 fsync
+
+远程下载一开始是「每张图 2.1 ms」，看着像是网络开销，于是先做 CPU profile 看是谁在吃时间。
+
+2000 处远程引用（本地 `httptest` 服务器回 67 字节 PNG，`-c 16`）：**4.29 s**。
+`go tool pprof -top` 里 `runtime.cgocall` 占 98.5%，拆开是：
+
+| 调用 | 占比 |
+| --- | --- |
+| `os.CreateTemp` → `syscall.createFile` | 28.1% |
+| `internal/syscall/windows.MoveFileEx`（`os.Rename`） | 27.2% |
+| `os.(*File).Sync` | 26.1% |
+| `os.Stat` | 8.6% |
+| `os.MkdirAll` | 5.9% |
+| `remoteimg.(*Client).DownloadTo`（真正的网络） | 4.2% |
+
+网络只占 4%，剩下全在文件系统。四种写盘方式各跑 2000 张（单张 67 字节）：
+
+| 写法 | 总耗时 | 单张 |
+| --- | --- | --- |
+| 临时文件 + `Sync` + 改名（原来的做法） | 4.75 s | 2.38 ms |
+| 临时文件 + 改名（去掉 `Sync`） | **542 ms** | **0.27 ms** |
+| 直接 `O_CREATE\|O_EXCL` 写 | 278 ms | 0.14 ms |
+| 直接写 + `Sync` | 3.05 s | 1.52 ms |
+
+`Sync` 一项就是 88% 的时间。它买到的是「断电之后这张图不会只剩半截」——
+而图片是可再生的缓存，文档本身（`writeAtomic`）反而没有 fsync，却比图片重要得多。
+权衡下来去掉它：真断电了最坏是多一张坏图，重跑一次补回来；而每个用户每一次都要付这 2 ms。
+
+「临时文件 + 改名」保留：改名本身是原子的，目标文件不会变成半截。
+
+真机 A/B（2000 处 `http://127.0.0.1:36692/img/<n>`，`--remote download -c 16 --no-reuse`，各两轮）：
+**4023 / 3950 ms → 874 / 612 ms**。产物复核：2000 个文件、0 个 0 字节、0 个残留 `.tmp`，
+输出文档 2000 行链接逐条对得上。
+
+### 顺带发现的真 bug：残骸不会自愈，还会把好图挤成 `-2`
+
+验证时把 `images/0.png` 截成 0 字节再跑一次，结果输出变成 `![p0](images/0-2.png)`、
+目录里 2001 个文件，那个 0 字节的 `0.png` 永久留着。
+
+根因是上一轮为「不覆盖别人的图」加的保护：同名文件内容不同就换下一个候选名。
+可**残骸**（0 字节、写了一半、同步盘只同步了一半）和「另一张同名的图」在它眼里没区别，
+于是好图被挤成 `pic-2.png`，坏文件永远不会被替换，文档链接每跑一次漂一次
+（`pic.png → pic-2.png → pic-3.png`）。
+
+改法分两层：
+
+- **是我们自己的名字就必须沿用**：缓存里记着这个地址就落在这个名字上（`Owner` 反查），
+  那哪怕文件已经损坏或截断也要覆盖它 —— 那正是要修的东西。
+- **残骸不算被占**：新增 `looksComplete`，读前 12 字节认格式、读最后 32 字节找终止标记
+  （PNG `IEND`、JPEG `FF D9`、GIF `3B`、WEBP 按 RIFF 头里的总长度、BMP 按头里的文件大小）。
+  认不出格式的一律当「完整」—— 宁可多留一个 `pic-2.png`，也不能覆盖用户的图。
+
+第一版写的是「终止标记正好在最后 12 字节」，直接把
+`TestRemoteDownloadDoesNotOverwriteSameSizeImage` 打红了：那个夹具是「正常 PNG + 尾部追加 1 字节」，
+而现实中确实有工具在图片后面追加校验值，那种文件照样能显示。所以放宽成「最后 32 字节里能找到」。
+
+回归 `TestRemoteDownloadHealsTruncatedFile` 四个子用例（缓存开着/关着 × 0 字节/半截）：
+先正常下一遍，再把 `images/ok.png` 写成空或 `pngBytes[:len/2]`，第二次跑断言链接仍是
+`images/ok.png`、文件补回原大小、且**不存在** `ok-2.png`。
+
+### 连接池：默认只有 2 条空闲连接
+
+`remoteimg.New` 原来不设 `Transport`，走 `http.DefaultTransport`，它的
+`MaxIdleConnsPerHost` 是 2；而下载并发默认 16 —— 多出来的连接用完即关，
+下一张图重新 TCP + TLS 握手。
+
+本地 HTTPS（`httptest.NewTLSServer`，16 路并发 200 次探测）：
+`IdlePerHost=2` **33.2 ms / 新建 87 条连接**；`IdlePerHost=32` **14.0 ms / 新建 29 条**。
+
+真实站点上收益不明显（picsum 每张本来要 ~1 s 服务端时间，握手被淹没：旧 11.98/12.83 s，
+新 12.73/12.41 s，打平），但代价是零，所以保留：新增 `newTransport(idlePerHost)` 与
+`SetConcurrency(n)`（`NewRunner` 里按实际并发设置；必须在发请求前调用，
+`Transport` 字段本身不是并发安全的）。
