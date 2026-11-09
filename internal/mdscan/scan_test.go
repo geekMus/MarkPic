@@ -222,6 +222,28 @@ func TestReferenceStyleResolves(t *testing.T) {
 	}
 }
 
+// TestReferenceTitleIsRead 守住定义行里的可选标题：换成整行写法时得原样带过去，
+// 三种引号都要认；没有标题、或者标题没闭合，就当没有。
+func TestReferenceTitleIsRead(t *testing.T) {
+	cases := map[string]string{
+		"![a][id]\n\n[id]: img/a.png \"双引号\"\n": "双引号",
+		"![a][id]\n\n[id]: img/a.png '单引号'\n":   "单引号",
+		"![a][id]\n\n[id]: img/a.png (括号标题)\n":  "括号标题",
+		"![a][id]\n\n[id]: <a b.png> \"带空格\"\n": "带空格",
+		"![a][id]\n\n[id]: img/a.png\n":         "",
+		"![a][id]\n\n[id]: img/a.png \"没闭合\n":   "",
+	}
+	for src, want := range cases {
+		d := Scan([]byte(src))
+		if len(d.Refs) != 1 {
+			t.Fatalf("%q：期望 1 个引用，实际 %d（%v）", src, len(d.Refs), d.Warnings)
+		}
+		if got := d.Refs[0].Title; got != want {
+			t.Errorf("%q：Title = %q，期望 %q", src, got, want)
+		}
+	}
+}
+
 // TestReferenceStyleApplyMakesInline 验证替换后就是等价的整行写法，
 // 简写形式（![alt]）也能把地址插进去。
 func TestReferenceStyleApplyMakesInline(t *testing.T) {

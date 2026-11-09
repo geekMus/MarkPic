@@ -2959,3 +2959,31 @@ if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
 顺带把「客户端是不是瓶颈」这件事钉死了：1000 / 4000 个唯一地址在 `-c 8` 与 `-c 48` 下都是 61–119 ms（约 3.5 万请求/秒）。之前记的「~2 ms/请求」是 `cmp-echosrv.exe` 每个请求都 `Sync()` 一次日志造成的 —— fsync 才是那条曲线的瓶颈，不是我们的代码。这也解释了为什么 `-c 48` 在这个夹具上跑不出优势：根本没有排队。
 
 回归：`TestRemoteCheckCountsUniqueProbesApart`（同一地址 5 处 + 另一地址 1 处 → `Checked == 6`、`CheckedUnique == 2`、汇总同步）。
+
+## 引用式图片换写法时，把定义里的标题弄丢了
+
+`![alt][label]` 这类引用式图片，地址写在文档末尾的 `[label]: 地址 "标题"` 里。下载/上传之后我们把它换成等价的整行写法 `![alt](本地地址)`，文档里的定义原样保留 —— 但有一样东西没跟过来：**标题**。
+
+```
+改前：![引用式带标题][r1]          [r1]: http://…/ok2.png "引用标题"
+改后：![引用式带标题](images/ok2.png)     ← 少了 "引用标题"
+```
+
+行内写法（`![a](地址 "标题")`）的标题本来就在同一处，替换地址不会碰到它，所以只有引用式这一种会丢。丢掉之后图还能显示，只是悬停提示没了 —— 这正是那种「不报错、也没人在意，但文档确实变了」的静默修改。
+
+改法：
+
+- `internal/mdscan/refs.go`：`linkRef` 加 `title`，`parseRefDest` 改成同时返回地址之后的位置，新增 `parseRefTitle`（认 `"…"`、`'…'`、`(…)` 三种写法，不跨行、引号没闭合就当没有）。
+- `internal/mdscan/scan.go`：`Ref` 加 `Title`，引用式引用解析时带上。
+- `internal/conv/runner.go`：`case ref.Reference` 里标题非空就写成 `(地址 "标题")`；`quoteTitle` 优先双引号，标题本身有双引号就退到单引号，两种都有才转义。
+
+实测（`--remote download -o in-place`，同一篇里四种情况）：
+
+| 写法 | 改后 |
+| --- | --- |
+| `![行内](… "行内标题")` | `![行内](images/ok.png "行内标题")` |
+| `![a][r1]` + `[r1]: … "引用标题"` | `![a](images/ok2.png "引用标题")` |
+| `![b][r2]` + `[r2]: … '单引号'` | `![b](images/ok.png "单引号")` |
+| `![c][r3]` + `[r3]: …`（无标题） | `![c](images/ok2.png)` |
+
+回归：`TestReferenceTitleIsRead`（六组输入，含「标题没闭合」）、`TestReferenceStyleImagesAreConverted` 的期望值改成带标题。前者做过承载验证：把 `parseRefTitle` 临时改成直接返回空串，四条用例立刻红。

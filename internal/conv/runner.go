@@ -763,7 +763,14 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		case ref.Reference:
 			// 引用式图片（![alt][label]）要改的是标签那一段：换成 (地址)，
 			// 于是这一处就变成了等价的整行写法，文档里的定义保持原样。
-			text = "(" + wrapURL(text) + ")"
+			//
+			// 标题只写在定义里，换写法时必须一起带过来：不然渲染出来的图
+			// 少了悬停提示，等于我们替用户删了点东西。
+			if ref.Title != "" {
+				text = "(" + wrapURL(text) + " " + quoteTitle(ref.Title) + ")"
+			} else {
+				text = "(" + wrapURL(text) + ")"
+			}
 		case ref.Kind == mdscan.KindHTML && ref.Quote == '<':
 			text = "<" + text + ">"
 		case ref.Kind == mdscan.KindMarkdown:
@@ -1176,4 +1183,18 @@ func wrapURL(url string) string {
 		return "<" + url + ">"
 	}
 	return url
+}
+
+// quoteTitle 把引用式图片定义行里的标题写成整行写法能用的样子。
+//
+// 首选双引号；标题里本来就有双引号时退到单引号；两种都有就只好把双引号
+// 转义回去（这种标题本来也极少见）。
+func quoteTitle(title string) string {
+	if !strings.Contains(title, `"`) {
+		return `"` + title + `"`
+	}
+	if !strings.Contains(title, `'`) {
+		return `'` + title + `'`
+	}
+	return `"` + strings.ReplaceAll(title, `"`, `\"`) + `"`
 }

@@ -5,6 +5,8 @@ import "strings"
 // linkRef 是文档里一条链接定义（[label]: 地址 "标题"）解析出来的地址。
 type linkRef struct {
 	dest string
+	// title 是定义行里的可选标题原文（不含引号）；没有就是空串。
+	title string
 }
 
 // collectLinkRefs 收集文档里的链接定义，键是规范化后的标签。
@@ -29,7 +31,7 @@ func collectLinkRefs(src []byte, masked maskBits) map[string]linkRef {
 		if !ok || next >= len(src) || src[next] != ':' {
 			continue
 		}
-		dest, ok := parseRefDest(src, next+1)
+		dest, afterDest, ok := parseRefDest(src, next+1)
 		if !ok || dest == "" {
 			continue
 		}
@@ -39,7 +41,7 @@ func collectLinkRefs(src []byte, masked maskBits) map[string]linkRef {
 		}
 		if _, exists := defs[key]; !exists {
 			// CommonMark 规定同一条标签以第一次出现为准。
-			defs[key] = linkRef{dest: dest}
+			defs[key] = linkRef{dest: dest, title: parseRefTitle(src, afterDest)}
 		}
 	}
 	return defs
@@ -75,13 +77,14 @@ func parseRefLabel(src []byte, start int) (string, int, bool) {
 
 // parseRefDest 解析「: 之后」的地址：可以是 <地址>，也可以是裸地址（遇到空白结束）。
 // 返回的地址保留原始转义，与行内写法的 Target 口径一致；尖括号会被去掉。
-func parseRefDest(src []byte, start int) (string, bool) {
+// next 是地址之后的位置，方便继续读可选的标题。
+func parseRefDest(src []byte, start int) (dest string, next int, ok bool) {
 	p := start
 	for p < len(src) && (src[p] == ' ' || src[p] == '\t') {
 		p++
 	}
 	if p >= len(src) || src[p] == '\n' {
-		return "", false
+		return "", 0, false
 	}
 	if src[p] == '<' {
 		j := p + 1
@@ -89,18 +92,66 @@ func parseRefDest(src []byte, start int) (string, bool) {
 			j++
 		}
 		if j >= len(src) || src[j] != '>' {
-			return "", false
+			return "", 0, false
 		}
-		return string(src[p+1 : j]), true
+		return string(src[p+1 : j]), j + 1, true
 	}
 	j := p
 	for j < len(src) && !isHTMLSpace(src[j]) {
 		j++
 	}
 	if j == p {
-		return "", false
+		return "", 0, false
 	}
-	return string(src[p:j]), true
+	return string(src[p:j]), j, true
+}
+
+// parseRefTitle 读定义行里的可选标题（"…"、'…' 或 (…)），返回标题原文。
+//
+// 为什么要留着它：`![a][r1]` 换成整行写法时，标题只写在定义里，
+// 丢掉就等于把一处 `title` 悄悄从文档里删了 —— 那是个看得见的渲染差异
+// （悬停提示没了），不是我们该替用户做的决定。
+//
+// 只接受同一种引号包完、且不跨行的标题；解析不出来的就当没有。
+func parseRefTitle(src []byte, start int) string {
+	p := start
+	// 标题与地址之间至少要有一个空白，否则那不是标题。
+	if p >= len(src) || !isHTMLSpace(src[p]) {
+		return ""
+	}
+	for p < len(src) && (src[p] == ' ' || src[p] == '\t') {
+		p++
+	}
+	if p >= len(src) || src[p] == '\n' {
+		return ""
+	}
+	open := src[p]
+	var close byte
+	switch open {
+	case '"':
+		close = '"'
+	case '\'':
+		close = '\''
+	case '(':
+		close = ')'
+	default:
+		return ""
+	}
+	j := p + 1
+	for j < len(src) {
+		if src[j] == '\\' && j+1 < len(src) {
+			j += 2
+			continue
+		}
+		if src[j] == '\n' {
+			return ""
+		}
+		if src[j] == close {
+			return string(src[p+1 : j])
+		}
+		j++
+	}
+	return ""
 }
 
 // normalizeLabel 按 CommonMark 的口径规范化标签：去首尾空白、内部空白折叠成一个空格、

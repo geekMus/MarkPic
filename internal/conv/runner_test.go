@@ -884,7 +884,8 @@ func TestReferenceStyleImagesAreConverted(t *testing.T) {
 	for _, want := range []string{
 		"![完整](https://cdn.example.com/a.png)",
 		"![折叠](https://cdn.example.com/b.png)",
-		"![简写](https://cdn.example.com/a.png)",
+		// 标题只写在定义里，换成整行写法时必须一起带过来，否则等于把它删了。
+		"![简写](https://cdn.example.com/a.png \"标题\")",
 		// 定义原样保留
 		"[ref1]: img/a.png",
 		"[简写]: img/a.png \"标题\"",

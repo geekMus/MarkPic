@@ -41,6 +41,9 @@ type Ref struct {
 	// Reference 表示这是引用式图片（![alt][label]）：地址写在文档的链接定义里，
 	// 要替换的是标签那一段，替换文本得写成 (地址) 而不是裸地址。
 	Reference bool
+	// Title 只有引用式图片才有：定义行里那个可选标题的原文（不含引号）。
+	// 换成整行写法时要把它一起写回去，否则等于悄悄替用户删掉一个 title。
+	Title string
 }
 
 // Document 是一次扫描的结果。
@@ -110,6 +113,7 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 		}
 		ref.Kind = KindMarkdown
 		ref.Target = UnescapeMarkdown(def.dest)
+		ref.Title = def.title
 		ref.Line = lineOf(lineStarts, i)
 		d.Refs = append(d.Refs, ref)
 		i = nextEnd
