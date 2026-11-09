@@ -66,6 +66,14 @@ const (
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
 
+	KeyConvRemoteDead         Key = "conv.remoteDead"
+	KeyConvRemoteNotImage     Key = "conv.remoteNotImage"
+	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
+	KeyConvRemoteUnsupported  Key = "conv.remoteUnsupported"
+	KeyConvRemoteTooLarge     Key = "conv.remoteTooLarge"
+	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
+	KeyConvRemoteNamingFailed Key = "conv.remoteNamingFailed"
+
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
 	KeyUpdateManifestMissing  Key = "update.manifestMissing"
@@ -97,6 +105,9 @@ const (
 	KeySettingsBrokenJSON    Key = "settings.brokenJSON"
 	KeySettingsBrokenValues  Key = "settings.brokenValues"
 	KeySettingsBrokenKept    Key = "settings.brokenKept"
+
+	KeySettingsUnknownRemote     Key = "settings.unknownRemote"
+	KeySettingsRemoteDirAbsolute Key = "settings.remoteDirAbsolute"
 
 	KeyPlatformNoDialog     Key = "platform.noDialog"
 	KeyPlatformNoFolderPath Key = "platform.noFolderPath"
@@ -264,6 +275,34 @@ var catalog = map[Key]entry{
 		"第 %d 行：%s 是附件、不是图片（图床当图片渲染不了），已跳过",
 		"Line %d: %s is an attachment, not an image (image hosts cannot render it), so it was skipped",
 	},
+	KeyConvRemoteDead: {
+		"远程图片已经打不开了（HTTP %d）",
+		"The remote image is no longer reachable (HTTP %d)",
+	},
+	KeyConvRemoteNotImage: {
+		"这个地址返回的不是图片（%s）",
+		"That address returned %s, not an image",
+	},
+	KeyConvRemoteUnreachable: {
+		"连不上这个地址：%v",
+		"Could not reach that address: %v",
+	},
+	KeyConvRemoteUnsupported: {
+		"只支持 http/https 地址，这种没法检测或下载：%s",
+		"Only http/https addresses can be checked or downloaded, so this one was left alone: %s",
+	},
+	KeyConvRemoteTooLarge: {
+		"远程图片太大了（超过 %d MB），没有下载",
+		"The remote image is larger than %d MB, so it was not downloaded",
+	},
+	KeyConvRemoteDownloadFail: {
+		"下载失败：%v",
+		"Download failed: %v",
+	},
+	KeyConvRemoteNamingFailed: {
+		"没能给这张远程图片起个本地文件名：%v",
+		"Could not work out a local file name for this remote image: %v",
+	},
 	KeyConvEndpointDead: {
 		"连续 %d 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上：%s",
 		"%d images in a row failed to upload without a single success, so the run was stopped early — the host is probably unreachable: %s",
@@ -379,7 +418,14 @@ var catalog = map[Key]entry{
 		"输出到目录时必须指定目录",
 		"An output directory is required in directory mode",
 	},
-	KeySettingsBrokenJSON: {
+	KeySettingsUnknownRemote: {
+		"未知的远程图片处理方式: %q",
+		"Unknown mode for remote images: %q",
+	},
+	KeySettingsRemoteDirAbsolute: {
+		"本地目录要写相对路径（例如 images 或 ../images）",
+		"The local folder must be a relative path (for example images or ../images)",
+	}, KeySettingsBrokenJSON: {
 		"设置文件读不出来（不是合法的 JSON），已改用默认值。",
 		"The settings file could not be read (not valid JSON), so defaults are in use.",
 	},

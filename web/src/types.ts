@@ -13,7 +13,16 @@ export type Settings = {
   dryRun: boolean
   /** 复用上一次运行留下的上传结果，同一张图不再重传。 */
   reuseUploads: boolean
+  /**
+   * 远程图片怎么处理：ignore 原样留着；check 只检测能不能打开（不改文档）；
+   * download 下载回本地并把链接改成相对路径。
+   */
+  remote: RemoteMode
+  /** download 模式下图片落到文档旁边的哪个子目录。 */
+  remoteDir: string
 }
+
+export type RemoteMode = 'ignore' | 'check' | 'download'
 
 export type ImageStatus =
   | 'uploaded'
@@ -24,6 +33,14 @@ export type ImageStatus =
   | 'failed'
   | 'cancelled'
   | 'pending'
+  /** download 模式：远程图已经下载到本地。 */
+  | 'localized'
+  /** download 模式：本地图片原样保留（这个模式不上传）。 */
+  | 'local-kept'
+  /** check 模式：地址能打开，拿到的确实是图片。 */
+  | 'remote-ok'
+  /** check 模式：地址打不开，或者返回的不是图片。 */
+  | 'remote-bad'
 
 export type ImageItem = {
   target: string
@@ -35,7 +52,15 @@ export type ImageItem = {
   error?: string
 }
 
-export type FileStatus = 'ok' | 'partial' | 'no-images' | 'failed' | 'cancelled' | 'preview'
+export type FileStatus =
+  | 'ok'
+  | 'partial'
+  | 'no-images'
+  | 'failed'
+  | 'cancelled'
+  | 'preview'
+  /** check 模式：只检测、不写文件。 */
+  | 'checked'
 
 export type FileResult = {
   id: string
@@ -49,6 +74,12 @@ export type FileResult = {
   reused?: number
   failed: number
   skipped: number
+  /** download 模式：这一篇里有几张远程图被下载到了本地。 */
+  localized?: number
+  /** check 模式：这一篇里有几个远程地址打不开（或不是图片）。 */
+  dead?: number
+  /** check 模式：这一篇里一共检测了几个远程地址。 */
+  checked?: number
   outputPath?: string
   error?: string
   warnings?: string[]
@@ -73,6 +104,13 @@ export type RunSummary = {
    * 取消事件也带汇总，所以界面能说清楚「为什么停了」。
    */
   abortReason?: string
+  /** download 模式：这一轮把几张远程图下载到了本地。 */
+  localized?: number
+  /** check 模式：这一轮检测了几个远程地址、其中几个打不开。 */
+  remoteChecked?: number
+  remoteDead?: number
+  /** check 模式：这一轮有几个文件只是被检测（没写输出）。 */
+  filesChecked?: number
   durationMs: number
 }
 
@@ -97,7 +135,12 @@ export type RunEvent =
 export type Health = {
   version: string
   endpoint: string
-  picgo: { online: boolean; detail: string }
+  picgo: {
+    online: boolean
+    detail: string
+    /** 这次运行到底要不要 PicGo：只检测 / 下载回本地时不需要，掉线也不算错。 */
+    needed: boolean
+  }
   /** 设置与 WebView 缓存所在的位置（默认是 exe 旁边的 data 目录）。 */
   dataDir: string
   /** 没能放到 exe 旁边时的原因，正常情况下是空。 */

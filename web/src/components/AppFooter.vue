@@ -55,12 +55,27 @@ const parts = computed<Part[]>(() => {
       : { text: t('footer.noImages'), tone: 'plain' },
   )
   if (settled.value) {
-    list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
+    // 只碰远程图的两种模式里「替换 0」是句废话，把版面让给下载/检测那几个数。
+    const remoteOnly = stats.localized > 0 || stats.remoteChecked > 0 || stats.filesChecked > 0
+    if (stats.uploaded > 0 || !remoteOnly) {
+      list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
+    }
     if (stats.reused > 0) {
       list.push({ text: t('footer.reused', { count: stats.reused }), tone: 'plain' })
     }
     if (stats.failed > 0) {
       list.push({ text: t('footer.failed', { count: stats.failed }), tone: 'bad' })
+    }
+    if (stats.localized > 0) {
+      list.push({ text: t('footer.localized', { count: stats.localized }), tone: 'plain' })
+    }
+    if (stats.remoteChecked > 0) {
+      list.push({ text: t('footer.remoteChecked', { count: stats.remoteChecked }), tone: 'plain' })
+      if (stats.remoteDead > 0) {
+        list.push({ text: t('footer.remoteDead', { count: stats.remoteDead }), tone: 'bad' })
+      }
+    } else if (stats.filesChecked > 0) {
+      list.push({ text: t('footer.checked', { count: stats.filesChecked }), tone: 'plain' })
     }
   }
   if (props.phase === 'cancelled') list.push({ text: t('footer.cancelled'), tone: 'warn' })

@@ -19,9 +19,20 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/version"
 )
 
+// needsPicGo 判断这次运行到底会不会上传本地图片。
+func needsPicGo(cfg settings.Settings) bool {
+	if cfg.DryRun {
+		return false
+	}
+	// check 与 download 都只碰远程图，本地上传一次都不会发生。
+	return cfg.Remote != settings.RemoteCheck && cfg.Remote != settings.RemoteDownload
+}
+
 // runCLI 在命令行完成一轮转换，返回进程退出码。
 func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
-	if !cfg.DryRun {
+	// 只检测 / 下载回本地这两种模式压根不上传本地图片，PicGo 没开也能用。
+	// （以前这里无条件先 Ping，用户想查一下远程链接死没死，还得先把 PicGo 打开。）
+	if needsPicGo(cfg) {
 		pc := picgo.New(cfg.Endpoint, 0, 3*time.Second, i18n.ZH)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := pc.Ping(ctx)
@@ -48,6 +59,11 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	if sum.Failed > 0 || sum.FailedImages > 0 {
 		return 1
 	}
+	// 只检测模式里「失效的远程地址」就是这一轮要找的东西：一个永远退 0 的检查器
+	// 在脚本里没有用（`convert-md-picture --remote check docs/ || echo 有死链`）。
+	if cfg.Remote == settings.RemoteCheck && sum.RemoteDead > 0 {
+		return 1
+	}
 	// 一个文件都没处理（路径全都不存在、通配符没匹配到、目录里没有 Markdown）：
 	// 脚本里 `convert-md-picture docs/*.md || echo 出错了` 应该能察觉，所以也算失败。
 	if sum.Files == 0 {
@@ -61,6 +77,9 @@ type printer struct {
 	mu    sync.Mutex
 	quiet bool
 	width int
+	// remote 记住这次是哪种远程模式：下载模式下「失败」指的是下载不下来，
+	// 说成「上传失败」会让用户以为是自己把图传丢了。
+	remote string
 }
 
 func newPrinter(quiet bool) *printer {
@@ -70,9 +89,21 @@ func newPrinter(quiet bool) *printer {
 func (p *printer) header(cfg settings.Settings) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.remote = cfg.Remote
 	fmt.Printf("convert-md-picture %s\n", version.String())
 	fmt.Printf("PicGo %s\n", cfg.Endpoint)
-	fmt.Printf("模式 %s · 并发 %d%s\n\n", modeLabel(cfg.Output), cfg.Concurrency, dryRunLabel(cfg.DryRun))
+	fmt.Printf("模式 %s · 并发 %d%s%s\n\n", modeLabel(cfg.Output), cfg.Concurrency, dryRunLabel(cfg.DryRun), remoteLabel(cfg.Remote))
+}
+
+// remoteLabel 只在动了远程图时才多说一句，默认模式保持原来的输出不变。
+func remoteLabel(mode string) string {
+	switch mode {
+	case settings.RemoteCheck:
+		return " · 只检测远程图"
+	case settings.RemoteDownload:
+		return " · 远程图下载回本地"
+	}
+	return ""
 }
 
 func (p *printer) emit(ev conv.Event) {
@@ -130,11 +161,17 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 	name := padRight(r.Name, p.width)
 	switch r.Status {
 	case conv.FileOK:
-		return fmt.Sprintf("  [完成]  %s  %d 张图片  → %s", name, r.Uploaded, shorten(r.OutputPath))
+		return fmt.Sprintf("  [完成]  %s  %s  → %s", name, changedDesc(r), shorten(r.OutputPath))
 	case conv.FilePartial:
-		return fmt.Sprintf("  [部分]  %s  %d 张成功，%d 张失败  → %s", name, r.Uploaded, r.Failed, shorten(r.OutputPath))
+		// 「部分」有两种来源：上传/下载失败的，以及检测出来失效的远程图。
+		if r.Uploaded == 0 && r.Localized == 0 {
+			return fmt.Sprintf("  [部分]  %s  %s", name, checkDesc(r))
+		}
+		return fmt.Sprintf("  [部分]  %s  %s，%d 张失败  → %s", name, changedDesc(r), r.Failed, shorten(r.OutputPath))
 	case conv.FileNoImages:
-		return fmt.Sprintf("  [无图]  %s  没有本地图片", name)
+		return fmt.Sprintf("  [无图]  %s  没有可处理的图片", name)
+	case conv.FileChecked:
+		return fmt.Sprintf("  [检测]  %s  %s", name, checkDesc(r))
 	case conv.FilePreview:
 		return fmt.Sprintf("  [预览]  %s  %s", name, previewBreakdown(r))
 	default:
@@ -144,6 +181,27 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		}
 		return fmt.Sprintf("  [失败]  %s  %s", name, reason)
 	}
+}
+
+// changedDesc 说明这篇文档实际改动了什么。
+// 「上传」和「下载」是相反方向的两件事，得分开写，不能都叫「N 张图片」。
+func changedDesc(r *conv.FileResult) string {
+	switch {
+	case r.Uploaded > 0 && r.Localized > 0:
+		return fmt.Sprintf("上传 %d 张，下载 %d 张远程图", r.Uploaded, r.Localized)
+	case r.Localized > 0:
+		return fmt.Sprintf("下载 %d 张远程图", r.Localized)
+	default:
+		return fmt.Sprintf("%d 张图片", r.Uploaded)
+	}
+}
+
+// checkDesc 说明检测结果。
+func checkDesc(r *conv.FileResult) string {
+	if r.Checked == 0 {
+		return "没有网络图片"
+	}
+	return fmt.Sprintf("远程图 %d 张，失效 %d 张", r.Checked, r.Dead)
 }
 
 // previewBreakdown 说明预检看到了什么：待上传多少、多少找不到、多少是网络图片。
@@ -193,7 +251,14 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 		case conv.StatusMissing:
 			label = "找不到文件"
 		case conv.StatusFailed:
-			label = "上传失败"
+			// 下载模式的错误文案本身就以「下载失败：」开头，这里再写一遍会重复。
+			if p.remote == settings.RemoteDownload {
+				label = "失败"
+			} else {
+				label = "上传失败"
+			}
+		case conv.StatusRemoteBad:
+			label = "远程失效"
 		default:
 			continue
 		}
@@ -217,6 +282,18 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	parts := []string{fmt.Sprintf("共 %d 个文件", s.Files)}
 	if s.Uploaded > 0 {
 		parts = append(parts, fmt.Sprintf("替换 %d 处链接", s.Uploaded))
+	}
+	if s.Localized > 0 {
+		parts = append(parts, fmt.Sprintf("下载 %d 张远程图", s.Localized))
+	}
+	if s.FilesChecked > 0 {
+		parts = append(parts, fmt.Sprintf("检测 %d 个文件", s.FilesChecked))
+	}
+	if s.RemoteChecked > 0 {
+		parts = append(parts, fmt.Sprintf("远程图 %d 张", s.RemoteChecked))
+	}
+	if s.RemoteDead > 0 {
+		parts = append(parts, fmt.Sprintf("其中失效 %d 张", s.RemoteDead))
 	}
 	if s.FailedImages > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))

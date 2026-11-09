@@ -52,6 +52,8 @@ type options struct {
 	backup      bool
 	dryRun      bool
 	noReuse     bool
+	remote      string
+	remoteDir   string
 	endpoint    string
 	concurrency int
 	retries     int
@@ -155,6 +157,8 @@ func newRootCmd(opt *options) *cobra.Command {
 	f.BoolVar(&opt.backup, "backup", true, "原地替换前备份")
 	f.BoolVar(&opt.dryRun, "dry-run", false, "只检查，不上传不写文件")
 	f.BoolVar(&opt.noReuse, "no-reuse", false, "不复用上次的上传结果，每张图都重新上传")
+	f.StringVar(&opt.remote, "remote", "", "远程图片怎么办：ignore/check/download（检测失效链接 / 下载回本地）")
+	f.StringVar(&opt.remoteDir, "remote-dir", "", "download 模式下把图片存到哪个相对目录（默认 images）")
 	f.StringVarP(&opt.endpoint, "endpoint", "e", "", "PicGo 服务地址")
 	f.IntVarP(&opt.concurrency, "concurrency", "c", 0, "同时处理的文件数，也是同时上传的图片数（1-32，默认 16）")
 	f.IntVar(&opt.retries, "retries", -1, "上传失败重试次数")
@@ -197,6 +201,12 @@ func applyOverrides(cmd *cobra.Command, opt options, cfg *settings.Settings) {
 	}
 	if f.Changed("no-reuse") {
 		cfg.ReuseUploads = !opt.noReuse
+	}
+	if f.Changed("remote") && opt.remote != "" {
+		cfg.Remote = opt.remote
+	}
+	if f.Changed("remote-dir") && opt.remoteDir != "" {
+		cfg.RemoteDir = opt.remoteDir
 	}
 	if opt.inPlace {
 		cfg.Output = settings.OutputInPlace
@@ -359,6 +369,12 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
       --backup           原地替换前备份（默认 true，用 --backup=false 关闭）
       --dry-run          只检查，不上传、不写文件
       --no-reuse         不复用上次的上传结果，每张图都重新上传
+      --remote string    文档里已有的网络图片怎么办：
+                           ignore   原样留着（默认）
+                           check    只检测能不能打开，报告失效的，文档一个字不改
+                           download 下载回本地并改成相对路径（本地图片不动）
+      --remote-dir string
+                         download 模式存到哪个相对目录（默认 images，可写 ../images）
   -e, --endpoint string  PicGo 服务地址（默认 http://127.0.0.1:36677）
   -c, --concurrency int  同时处理的文件数，也是同时上传的图片数 1-32（默认 16）
       --retries int      上传失败重试次数 0-5（默认 2）
@@ -370,6 +386,8 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
   convert-md-picture 笔记.md
   convert-md-picture . --in-place
   convert-md-picture docs -o directory --out-dir ./out
+  convert-md-picture post.md --remote check
+  convert-md-picture post.md --remote download --remote-dir assets/img
 `
 
 // reportSettingsProblem 把「设置文件读不出来、现在跑的是默认值」这件事说给用户听。

@@ -34,6 +34,24 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
   'backup',
   'dryRun',
   'reuseUploads',
+  'remote',
+  'remoteDir',
+]
+
+export interface RemoteModeOption {
+  value: Settings['remote']
+  labelKey: MessageKey
+  hintKey: MessageKey
+}
+
+export const REMOTE_MODES: readonly RemoteModeOption[] = [
+  { value: 'ignore', labelKey: 'settings.remote.ignore', hintKey: 'settings.remote.ignore.hint' },
+  { value: 'check', labelKey: 'settings.remote.check', hintKey: 'settings.remote.check.hint' },
+  {
+    value: 'download',
+    labelKey: 'settings.remote.download',
+    hintKey: 'settings.remote.download.hint',
+  },
 ]
 
 function defaultSettings(): Settings {
@@ -50,6 +68,9 @@ function defaultSettings(): Settings {
     dryRun: false,
     // 同一张图第二次跑就不用再传了，直接复用上次拿到的地址。
     reuseUploads: true,
+    // 默认什么都不做：远程图原样留着，和以前的行为一致。
+    remote: 'ignore',
+    remoteDir: 'images',
   }
 }
 
@@ -92,6 +113,14 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
     dryRun: typeof value.dryRun === 'boolean' ? value.dryRun : base.dryRun,
     reuseUploads:
       typeof value.reuseUploads === 'boolean' ? value.reuseUploads : base.reuseUploads,
+    remote:
+      value.remote === 'ignore' || value.remote === 'check' || value.remote === 'download'
+        ? value.remote
+        : base.remote,
+    remoteDir:
+      typeof value.remoteDir === 'string' && value.remoteDir.trim() !== ''
+        ? value.remoteDir.trim()
+        : base.remoteDir,
   }
 }
 
@@ -170,6 +199,10 @@ async function save(): Promise<boolean> {
     warning(t('error.outDirRequired'))
     return false
   }
+  if (draft.remote !== 'ignore' && draft.remoteDir.trim() === '') {
+    warning(t('error.remoteDirRequired'))
+    return false
+  }
 
   saving.value = true
   try {
@@ -203,5 +236,6 @@ export function useSettings() {
     discard,
     snapshot,
     outputModes: OUTPUT_MODES,
+    remoteModes: REMOTE_MODES,
   }
 }

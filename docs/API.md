@@ -23,6 +23,8 @@ type Settings = {
   backup: boolean           // in-place 模式是否留 .bak
   dryRun: boolean           // 只解析、不上传、不写文件
   reuseUploads: boolean     // 复用上次的上传结果（默认 true）
+  remote: 'ignore' | 'check' | 'download'  // 文章里的远程图怎么处理（默认 ignore）
+  remoteDir: string         // download 模式把图放到文档旁边的哪个子目录（默认 "images"）
 }
 
 type ImageStatus =
@@ -34,6 +36,10 @@ type ImageStatus =
   | 'failed'     // 上传失败
   | 'cancelled'  // 运行被取消，这张图没传（不算失败）
   | 'pending'    // 仅预检（dryRun）：本地文件存在，尚未上传
+  | 'localized'  // download 模式：远程图已下载到本地，url 是写回文档的相对路径
+  | 'local-kept' // check / download 模式：本地图片原样保留（这两种模式不上传）
+  | 'remote-ok'  // check 模式：地址能打开，拿到的确实是图片
+  | 'remote-bad' // check 模式：地址打不开，或者返回的不是图片
 
 type ImageItem = {
   target: string        // 文档里写的原始地址
@@ -50,10 +56,14 @@ type FileResult = {
   path: string
   name: string
   dir: string
-  status: 'ok' | 'partial' | 'no-images' | 'failed' | 'cancelled' | 'preview'
+  status: 'ok' | 'partial' | 'no-images' | 'failed' | 'cancelled' | 'preview' | 'checked'
+  // checked = check 模式：只检测了远程地址，没有写任何文件
   images: number        // 文档里解析出的图片引用总数
   uploaded: number      // 已经指向图床的引用数（含 reused/cached），不是发出的上传请求数
   reused?: number       // 其中靠复用（本轮去重或上次缓存）拿到的，按引用处算
+  localized?: number    // download 模式：这一篇里有几张远程图落到了本地
+  dead?: number         // check 模式：这一篇里有几个远程地址打不开（或不是图片）
+  checked?: number      // check 模式：这一篇里一共检测了几个远程地址
   failed: number
   skipped: number
   outputPath?: string
@@ -74,6 +84,10 @@ type RunSummary = {
   images: number
   uploaded: number
   failedImages: number
+  localized?: number      // download 模式：这一轮下载了几张远程图
+  remoteChecked?: number  // check 模式：检测了几个远程地址
+  remoteDead?: number     // check 模式：其中几个打不开
+  filesChecked?: number   // check 模式：几个文件只是被检测（没写输出）
   cancelled: boolean
   // 这一轮被提前掐掉的原因（目前只有「图床成片失败」一种）。
   // 取消事件也带 summary，所以客户端能把「为什么停了」说清楚。
@@ -88,7 +102,7 @@ type RunSummary = {
 
 | 方法 | 路径 | 请求体 | 响应 |
 | --- | --- | --- | --- |
-| GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string }, dataDir: string, dataNote?: string, settingsNote?: string }` |
+| GET | `/api/health` | — | `{ app, version, endpoint, picgo: { online: boolean, detail: string, needed: boolean }, dataDir: string, dataNote?: string, settingsNote?: string }` |
 | GET | `/api/settings` | — | `Settings` |
 | PUT | `/api/settings` | `Partial<Settings>` | `Settings`（校验失败 400） |
 | POST | `/api/dialog/files` | — | `{ paths: string[] }`；不支持原生对话框时 `501` |
@@ -103,6 +117,9 @@ type RunSummary = {
 | GET | `/api/update/status` | — | `UpdateStatus` |
 | POST | `/api/update/check` | — | `UpdateStatus`（检查失败也返回 200，原因在 `error` 里） |
 | POST | `/api/update/install` | — | `UpdateStatus`；`501` 表示这个运行形态不支持自更新 |
+
+`/api/health` 里的 `picgo.needed` 说明**这次运行到底要不要 PicGo**：`remote` 为 `check` / `download`
+时不上传本地图片，PicGo 没开也不算故障（界面据此把状态点显示成中性的「本次不需要 PicGo」）。
 
 `/api/health` 里的 `settingsNote` 只在设置文件读不出来时出现（此时进程用的是默认设置）。
 出现它说明用户的 `settings.json` 有问题，原文件已被另存为 `settings.json.broken`。

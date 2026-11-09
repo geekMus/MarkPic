@@ -21,6 +21,7 @@ const FILE_STATUS_META: Record<FileStatus, { tone: Tone; labelKey: MessageKey }>
   failed: { tone: 'danger', labelKey: 'row.status.failed' },
   cancelled: { tone: 'warning', labelKey: 'row.status.cancelled' },
   preview: { tone: 'neutral', labelKey: 'row.status.preview' },
+  checked: { tone: 'neutral', labelKey: 'row.status.checked' },
 }
 
 const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey }> = {
@@ -32,6 +33,10 @@ const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey 
   failed: { tone: 'danger', labelKey: 'row.status.uploadFailed' },
   cancelled: { tone: 'neutral', labelKey: 'row.status.cancelled' },
   pending: { tone: 'neutral', labelKey: 'row.status.pending' },
+  localized: { tone: 'success', labelKey: 'row.status.localized' },
+  'local-kept': { tone: 'neutral', labelKey: 'row.status.localKept' },
+  'remote-ok': { tone: 'success', labelKey: 'row.status.remoteOk' },
+  'remote-bad': { tone: 'danger', labelKey: 'row.status.remoteBad' },
 }
 
 const expanded = ref(false)
@@ -101,8 +106,26 @@ const reusedCount = computed(
 /** 预检模式下所有待上传的引用都还没有真正上传，单独数一遍，别混进「跳过」。 */
 const pendingCount = computed(() => items.value.filter(item => item.status === 'pending').length)
 
+/** 下载回本地：有几张远程图落到了磁盘上。 */
+const localizedCount = computed(() => items.value.filter(item => item.status === 'localized').length)
+
+/** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */
+const localKeptCount = computed(() => items.value.filter(item => item.status === 'local-kept').length)
+
 /** 后端把 pending 也算进 skipped（那是给命令行汇总用的），展示时要把它们剥离出来。 */
-const skippedOnly = computed(() => Math.max(0, (props.row.result?.skipped ?? 0) - pendingCount.value))
+const skippedOnly = computed(() =>
+  Math.max(0, (props.row.result?.skipped ?? 0) - pendingCount.value - localKeptCount.value),
+)
+
+/**
+ * 「替换」这个数在只碰远程图的模式里是句废话（永远是 0），
+ * 那种时候把版面让给「下载」和「本地保留」。
+ */
+const showReplacedStat = computed(
+  () =>
+    (props.row.result?.uploaded ?? 0) > 0 ||
+    (pendingCount.value === 0 && localizedCount.value === 0 && localKeptCount.value === 0),
+)
 
 /**
  * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
@@ -113,10 +136,26 @@ const emptyDetailsText = computed(() => t('row.details.empty'))
 /** 没有逐图明细的行（例如路径下压根没有 Markdown）就不该给一个能点的展开箭头。 */
 const noDetails = computed(() => Boolean(props.row.missing) && !props.row.result)
 
+/**
+ * 逐图状态文字。下载模式里「failed」指的是下载不下来，
+ * 一律说成「上传失败」会让人以为是自己把图传丢了。
+ */
+function itemLabel(item: ImageItem): string {
+  if (item.status === 'failed' && /^https?:\/\//i.test(item.target)) {
+    return t('row.status.downloadFailed')
+  }
+  return t(IMAGE_STATUS_META[item.status].labelKey)
+}
+
 function itemDetail(item: ImageItem): string {
   if (item.status === 'failed') return item.error ?? t('row.status.uploadFailed')
   if (item.status === 'missing') return item.error ?? t('row.item.missingFile')
   if (item.status === 'remote') return t('row.item.remoteSkipped')
+  // 远程相关的状态：有错误就说错误，没有就显示下载后的本地相对路径
+  if (item.status === 'localized') return item.url ?? ''
+  if (item.status === 'remote-bad') return item.error ?? t('row.status.remoteBad')
+  if (item.status === 'remote-ok') return item.url ?? ''
+  if (item.status === 'local-kept') return t('row.item.localKept')
   // 待上传/已取消的引用：状态列已经写了，这里再重复一句就是噪音
   if (item.status === 'pending' || item.status === 'cancelled') return ''
   return item.url ?? ''
@@ -124,7 +163,12 @@ function itemDetail(item: ImageItem): string {
 
 /** 只有真正改写过的引用才配得上一条强调色的替换箭头。 */
 function replaced(status: ImageStatus): boolean {
-  return status === 'uploaded' || status === 'reused' || status === 'cached'
+  return (
+    status === 'uploaded' ||
+    status === 'reused' ||
+    status === 'cached' ||
+    status === 'localized'
+  )
 }
 </script>
 
@@ -182,9 +226,17 @@ function replaced(status: ImageStatus): boolean {
     <div v-if="expanded && !noDetails" :id="detailsId" class="details">
       <div class="details__stats">
         <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
-        <span v-if="(row.result?.uploaded ?? 0) > 0 || pendingCount === 0" class="stat">
+        <span v-if="showReplacedStat" class="stat">
           <span class="stat__n num">{{ row.result?.uploaded ?? 0 }}</span>
           <span class="stat__k">{{ t('row.stat.uploaded') }}</span>
+        </span>
+        <span v-if="localizedCount > 0" class="stat">
+          <span class="stat__n num">{{ localizedCount }}</span>
+          <span class="stat__k">{{ t('row.stat.localized') }}</span>
+        </span>
+        <span v-if="localKeptCount > 0" class="stat">
+          <span class="stat__n num">{{ localKeptCount }}</span>
+          <span class="stat__k">{{ t('row.stat.localKept') }}</span>
         </span>
         <span v-if="reusedCount > 0" class="stat">
           <span class="stat__n num">{{ reusedCount }}</span>
@@ -207,7 +259,7 @@ function replaced(status: ImageStatus): boolean {
       <ul v-if="items.length > 0" class="items">
         <li v-for="(item, index) in items" :key="index" class="items__row" :data-status="item.status">
           <span class="items__line mono">L{{ item.line }}</span>
-          <span class="items__status">{{ t(IMAGE_STATUS_META[item.status].labelKey) }}</span>
+          <span class="items__status">{{ itemLabel(item) }}</span>
           <span class="items__target mono" :title="item.absolutePath || item.target">
             {{ item.target }}
           </span>

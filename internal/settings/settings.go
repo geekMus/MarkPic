@@ -22,6 +22,21 @@ const (
 	OutputDirectory = "directory" // 全部输出到指定目录
 )
 
+// 拿「文档里已经写着的网络图片地址」怎么办。
+const (
+	// RemoteIgnore 是默认：远程图片原样留着，一个字节都不碰。
+	RemoteIgnore = "ignore"
+	// RemoteCheck 只做检测：逐个看这些地址还能不能打开，报告哪些已经失效，
+	// 但绝不改写文档。
+	RemoteCheck = "check"
+	// RemoteDownload 把远程图片下载回本地（默认存到文档旁边的 images 目录），
+	// 并把文档里的地址改成相对路径。
+	RemoteDownload = "download"
+)
+
+// DefaultRemoteDir 是下载回本地时的默认子目录名。
+const DefaultRemoteDir = "images"
+
 // CurrentSchemaVersion 是设置文件的结构版本。加载到比它旧的设置时会做一次性迁移，
 // 迁移完写回，用户之后再改回旧值就不会再被动。
 const CurrentSchemaVersion = 3
@@ -43,6 +58,13 @@ type Settings struct {
 	// 旧设置文件里没有这个字段时，反序列化到 Default() 上会保住 true。
 	ReuseUploads bool `json:"reuseUploads"`
 
+	// Remote 决定怎么对待「文档里已经写着的网络图片地址」：
+	// ignore（默认，原样留着）/ check（只检测能不能打开）/ download（下载回本地并改链接）。
+	Remote string `json:"remote"`
+	// RemoteDir 是下载回本地时相对文档所在目录的子目录名，默认 images。
+	// 允许写成 ../images 这种（图片放在上一级的公用目录里很常见）。
+	RemoteDir string `json:"remoteDir"`
+
 	// SchemaVersion 只在设置文件里出现，界面不显示。
 	SchemaVersion int `json:"schemaVersion,omitempty"`
 }
@@ -57,6 +79,8 @@ func Default() Settings {
 		Suffix:        ".converted",
 		Backup:        true,
 		ReuseUploads:  true,
+		Remote:        RemoteIgnore,
+		RemoteDir:     DefaultRemoteDir,
 		SchemaVersion: CurrentSchemaVersion,
 	}
 }
@@ -139,6 +163,24 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 	s.OutDir = strings.TrimSpace(s.OutDir)
 	if s.Output == OutputDirectory && s.OutDir == "" {
 		return errors.New(i18n.T(lang, i18n.KeySettingsOutDirNeeded))
+	}
+
+	switch s.Remote {
+	case RemoteIgnore, RemoteCheck, RemoteDownload:
+	case "":
+		s.Remote = RemoteIgnore
+	default:
+		return fmt.Errorf(i18n.T(lang, i18n.KeySettingsUnknownRemote), s.Remote)
+	}
+	s.RemoteDir = filepath.ToSlash(strings.TrimSpace(s.RemoteDir))
+	s.RemoteDir = strings.Trim(s.RemoteDir, "/")
+	if s.RemoteDir == "" || s.RemoteDir == "." {
+		s.RemoteDir = DefaultRemoteDir
+	}
+	// 写成绝对路径会很别扭：文档里要写的是「相对这个 Markdown 文件」的路径，
+	// 绝对路径既不可移植、又会把整台机器的目录结构泄进文档里。
+	if filepath.IsAbs(s.RemoteDir) || (len(s.RemoteDir) > 1 && s.RemoteDir[1] == ':') {
+		return errors.New(i18n.T(lang, i18n.KeySettingsRemoteDirAbsolute))
 	}
 	return nil
 }

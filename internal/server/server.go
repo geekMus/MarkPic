@@ -246,6 +246,9 @@ func (s *Server) serveIndex(w http.ResponseWriter, root fs.FS) {
 type picgoHealth struct {
 	Online bool   `json:"online"`
 	Detail string `json:"detail"`
+	// Needed 说明这次运行到底要不要 PicGo：只检测 / 下载回本地这两种模式不上传本地图片，
+	// PicGo 没开也能跑，界面就别把红点点亮成「出问题了」。
+	Needed bool `json:"needed"`
 }
 
 type healthResponse struct {
@@ -259,6 +262,14 @@ type healthResponse struct {
 	DataNote string `json:"dataNote,omitempty"`
 	// SettingsNote 在设置文件读不出来时说明「现在跑的是默认值」。
 	SettingsNote string `json:"settingsNote,omitempty"`
+}
+
+// needsPicGo 与命令行同一套判断：只碰远程图的两种模式不需要图床。
+func needsPicGo(cfg settings.Settings) bool {
+	if cfg.DryRun {
+		return false
+	}
+	return cfg.Remote != settings.RemoteCheck && cfg.Remote != settings.RemoteDownload
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -276,7 +287,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		App:      AppName,
 		Version:  version.String(),
 		Endpoint: cfg.Endpoint,
-		Picgo:    picgoHealth{Online: online, Detail: detail},
+		Picgo:    picgoHealth{Online: online, Detail: detail, Needed: needsPicGo(cfg)},
 		DataDir:  appdata.Dir(),
 		DataNote: appdata.Note(langOf(r)),
 		// Load 已经把「设置文件读不出来」这件事咽下去了（回退默认值继续跑），
@@ -386,6 +397,8 @@ type settingsPatch struct {
 	Backup      *bool   `json:"backup"`
 	DryRun      *bool   `json:"dryRun"`
 	Reuse       *bool   `json:"reuseUploads"`
+	Remote      *string `json:"remote"`
+	RemoteDir   *string `json:"remoteDir"`
 }
 
 func (p *settingsPatch) apply(cfg *settings.Settings) {
@@ -418,6 +431,12 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	}
 	if p.Reuse != nil {
 		cfg.ReuseUploads = *p.Reuse
+	}
+	if p.Remote != nil {
+		cfg.Remote = *p.Remote
+	}
+	if p.RemoteDir != nil {
+		cfg.RemoteDir = *p.RemoteDir
 	}
 }
 

@@ -52,6 +52,12 @@ convert-md-picture note.md --in-place
 # 递归处理整个目录，输出到指定目录
 convert-md-picture .\docs --output directory --out-dir .\out
 
+# 只看文章里的远程图片链接还有没有效（不改文档、不上传本地图）
+convert-md-picture --remote check docs/
+
+# 反过来：把远程图下载回本地，链接改成相对路径
+convert-md-picture --remote download --remote-dir images docs/
+
 # 只检查不写文件
 convert-md-picture .\docs --dry-run
 ```
@@ -68,6 +74,8 @@ convert-md-picture .\docs --dry-run
 | `--backup` | 原地替换前备份，默认开启；用 `--backup=false` 关闭 |
 | `--dry-run` | 只检查，不上传、不写文件 |
 | `--no-reuse` | 不复用上次的上传结果，每张图都重新上传 |
+| `--remote <ignore\|check\|download>` | 文章里的远程图怎么处理，默认 `ignore`（原样留着） |
+| `--remote-dir <dir>` | `download` 模式把图片放到文档旁边的哪个子目录，默认 `images` |
 | `-e, --endpoint <url>` | PicGo 服务地址，默认 `http://127.0.0.1:36677` |
 | `-c, --concurrency <int>` | 同时处理的文件数，也是同时上传的图片数，1-32，默认 16 |
 | `--retries <int>` | 上传失败重试次数，0-5，默认 2 |
@@ -76,6 +84,30 @@ convert-md-picture .\docs --dry-run
 
 命令行参数只覆盖你显式写出来的项，其余沿用界面里保存的设置。
 退出码：有文件失败、有图片失败、或者**一个文件都没处理**（路径全不存在、通配符没匹配到、目录里没有 Markdown）时为 `1`；参数写错是 `2`；其余为 `0`。
+
+### 文章里的远程图
+
+除了把本地图片传上图床，还可以反过来处理文章里**已经挂在网上**的图片。设置里的「文章里的远程图」有三档：
+
+| 模式 | 做什么 | 会不会改文档 |
+| --- | --- | --- |
+| `ignore`（默认） | 什么都不做，远程图片原样留着 | 不改 |
+| `check` | 逐个打开远程地址，报告哪些打不开、哪些返回的不是图片 | **不改**（这一轮只出报告） |
+| `download` | 把远程图片下载到文档旁边的 `images/`（可改），链接改成相对路径 | 会改 |
+
+两条约定：
+
+- **这两种模式都不上传本地图片。** `check` 只读远程地址；`download` 只下载远程图，本地图片原样保留（明细里标「本地保留」）。想做「本地→图床」就切回 `ignore`。
+- **`check` / `download` 不需要 PicGo 开着**，因为它们压根不上传。界面右上角那盏灯这时会显示「本次不需要 PicGo」，不是故障。
+
+`download` 的几个细节：
+
+- 图片存到 `<文档所在目录>/<remoteDir>/`，文件名沿用远程地址的最后一段；没后缀或后缀不像图片时按真实内容补（`image/png` → `.png`）。
+- 同一张图被多篇文章引用时只下载一次，其它文章复用（不同目录会复制一份过去）。
+- 已经下载过、大小也一致的文件不会被重写。
+- 下载失败（404、连不上、返回 HTML 错误页、超过 64 MB）时，那一处**保持原来的远程地址**并在明细里说明原因，不会把半截文件塞进文档。
+
+退出码：`check` 模式下发现死链会返回 `1`（脚本里可以 `convert-md-picture --remote check docs/ || echo 有死链`），全部有效返回 `0`。
 
 ### 输出方式
 

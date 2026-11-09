@@ -58,6 +58,12 @@ export interface RunStats {
   partial: number
   failedFiles: number
   noImages: number
+  /** download 模式：这一轮把几张远程图下载到了本地。 */
+  localized: number
+  /** check 模式：检测了几个远程地址、其中几个打不开，以及有几个文件只是被检测。 */
+  remoteChecked: number
+  remoteDead: number
+  filesChecked: number
 }
 
 const { danger, warning, success } = useToasts()
@@ -117,6 +123,10 @@ const live = reactive({
   partial: 0,
   failedFiles: 0,
   noImages: 0,
+  localized: 0,
+  remoteChecked: 0,
+  remoteDead: 0,
+  filesChecked: 0,
   settled: 0,
 })
 
@@ -160,6 +170,10 @@ const stats = computed<RunStats>(() => {
       partial: finished.partial,
       failedFiles: finished.failed,
       noImages: finished.noImages,
+      localized: finished.localized ?? 0,
+      remoteChecked: finished.remoteChecked ?? 0,
+      remoteDead: finished.remoteDead ?? 0,
+      filesChecked: finished.filesChecked ?? 0,
     }
   }
 
@@ -173,6 +187,10 @@ const stats = computed<RunStats>(() => {
     partial: live.partial,
     failedFiles: live.failedFiles,
     noImages: live.noImages,
+    localized: live.localized,
+    remoteChecked: live.remoteChecked,
+    remoteDead: live.remoteDead,
+    filesChecked: live.filesChecked,
   }
 })
 
@@ -224,6 +242,10 @@ function liveReset(): void {
   live.partial = 0
   live.failedFiles = 0
   live.noImages = 0
+  live.localized = 0
+  live.remoteChecked = 0
+  live.remoteDead = 0
+  live.filesChecked = 0
   live.settled = 0
   lastReveal.value = null
   lastRevealIndex = -1
@@ -247,6 +269,7 @@ function scoreStatus(status: FileResult['status'], sign: number): void {
   else if (status === 'partial') live.partial += sign
   else if (status === 'failed') live.failedFiles += sign
   else if (status === 'no-images') live.noImages += sign
+  else if (status === 'checked') live.filesChecked += sign
 }
 
 function rowAt(id: string): RunRow | null {
@@ -320,6 +343,9 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.images -= row.result.images
     live.reused -= reusedInResult(row.result)
     live.failed -= row.result.failed
+    live.localized -= row.result.localized ?? 0
+    live.remoteChecked -= row.result.checked ?? 0
+    live.remoteDead -= row.result.dead ?? 0
     scoreStatus(row.result.status, -1)
   } else {
     live.images -= row.images ?? row.total
@@ -329,6 +355,9 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.uploaded += result.uploaded - row.uploaded
   live.reused += reusedInResult(result)
   live.failed += result.failed
+  live.localized += result.localized ?? 0
+  live.remoteChecked += result.checked ?? 0
+  live.remoteDead += result.dead ?? 0
   scoreStatus(result.status, 1)
   if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 

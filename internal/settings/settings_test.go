@@ -33,22 +33,22 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "补全协议并去掉结尾斜杠",
 			in:   Settings{Endpoint: "127.0.0.1:36677/", Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "并发与重试夹到区间内",
 			in:   Settings{Concurrency: 99, Retries: 99, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: MaxConcurrency, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: MaxConcurrency, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "下限同样夹住",
 			in:   Settings{Concurrency: -3, Retries: -3, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: 1, Retries: 0, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 1, Retries: 0, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "空输出方式回落到旁路模式",
 			in:   Settings{Concurrency: 4, Suffix: ""},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: 4, Output: OutputSidecar, Suffix: ".converted"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 4, Output: OutputSidecar, Suffix: ".converted"},
 		},
 		{
 			name:    "未知输出方式报错",
@@ -68,7 +68,7 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "输出到目录且给了目录",
 			in:   Settings{Output: OutputDirectory, OutDir: " out ", Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Concurrency: 1, Output: OutputDirectory, OutDir: "out", Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 1, Output: OutputDirectory, OutDir: "out", Suffix: ".c"},
 		},
 	}
 

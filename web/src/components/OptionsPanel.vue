@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
-import { OUTPUT_MODES } from '../composables/useSettings'
+import { computed } from 'vue'
+import { OUTPUT_MODES, REMOTE_MODES } from '../composables/useSettings'
 import { useTheme, type ThemeChoice } from '../composables/useTheme'
 import { useI18n, type Lang, type MessageKey } from '../i18n'
 import type { Settings } from '../types'
 
-defineProps<{
+const props = defineProps<{
   settings: Settings
   dirty: boolean
   loaded: boolean
@@ -32,6 +33,11 @@ const THEME_OPTIONS: readonly { value: ThemeChoice; labelKey: MessageKey }[] = [
   { value: 'light', labelKey: 'theme.light' },
   { value: 'dark', labelKey: 'theme.dark' },
 ]
+
+/** 当前选中模式那一句说明，跟在分段控件下面。 */
+const remoteHintKey = computed<MessageKey>(
+  () => REMOTE_MODES.find(mode => mode.value === props.settings.remote)?.hintKey ?? 'settings.remote.ignore.hint',
+)
 
 const LANG_OPTIONS: readonly { value: Lang; labelKey: MessageKey }[] = [
   { value: 'zh', labelKey: 'language.zh' },
@@ -97,6 +103,38 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 @input="emit('update', { endpoint: textValue($event) })"
               />
               <span class="field__hint">{{ t('settings.endpoint.hint') }}</span>
+            </label>
+          </section>
+
+          <section class="section">
+            <h3 class="section__title">{{ t('settings.section.remote') }}</h3>
+            <div class="segmented" role="group" :aria-label="t('settings.section.remote')">
+              <button
+                v-for="mode in REMOTE_MODES"
+                :key="mode.value"
+                type="button"
+                class="segmented__item"
+                :aria-pressed="settings.remote === mode.value"
+                :title="t(mode.hintKey)"
+                @click="emit('update', { remote: mode.value })"
+              >
+                {{ t(mode.labelKey) }}
+              </button>
+            </div>
+            <p class="check__hint">{{ t(remoteHintKey) }}</p>
+
+            <label v-if="settings.remote === 'download'" class="field">
+              <span class="field__label">{{ t('settings.remoteDir') }}</span>
+              <input
+                class="input mono"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="images"
+                :value="settings.remoteDir"
+                @input="emit('update', { remoteDir: textValue($event) })"
+              />
+              <span class="field__hint">{{ t('settings.remoteDir.hint') }}</span>
             </label>
           </section>
 

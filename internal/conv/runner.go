@@ -18,6 +18,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/platform"
+	"github.com/geekMus/convert-md-picture/internal/remoteimg"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 	"github.com/geekMus/convert-md-picture/internal/textenc"
 	"github.com/geekMus/convert-md-picture/internal/uploadcache"
@@ -88,6 +89,14 @@ type Runner struct {
 	abortMu     sync.Mutex
 	abortRun    context.CancelFunc
 	abortWhy    string
+
+	// 远程图片（检测 / 下载回本地）用的东西。
+	// remoteFiles 让同一个地址在一轮里只问一次：一篇文档里同一张图常被引用几十次，
+	// 多篇文档之间也常常共用同一批图。
+	remote      *remoteimg.Client
+	remoteMu    sync.Mutex
+	remoteFiles map[string]*remoteFile
+	remoteNames map[string]string
 }
 
 // abortsAfterFailures 是「认定图床不可用」的连续失败张数。
@@ -214,6 +223,10 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 
 		stamps:   make(map[string]stamp),
 		scanDocs: make(map[string]*mdscan.Document),
+
+		remote:      remoteimg.New(remoteimg.DefaultTimeout),
+		remoteFiles: make(map[string]*remoteFile),
+		remoteNames: make(map[string]string),
 	}
 } // rememberDoc 记下预扫结果，供正式处理时复用。
 func (r *Runner) rememberDoc(path string, doc *mdscan.Document) {
@@ -416,6 +429,9 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.Files++
 		sum.Images += res.Images
 		sum.Uploaded += res.Uploaded
+		sum.Localized += res.Localized
+		sum.RemoteChecked += res.Checked
+		sum.RemoteDead += res.Dead
 		sum.FailedImages += res.Failed
 		switch res.Status {
 		case FileOK:
@@ -430,6 +446,8 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 			// 取消的文件既不算成功也不算失败：界面自己会显示「已取消」。
 		case FilePreview:
 			sum.OK++
+		case FileChecked:
+			sum.FilesChecked++
 		}
 	}
 	sum.DurationMs = time.Since(started).Milliseconds()
@@ -513,11 +531,21 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	items := make([]Item, len(refs))
 	groups := make([]*itemGroup, 0, len(refs))
 	byPath := make(map[string]*itemGroup, len(refs))
+	remoteMode := r.remoteMode()
 
 	for i, ref := range refs {
 		it := Item{Target: ref.Target, Kind: ref.Kind, Line: ref.Line}
 
-		switch imgpath.Classify(ref.Target) {
+		kind := imgpath.Classify(ref.Target)
+		// 「把图取回来」的两个模式不碰本地图片：用户在意的正是「反方向」，
+		// 顺手把本地图传出去就完全走反了。
+		if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
+			it.Status = StatusLocalKept
+			items[i] = it
+			continue
+		}
+
+		switch kind {
 		case imgpath.Remote:
 			it.Status = StatusRemote
 		case imgpath.Empty:
@@ -558,9 +586,14 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	// 无论成功失败都要把逐图明细带回给调用方（界面展开、命令行提示都靠它）
 	res.Items = items
 
-	// 预检模式跳过上传，待处理项保持 pending
-	if !r.cfg.DryRun && len(groups) > 0 {
-		r.uploadGroups(ctx, id, groups, items)
+	remotes := []*remoteGroup(nil)
+	if remoteMode != settings.RemoteIgnore {
+		remotes = r.buildRemoteGroups(items, refs)
+	}
+
+	// 预检模式跳过真正的网络动作，待处理项保持 pending
+	if !r.cfg.DryRun {
+		r.runUnits(ctx, id, filepath.Dir(path), groups, remotes, items)
 	}
 
 	for _, it := range items {
@@ -572,6 +605,13 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			// 界面就不用为了显示「复用几张」再把上万条明细数一遍。
 			res.Uploaded++
 			res.Reused++
+		case StatusLocalized:
+			res.Localized++
+		case StatusRemoteOK:
+			res.Checked++
+		case StatusRemoteBad:
+			res.Checked++
+			res.Dead++
 		case StatusFailed, StatusMissing:
 			res.Failed++
 		case StatusCancelled:
@@ -580,6 +620,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		default:
 			res.Skipped++
 		}
+	}
+
+	// 只做检测：一个字都不改，直接把报告带回去。
+	if remoteMode == settings.RemoteCheck && !r.cfg.DryRun {
+		res.Status = FileChecked
+		return res
 	}
 
 	if r.cfg.DryRun {
@@ -600,17 +646,24 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		res.Error = i18n.T(r.lang, i18n.KeyConvCancelled)
 		return res
 	}
-	if res.Uploaded == 0 && res.Failed > 0 {
+	// 「改动了什么」现在有两种来源：上传成功的本地图、下载回本地的远程图。
+	changed := res.Uploaded + res.Localized
+	if changed == 0 && res.Dead > 0 {
+		// 远程地址全是坏的，没有可写的内容；但这不是「文档里没有图」，得如实说。
+		res.Status = FilePartial
+		return res
+	}
+	if changed == 0 && res.Failed > 0 {
 		res.Status = FileFailed
 		res.Error = i18n.T(r.lang, i18n.KeyConvAllFailed)
 		return res
 	}
-	if res.Uploaded == 0 {
+	if changed == 0 {
 		res.Status = FileNoImages
 		return res
 	}
 
-	repls := make([]mdscan.Repl, 0, res.Uploaded)
+	repls := make([]mdscan.Repl, 0, changed)
 	for i, ref := range refs {
 		if items[i].URL == "" {
 			continue
@@ -700,7 +753,6 @@ func isAttachment(target string) bool {
 	return attachmentExtensions[strings.ToLower(filepath.Ext(target))]
 }
 
-// uploadGroups 并发上传去重后的图片，并把结果写回对应的引用项。
 // looseTargetExists 判断「路径里有空格」这种不规范写法指向的文件是否真的存在。
 // 只有存在时才认这处引用，所以猜错了也不会误报。
 func (r *Runner) looseTargetExists(docPath, target string) bool {
@@ -710,60 +762,6 @@ func (r *Runner) looseTargetExists(docPath, target string) bool {
 		}
 	}
 	return false
-}
-
-func (r *Runner) uploadGroups(ctx context.Context, id string, groups []*itemGroup, items []Item) {
-	total := len(groups)
-	var done int
-	var mu sync.Mutex
-
-	work := make(chan int)
-	var wg sync.WaitGroup
-
-	workers := r.cfg.Concurrency
-	if workers > total {
-		workers = total
-	}
-	if workers < 1 {
-		workers = 1
-	}
-
-	for w := 0; w < workers; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for gi := range work {
-				g := groups[gi]
-				url, status, uerr := r.upload(ctx, g.abs)
-
-				mu.Lock()
-				done++
-				progress := done
-				for _, idx := range g.refs {
-					if uerr != nil {
-						if status == StatusCancelled {
-							// 取消不是上传失败：统计和界面都不该把它算成失败。
-							items[idx].Status = StatusCancelled
-						} else {
-							items[idx].Status = StatusFailed
-						}
-						items[idx].Error = uerr.Error()
-						continue
-					}
-					items[idx].URL = url
-					items[idx].Status = status
-				}
-				mu.Unlock()
-
-				r.notify(Event{Type: EventFileProgress, ID: id, Uploaded: progress, Total: total})
-			}
-		}()
-	}
-	for gi := range groups {
-		work <- gi
-	}
-	close(work)
-	wg.Wait()
 }
 
 // upload 上传一张图片，返回地址与这张图是怎么来的（uploaded/reused/cached）。
