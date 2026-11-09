@@ -15,6 +15,13 @@ export interface DeadLink {
   kind: 'check' | 'download'
 }
 
+/** 一张找不到的本地图，以及它在文档里的全部引用处。 */
+export interface MissingLocal {
+  path: string
+  reason: string
+  refs: DeadRef[]
+}
+
 /** 清单里每个地址最多列几处引用：再多就没人看了。 */
 const MAX_REFS = 8
 
@@ -59,15 +66,44 @@ export function collectDeadLinks(rows: readonly RunRowView[]): DeadLink[] {
 }
 
 /**
+ * 把「文档引用了、但文件不在」的本地图汇总起来。
+ *
+ * 只检测 / 只下载这两种模式不碰本地图，可引用的文件不在照样是坏链接 —— 明细里标
+ * 「本地缺图」，行上写「其中 N 张本地图找不到」。这份清单是给人照着改文档用的，
+ * 只列远程死链就把本地缺图漏在屏幕上了。
+ */
+export function collectMissingLocals(rows: readonly RunRowView[]): MissingLocal[] {
+  const byPath = new Map<string, MissingLocal>()
+  for (const row of rows) {
+    const res = row.result
+    if (!res?.items) continue
+    for (const item of res.items) {
+      if (item.status !== 'local-kept' || !item.error) continue
+      const path = item.target
+      let miss = byPath.get(path)
+      if (!miss) {
+        miss = { path, reason: '', refs: [] }
+        byPath.set(path, miss)
+      }
+      if (miss.reason === '') miss.reason = item.error
+      miss.refs.push({ file: row.name, line: item.line })
+    }
+  }
+  return [...byPath.values()].sort(
+    (a, b) => b.refs.length - a.refs.length || a.path.localeCompare(b.path),
+  )
+}
+
+/**
  * 把地址里的账号密码换成 ***。
  *
  * 这份清单是给人复制走的，多半会被贴进 issue、聊天窗口或者笔记里。地址写成
- * `http://user:pass@host/x.png` 的文档不算罕见（私有图床常见写法），
+ * `http://user:pw@host/x.png` 的文档不算罕见（私有图床常见写法），
  * 原样带出去就等于把密码一起公开了。地址本身还在用户自己的文档里，改它不难。
  */
 export function redactUrl(target: string): string {
   const s = target.trim()
-  // 协议相对地址（//user:pass@host/x.png）没有 `://`，同样是带凭据的地址。
+  // 协议相对地址（//user:pw@host/x.png）没有 `://`，同样是带凭据的地址。
   let start = -1
   const scheme = s.indexOf('://')
   if (scheme >= 0) start = scheme + 3
@@ -90,6 +126,9 @@ export interface DeadReportStrings {
   /** 引用之间的分隔符：中文用「、」，英文用「, 」。 */
   sep: string
   more: string
+  /** 「找不到的本地图」那一节的标题。 */
+  missingTitle: string
+  missingSummary: (refs: number, paths: number) => string
 }
 
 /**
@@ -113,6 +152,36 @@ export function formatDeadReport(links: readonly DeadLink[], s: DeadReportString
     out.push(`  ${s.refs(places, link.refs.length)}`)
   }
   return out.join('\n')
+}
+
+/** 「找不到的本地图」那一节。 */
+export function formatMissingLocals(
+  missing: readonly MissingLocal[],
+  s: DeadReportStrings,
+): string {
+  const totalRefs = missing.reduce((n, miss) => n + miss.refs.length, 0)
+  const out: string[] = [`## ${s.missingTitle}`, '', s.missingSummary(totalRefs, missing.length), '']
+  for (const miss of missing) {
+    const shown = miss.refs.slice(0, MAX_REFS).map((ref) => `${ref.file}:${ref.line}`)
+    const places =
+      miss.refs.length > MAX_REFS ? `${shown.join(s.sep)} ${s.more}` : shown.join(s.sep)
+    out.push(`- ${miss.path}`)
+    if (miss.reason !== '') out.push(`  ${miss.reason}`)
+    out.push(`  ${s.refs(places, miss.refs.length)}`)
+  }
+  return out.join('\n')
+}
+
+/** 两份清单合成一份：要么没碰到坏链接，要么一次给全。 */
+export function formatBrokenReport(
+  links: readonly DeadLink[],
+  missing: readonly MissingLocal[],
+  s: DeadReportStrings,
+): string {
+  const parts: string[] = []
+  if (links.length > 0) parts.push(formatDeadReport(links, s))
+  if (missing.length > 0) parts.push(formatMissingLocals(missing, s))
+  return parts.join('\n\n')
 }
 
 /**

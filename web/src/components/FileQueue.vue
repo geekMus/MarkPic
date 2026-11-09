@@ -4,7 +4,12 @@ import AppIcon from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
-import { collectDeadLinks, copyText, formatDeadReport } from '../composables/useDeadLinks'
+import {
+  collectDeadLinks,
+  collectMissingLocals,
+  copyText,
+  formatBrokenReport,
+} from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 import { useI18n } from '../i18n'
 
@@ -189,23 +194,37 @@ function toggleProblems(): void {
  * 页脚要显示的只是「有没有死链」，所以平时只数行上的 dead 计数（O(行数)）；
  * 真正按地址汇总要遍历所有逐图明细（两万张图就是两万次比较），放到点击时做。
  */
-const deadRefs = computed(() =>
-  props.rows.reduce((n, row) => n + (row.result?.dead ?? 0) + (row.result?.remoteFailed ?? 0), 0),
+const brokenRefs = computed(() =>
+  props.rows.reduce(
+    (n, row) =>
+      n +
+      (row.result?.dead ?? 0) +
+      (row.result?.remoteFailed ?? 0) +
+      (row.result?.localMissing ?? 0),
+    0,
+  ),
 )
 
 async function copyDeadReport(): Promise<void> {
+  // 只在点击时遍历明细：两万条 × 每完成一篇重算一次，是白烧 CPU。
   const links = collectDeadLinks(props.rows)
-  if (links.length === 0) return
-  const text = formatDeadReport(links, {
+  const missing = collectMissingLocals(props.rows)
+  if (links.length === 0 && missing.length === 0) return
+  const text = formatBrokenReport(links, missing, {
     title: t('report.dead.title'),
     titleDownload: t('report.dead.titleDownload'),
     summary: (refs, urls) => t('report.dead.summary', { refs, urls }),
     refs: (places, total) => t('report.dead.refs', { refs: places, total }),
     sep: t('report.dead.sep'),
     more: t('report.dead.more'),
+    missingTitle: t('report.missing.title'),
+    missingSummary: (refs, paths) => t('report.missing.summary', { refs, paths }),
   })
   if (await copyText(text)) {
-    success(t('queue.copyDead.done', { urls: links.length }))
+    const parts: string[] = []
+    if (links.length > 0) parts.push(t('queue.copyDead.doneUrls', { urls: links.length }))
+    if (missing.length > 0) parts.push(t('queue.copyDead.donePaths', { paths: missing.length }))
+    success(parts.join('，'))
     return
   }
   danger(t('queue.copyDead.failed'))
@@ -337,11 +356,11 @@ function onScroll(): void {
 
         <!-- 死链要照着改文档：把去重清单复制出去，比一行一行抄省事 -->
         <button
-          v-if="deadRefs > 0"
+          v-if="brokenRefs > 0"
           type="button"
           class="icon-btn"
-          :title="t('queue.copyDead', { refs: deadRefs })"
-          :aria-label="t('queue.copyDead', { refs: deadRefs })"
+          :title="t('queue.copyDead', { refs: brokenRefs })"
+          :aria-label="t('queue.copyDead', { refs: brokenRefs })"
           @click="copyDeadReport"
         >
           <AppIcon name="copy" :size="16" />
