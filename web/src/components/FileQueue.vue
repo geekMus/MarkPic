@@ -184,7 +184,7 @@ function toggleProblems(): void {
  * 真正按地址汇总要遍历所有逐图明细（两万张图就是两万次比较），放到点击时做。
  */
 const deadRefs = computed(() =>
-  props.rows.reduce((n, row) => n + (row.result?.dead ?? 0), 0),
+  props.rows.reduce((n, row) => n + (row.result?.dead ?? 0) + (row.result?.remoteFailed ?? 0), 0),
 )
 
 async function copyDeadReport(): Promise<void> {
@@ -192,6 +192,7 @@ async function copyDeadReport(): Promise<void> {
   if (links.length === 0) return
   const text = formatDeadReport(links, {
     title: t('report.dead.title'),
+    titleDownload: t('report.dead.titleDownload'),
     summary: (refs, urls) => t('report.dead.summary', { refs, urls }),
     refs: (places, total) => t('report.dead.refs', { refs: places, total }),
     sep: t('report.dead.sep'),

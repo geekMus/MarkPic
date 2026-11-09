@@ -41,6 +41,10 @@ type ImageStatus =
   | 'remote-ok'  // check 模式：地址能打开，拿到的确实是图片
   | 'remote-bad' // check 模式：地址打不开，或者返回的不是图片
 
+// 'remote' 除了「ignore 模式下原样留着」，也是 ftp:// / data: / mailto: 这类
+// 碰不了的地址的归宿：状态仍是 'remote'（文档确实没动），error 里写明为什么
+// 处理不了，并计进 FileResult.remoteUnsupported。
+
 type ImageItem = {
   target: string        // 文档里写的原始地址
   absolutePath: string  // 解析后的绝对路径（remote 时为空）
@@ -64,6 +68,12 @@ type FileResult = {
   localized?: number    // download 模式：这一篇里有几张远程图落到了本地
   dead?: number         // check 模式：这一篇里有几个远程地址打不开（或不是图片）
   checked?: number      // check 模式：这一篇里一共检测了几个远程地址
+  remoteUnsupported?: number
+                        // 这一篇里有几处地址根本碰不了（ftp:// / data: / mailto:），
+                        // 既不算 checked 也不算 dead；文档里照原样留着
+  remoteFailed?: number // download 模式：几处远程地址没拿到图（连不上、超时）。
+                        // 同时也算在 failed 里；界面的「复制清单」靠它把远程失败
+                        // 和本地图片读不出来分开
   failed: number
   skipped: number
   outputPath?: string

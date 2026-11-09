@@ -678,6 +678,11 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			}
 		case StatusFailed, StatusMissing:
 			res.Failed++
+			// 远程地址没拿到图，和本地图片读不出来是两件事：前者要照着清单去改
+			// 文档里的地址，后者要看磁盘。界面上的「复制清单」只该列前者。
+			if isRemoteURL(it.Target) {
+				res.RemoteFailed++
+			}
 		case StatusCancelled:
 			// 取消造成的「没传」不是失败，别把它算进失败数里吓人。
 			res.Skipped++

@@ -3,6 +3,7 @@ package conv
 import (
 	"bytes"
 	"context"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -905,6 +906,40 @@ func TestRemoteDownloadWithDeadLinksIsPartial(t *testing.T) {
 	out, _ := os.ReadFile(res.OutputPath)
 	if !strings.Contains(string(out), "(images/ok.png)") || !strings.Contains(string(out), host.URL+"/broken.png") {
 		t.Fatalf("输出不对:\n%s", out)
+	}
+}
+
+// 下载失败要单独记一笔 RemoteFailed：界面上的「复制清单」只该列远程地址，
+// 不能把本地图片读不出来的失败也一起列进去。
+func TestRemoteDownloadCountsRemoteFailuresApart(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+
+	// 一个肯定连不上的端口：监听一下再关掉，地址就空出来了。
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("开端口失败: %v", err)
+	}
+	refused := "http://" + ln.Addr().String() + "/x.png"
+	_ = ln.Close()
+
+	doc := filepath.Join(dir, "doc.md")
+	// 四张图：能下载的、404 的、连不上的、本地压根不存在的。
+	writeFile(t, doc, "![好]("+host.URL+"/ok.png)\n\n![坏]("+host.URL+"/broken.png)\n\n"+
+		"![连不上]("+refused+")\n\n![丢](nope.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+	results, _ := NewRunner(cfg, i18n.ZH, "run", nil).RunCollect(context.Background(), []string{doc})
+	res := results[0]
+
+	if res.RemoteFailed != 1 {
+		t.Fatalf("只有连不上的那处算「远程没拿到」，实际 %d（items=%+v）", res.RemoteFailed, res.Items)
+	}
+	if res.Failed != 1 {
+		t.Fatalf("失败数只该数那一处连不上的：failed=%d", res.Failed)
+	}
+	if res.Dead != 1 || res.Localized != 1 {
+		t.Fatalf("404 算失效、能下的那张算落地：dead=%d localized=%d", res.Dead, res.Localized)
 	}
 }
 

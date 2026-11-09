@@ -63,13 +63,17 @@ type FileResult struct {
 	// RemoteUnsupported 是「是远程地址，但我们碰不了」的引用数（ftp://、data:）。
 	// 它们既不算检测过、也不算失效，得单独记一笔，否则一篇里 4 处远程引用
 	// 只报「远程图 1 张」，另外 3 处等于从报告里消失了。
-	RemoteUnsupported int      `json:"remoteUnsupported"`
-	Failed            int      `json:"failed"`
-	Skipped           int      `json:"skipped"`
-	OutputPath        string   `json:"outputPath,omitempty"`
-	Error             string   `json:"error,omitempty"`
-	Warnings          []string `json:"warnings,omitempty"`
-	Items             []Item   `json:"items"`
+	RemoteUnsupported int `json:"remoteUnsupported"`
+	// RemoteFailed 是「远程地址这次没拿到图」的引用数（download 模式下下载失败、
+	// 超时、连不上）。它同时算在 Failed 里——文件确实是「部分完成」——但界面要按
+	// 地址去重地列一份「没下载回来」的清单，光看 Failed 会混进本地图片的失败。
+	RemoteFailed int      `json:"remoteFailed"`
+	Failed       int      `json:"failed"`
+	Skipped      int      `json:"skipped"`
+	OutputPath   string   `json:"outputPath,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+	Items        []Item   `json:"items"`
 }
 
 // FileTask 是排队中的文件（run.started 时下发）。

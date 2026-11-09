@@ -321,6 +321,14 @@ func (r *Runner) remoteEntry(rawURL string) (*remoteFile, bool) {
 	return e, true
 }
 
+// isRemoteURL 判断一处引用的地址是不是「要去网上拿」的。协议相对地址（//host/x.png）
+// 也算——它只是省了协议，照样是远程图。ftp:// 与 data: 不算：我们碰不了它们，
+// 也就不该把它们列进「没下载回来」的清单里。
+func isRemoteURL(target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") || strings.HasPrefix(t, "//")
+}
+
 func (r *Runner) finishRemote(e *remoteFile, out remoteFile) {
 	e.status = out.status
 	e.msg = out.msg

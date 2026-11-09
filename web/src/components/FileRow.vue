@@ -74,7 +74,15 @@ const reason = computed(() => {
     return ''
   }
   if (result.error) return result.error
-  if (result.failed > 0) return t('row.reason.failed', { count: result.failed })
+  if (result.failed > 0) {
+    // 「没下载回来」和「本地图片读不出来」是两回事：都写成「未处理」的话，
+    // 用户不知道是去改文档里的地址，还是去看磁盘。
+    const remote = result.remoteFailed ?? 0
+    if (remote > 0 && remote === result.failed) {
+      return t('row.reason.remoteFailed', { count: remote })
+    }
+    return t('row.reason.failed', { count: result.failed })
+  }
   const dead = result.dead ?? 0
   if (dead > 0) return t('row.reason.dead', { count: dead })
   const warning = result.warnings?.[0]
