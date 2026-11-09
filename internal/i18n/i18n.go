@@ -39,8 +39,11 @@ const (
 	KeyPicgoNoResponse   Key = "picgo.noResponse"
 	KeyPicgoEmptySnippet Key = "picgo.emptySnippet"
 
-	KeyConvExpandFailed       Key = "conv.expandFailed"
-	KeyConvPathMissing        Key = "conv.pathMissing"
+	KeyConvExpandFailed Key = "conv.expandFailed"
+	KeyConvPathMissing  Key = "conv.pathMissing"
+	// KeyConvOnlyOutputsSkipped：目录里剩下的全是本工具的产物。沉默地报「没有找到
+	// 任何可处理的文件」，用户会以为是自己的路径写错了。
+	KeyConvOnlyOutputsSkipped Key = "conv.onlyOutputsSkipped"
 	KeyConvReadFailed         Key = "conv.readFailed"
 	KeyConvNotUTF8            Key = "conv.notUTF8"
 	KeyConvEncodeFailed       Key = "conv.encodeFailed"
@@ -204,6 +207,10 @@ var catalog = map[Key]entry{
 	KeyConvPathMissing: {
 		"路径不存在，已跳过: %s",
 		"Path does not exist, skipped: %s",
+	},
+	KeyConvOnlyOutputsSkipped: {
+		"目录里没有可处理的文档：%d 个 .md 的名字都以 %q 结尾，被当成上一轮的产物跳过了。确实要处理它们就换一个 --suffix，或者把文件直接写进参数里。",
+		"No processable document left in the directory: %d .md files end with %q and were treated as earlier output. Use a different --suffix, or pass those files explicitly.",
 	},
 	KeyConvReadFailed: {
 		"无法读取文件：%v",

@@ -386,12 +386,16 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		r.abortMu.Unlock()
 	}()
 
-	files, missing, err := ExpandPaths(paths, r.cfg.Suffix, r.skipDir())
+	files, missing, skipped, err := ExpandPaths(paths, r.cfg.Suffix, r.skipDir())
 	if err != nil {
 		r.logf("error", "%s", i18n.T(r.lang, i18n.KeyConvExpandFailed, err))
 	}
 	for _, m := range missing {
 		r.logf("warn", "%s", i18n.T(r.lang, i18n.KeyConvPathMissing, m))
+	}
+	// 目录里只剩「上一轮的产物」时，得说清是没文档还是被后缀规则挡掉了。
+	if len(files) == 0 && len(skipped) > 0 {
+		r.logf("warn", "%s", i18n.T(r.lang, i18n.KeyConvOnlyOutputsSkipped, len(skipped), r.cfg.Suffix))
 	}
 	if len(files) == 0 {
 		sum.DurationMs = time.Since(started).Milliseconds()

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -300,7 +301,7 @@ func TestExpandPathsSkipsOutputs(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "sub", "b.md"), "x")
 	writeFile(t, filepath.Join(dir, "node_modules", "c.md"), "x")
 
-	files, _, err := ExpandPaths([]string{dir}, ".converted", "")
+	files, _, _, err := ExpandPaths([]string{dir}, ".converted", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +319,7 @@ func TestExpandSkipsOutputDirInsideScan(t *testing.T) {
 	writeFile(t, filepath.Join(out, "a.md"), "x")
 	writeFile(t, filepath.Join(out, "sub", "b.md"), "x")
 
-	files, _, err := ExpandPaths([]string{dir}, ".converted", out)
+	files, _, _, err := ExpandPaths([]string{dir}, ".converted", out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +328,7 @@ func TestExpandSkipsOutputDirInsideScan(t *testing.T) {
 	}
 
 	// 大小写不同也要认得出来（Windows 上 Out 与 out 是同一个目录）。
-	files, _, err = ExpandPaths([]string{dir}, ".converted", strings.ToUpper(out))
+	files, _, _, err = ExpandPaths([]string{dir}, ".converted", strings.ToUpper(out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,7 +337,7 @@ func TestExpandSkipsOutputDirInsideScan(t *testing.T) {
 	}
 
 	// 不传（旁挂副本 / 原地模式）时行为不变：产物目录里的文件照常算。
-	files, _, err = ExpandPaths([]string{dir}, ".converted", "")
+	files, _, _, err = ExpandPaths([]string{dir}, ".converted", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1347,5 +1348,77 @@ func TestUploadedButUnwrittenSaysSoInsteadOfCountingReplaced(t *testing.T) {
 	joined := strings.Join(res.Warnings, "；")
 	if !strings.Contains(joined, "传到图床") {
 		t.Fatalf("该提示「图已经传上去了」，实际 %q", joined)
+	}
+}
+func TestExpandPathsKeepsBareSuffixNameAsInput(t *testing.T) {
+	// 产物名是 <stem><suffix>.md，stem 一定非空。`--suffix a` 时 a.md 的名字
+	// 正好等于 suffix+".md"，早先被当成产物直接跳过，报「没有找到任何可处理的文件」。
+	dir := t.TempDir()
+	for _, name := range []string{"a.md", "ba.md", "note.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, _, skipped, err := ExpandPaths([]string{dir}, "a", "")
+	if err != nil {
+		t.Fatalf("展开出错：%v", err)
+	}
+	got := make([]string, 0, len(files))
+	for _, f := range files {
+		got = append(got, strings.ToLower(filepath.Base(f)))
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != "a.md,note.md" {
+		t.Fatalf("a.md 与 note.md 都该留下，ba.md 才是产物；实际 %v", got)
+	}
+	if len(skipped) != 1 || !strings.EqualFold(filepath.Base(skipped[0]), "ba.md") {
+		t.Fatalf("该只报 ba.md 一个被跳过的产物，实际 %v", skipped)
+	}
+}
+
+func TestExpandPathsReportsSkippedOutputs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"one.converted.md", "two.converted.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, _, skipped, err := ExpandPaths([]string{dir}, ".converted", "")
+	if err != nil {
+		t.Fatalf("展开出错：%v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("两个都是产物，不该有可处理的文件，实际 %v", files)
+	}
+	if len(skipped) != 2 {
+		t.Fatalf("两个产物都该被记下来（调用方要能说清「为什么一个文件都没有」），实际 %v", skipped)
+	}
+}
+
+func TestOnlyOutputsLeftSaysWhy(t *testing.T) {
+	// 目录里只剩上一轮的产物时，沉默地报「0 个文件」会让人以为路径写错了。
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "one.converted.md"), []byte("# x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var warns []string
+	emit := func(ev Event) {
+		if ev.Type == EventLog && ev.Level == "warn" {
+			warns = append(warns, ev.Message)
+		}
+	}
+	cfg := settings.Default()
+	_, sum := NewRunner(cfg, i18n.ZH, "run-only-outputs", emit).RunCollect(context.Background(), []string{dir})
+	if sum.Files != 0 {
+		t.Fatalf("一个可处理的文件都不该有，实际 %d", sum.Files)
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w, "上一轮的产物") && strings.Contains(w, ".converted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("该说清「都被当成产物跳过了」，实际 %v", warns)
 	}
 }

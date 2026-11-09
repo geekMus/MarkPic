@@ -75,7 +75,7 @@ convert-md-picture .\docs --dry-run
 | `--browser` | 改用系统浏览器打开界面（不开桌面窗口） |
 | `-o, --output <sidecar\|in-place\|directory>` | 输出方式，默认 `sidecar` |
 | `--out-dir <dir>` | `directory` 模式的输出目录 |
-| `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted`（最终文件名 = 原名 + 后缀 + `.md`） |
+| `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted`（最终文件名 = 原名 + 后缀 + `.md`）。扫目录时会跳过 `*<后缀>.md`（那是上一轮的产物），但**名字正好等于「后缀 + .md」的文件不会被跳过**——那种名字不可能是产物，更可能是一篇就叫这个的文档 |
 | `--in-place` | 等价于 `--output in-place`，会先备份 `.bak` |
 | `--backup` | 原地替换前备份，默认开启；用 `--backup=false` 关闭 |
 | `--dry-run` | 只检查，不上传、不写文件（`--remote check` 是纯读的，照样会去检测） |

@@ -17,7 +17,10 @@ import (
 // skipDir 非空时（「输出到目录」模式）连整个输出目录一起跳过：输出目录经常就建在
 // 被扫描的目录里面，不跳过的话第二次运行会把上一次的产物当成待处理文档，
 // 队列里凭空多出一堆文件，还会把产物再处理一遍。
-func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missing []string, err error) {
+//
+// skipped 收的是「看着像上一轮产物、于是没被收进来」的文件：目录里一个可处理的都没有时，
+// 调用方得能说清是「这里真的没文档」还是「都被那条后缀规则挡掉了」。
+func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missing []string, skipped []string, err error) {
 	seen := make(map[string]bool)
 	ownSuffix := strings.ToLower(suffix + ".md")
 	skip := normalizeDir(skipDir)
@@ -65,14 +68,18 @@ func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missin
 				if !strings.HasSuffix(lower, ".md") && !strings.HasSuffix(lower, ".markdown") {
 					return nil
 				}
-				if strings.HasSuffix(lower, ownSuffix) {
+				// 产物名是 <stem><suffix>.md，stem 一定非空。名字正好等于 suffix+".md" 的
+				// 文件不可能是产物（剥掉后缀什么都不剩），它更可能是一篇名字就这样的文档：
+				// `--suffix a` 时 a.md 曾被这条规则吃掉，报「没有找到任何可处理的文件」。
+				if strings.HasSuffix(lower, ownSuffix) && len(lower) > len(ownSuffix) {
+					skipped = append(skipped, path)
 					return nil
 				}
 				add(path)
 				return nil
 			})
 			if walkErr != nil {
-				return nil, missing, walkErr
+				return nil, missing, skipped, walkErr
 			}
 			continue
 		}
@@ -82,7 +89,7 @@ func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missin
 	sort.Slice(files, func(i, j int) bool {
 		return strings.ToLower(files[i]) < strings.ToLower(files[j])
 	})
-	return files, missing, nil
+	return files, missing, skipped, nil
 }
 
 // fileTaskOf 生成任务的展示信息。
