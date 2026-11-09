@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 
 	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/convert-md-picture/internal/remotecache"
 	"github.com/geekMus/convert-md-picture/internal/remoteimg"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 )
@@ -1753,5 +1754,52 @@ func TestIgnoreModeCountsKeptRemoteImages(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(doc); string(got) != "# t\n\n![a](http://127.0.0.1:36999/a.png)\n\n![b](http://127.0.0.1:36999/b.png)\n\n![c](local.png)\n" {
 		t.Fatalf("文档不该被改: %q", got)
+	}
+}
+
+// 取消之后，已经下完的那几张必须留在下载缓存里。
+//
+// 不留的话，用户点一次取消，下次再跑就得从第一张重新下 —— 明明文件都在磁盘上。
+func TestRemoteCancelStillSavesDownloadCache(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(t.TempDir(), "remote-cache.json")
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "slow") {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![a]("+srv.URL+"/fast.png)\n\n![b]("+srv.URL+"/slow.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+	cfg.Concurrency = 1
+	r := NewRunner(cfg, i18n.ZH, "run", nil).AttachRemoteCache(cachePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		cancel()
+	}()
+	_, sum := r.RunCollect(ctx, []string{doc})
+	if !sum.Cancelled {
+		t.Fatalf("这一轮该是被取消的：%+v", sum)
+	}
+
+	if st, err := os.Stat(filepath.Join(dir, "images", "fast.png")); err != nil || st.Size() != int64(len(pngBytes)) {
+		t.Fatalf("取消前下完的那张该留在磁盘上: %v", err)
+	}
+
+	saved := remotecache.Open(cachePath)
+	if name, size, ok := saved.Lookup(srv.URL+"/fast.png", filepath.Join(dir, "images")); !ok {
+		t.Fatalf("取消之后要把它记进下载缓存，否则下次白下一遍（name=%q size=%d）", name, size)
 	}
 }
