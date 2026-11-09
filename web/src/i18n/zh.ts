@@ -174,6 +174,7 @@ export const zh = {
   'footer.noImages': '未发现图片',
   'footer.uploaded': '替换 {count}',
   'footer.reused': '复用 {count}',
+  'footer.remoteReused': '省下 {count} 张下载',
   'footer.failed': '失败 {count}',
   'footer.cancelled': '已取消',
   'footer.localized': '下载 {count}',

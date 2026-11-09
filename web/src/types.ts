@@ -111,6 +111,8 @@ export type RunSummary = {
   remoteDead?: number
   /** check 模式：这一轮有几个文件只是被检测（没写输出）。 */
   filesChecked?: number
+  /** 上次已经下过、这次没再下载的远程图张数（按去重后的图片算）。 */
+  remoteReused?: number
   durationMs: number
 }
 

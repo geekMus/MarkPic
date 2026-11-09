@@ -88,6 +88,7 @@ type RunSummary = {
   remoteChecked?: number  // check 模式：检测了几个远程地址
   remoteDead?: number     // check 模式：其中几个打不开
   filesChecked?: number   // check 模式：几个文件只是被检测（没写输出）
+  remoteReused?: number   // 上次已下过、这次没再下载的远程图张数
   cancelled: boolean
   // 这一轮被提前掐掉的原因（目前只有「图床成片失败」一种）。
   // 取消事件也带 summary，所以客户端能把「为什么停了」说清楚。

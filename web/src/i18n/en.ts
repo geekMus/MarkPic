@@ -178,6 +178,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.noImages': 'No images found',
   'footer.uploaded': '{count} replaced',
   'footer.reused': '{count} reused',
+  'footer.remoteReused': '{count} not re-downloaded',
   'footer.failed': '{count} failed',
   'footer.cancelled': 'Cancelled',
   'footer.localized': '{count} downloaded',

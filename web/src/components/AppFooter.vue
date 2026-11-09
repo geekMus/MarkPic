@@ -63,6 +63,9 @@ const parts = computed<Part[]>(() => {
     if (stats.reused > 0) {
       list.push({ text: t('footer.reused', { count: stats.reused }), tone: 'plain' })
     }
+    if (stats.remoteReused > 0) {
+      list.push({ text: t('footer.remoteReused', { count: stats.remoteReused }), tone: 'plain' })
+    }
     if (stats.failed > 0) {
       list.push({ text: t('footer.failed', { count: stats.failed }), tone: 'bad' })
     }

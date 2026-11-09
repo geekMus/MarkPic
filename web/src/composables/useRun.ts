@@ -64,6 +64,7 @@ export interface RunStats {
   remoteChecked: number
   remoteDead: number
   filesChecked: number
+  remoteReused: number
 }
 
 const { danger, warning, success } = useToasts()
@@ -127,6 +128,7 @@ const live = reactive({
   remoteChecked: 0,
   remoteDead: 0,
   filesChecked: 0,
+  remoteReused: 0,
   settled: 0,
 })
 
@@ -174,6 +176,7 @@ const stats = computed<RunStats>(() => {
       remoteChecked: finished.remoteChecked ?? 0,
       remoteDead: finished.remoteDead ?? 0,
       filesChecked: finished.filesChecked ?? 0,
+  remoteReused: finished.remoteReused ?? 0,
     }
   }
 
@@ -191,6 +194,7 @@ const stats = computed<RunStats>(() => {
     remoteChecked: live.remoteChecked,
     remoteDead: live.remoteDead,
     filesChecked: live.filesChecked,
+    remoteReused: live.remoteReused,
   }
 })
 
