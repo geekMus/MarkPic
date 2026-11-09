@@ -76,6 +76,13 @@ export type FileResult = {
   skipped: number
   /** download 模式：这一篇里有几张远程图被下载到了本地。 */
   localized?: number
+  /**
+   * download 模式：去重之后真正下载了几个文件。
+   *
+   * 同一张图在一篇文档里被引用 20 次时 localized 是 20，可 images/ 里只有一个
+   * 文件 —— 只显示 20 会让人以为另外 19 张失败了。
+   */
+  localizedUnique?: number
   /** check 模式：这一篇里有几个远程地址打不开（或不是图片）。 */
   dead?: number
   /** check 模式：这一篇里一共检测了几个远程地址。 */
@@ -106,6 +113,8 @@ export type RunSummary = {
   abortReason?: string
   /** download 模式：这一轮把几张远程图下载到了本地。 */
   localized?: number
+  /** download 模式：去重之后真正下载了几个文件（localized 是按引用处算的）。 */
+  localizedUnique?: number
   /** check 模式：这一轮检测了几个远程地址、其中几个打不开。 */
   remoteChecked?: number
   remoteDead?: number

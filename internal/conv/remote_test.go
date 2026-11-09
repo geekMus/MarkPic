@@ -1025,3 +1025,53 @@ func TestRemoteKeepsCaseDifferingURLsApart(t *testing.T) {
 		t.Fatalf("两个不同地址不该指向同一个文件: %s", got)
 	}
 }
+
+// 同一张图在一篇文档里被引用 3 次时，Localized 是 3（按引用处算），
+// 但 images/ 里只有一个文件。只报 3 会让人以为另外 2 张失败了。
+func TestRemoteDownloadCountsUniqueFiles(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	url := host.URL + "/ok.png"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![一]("+url+")\n\n![二]("+url+")\n\n![三]("+url+")\n")
+
+	r := NewRunner(remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Localized != 3 {
+		t.Fatalf("三处引用都该算进 Localized，实际 %d", res.Localized)
+	}
+	if res.LocalizedUnique != 1 {
+		t.Fatalf("落盘的只有一个文件，LocalizedUnique 该是 1，实际 %d", res.LocalizedUnique)
+	}
+	if sum.Localized != 3 || sum.LocalizedUnique != 1 {
+		t.Fatalf("汇总口径不对：localized=%d unique=%d", sum.Localized, sum.LocalizedUnique)
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "images"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("images/ 里该只有一个文件，实际 %d 个", len(entries))
+	}
+	// 三处链接必须指向同一个文件，否则上面那个「1」就是在骗人。
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	links := make(map[string]struct{})
+	for _, line := range strings.Split(string(out), "\n") {
+		open := strings.Index(line, "](images/")
+		if open < 0 {
+			continue
+		}
+		rest := line[open+2:]
+		if close := strings.IndexByte(rest, ')'); close >= 0 {
+			links[rest[:close]] = struct{}{}
+		}
+	}
+	if len(links) != 1 {
+		t.Fatalf("三处该指向同一个文件，实际 %v", links)
+	}
+}

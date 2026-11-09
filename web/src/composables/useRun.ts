@@ -60,6 +60,8 @@ export interface RunStats {
   noImages: number
   /** download 模式：这一轮把几张远程图下载到了本地。 */
   localized: number
+  /** download 模式：去重之后真正下载了几个文件（localized 按引用处算）。 */
+  localizedUnique: number
   /** check 模式：检测了几个远程地址、其中几个打不开，以及有几个文件只是被检测。 */
   remoteChecked: number
   remoteDead: number
@@ -125,6 +127,7 @@ const live = reactive({
   failedFiles: 0,
   noImages: 0,
   localized: 0,
+  localizedUnique: 0,
   remoteChecked: 0,
   remoteDead: 0,
   filesChecked: 0,
@@ -173,6 +176,7 @@ const stats = computed<RunStats>(() => {
       failedFiles: finished.failed,
       noImages: finished.noImages,
       localized: finished.localized ?? 0,
+      localizedUnique: finished.localizedUnique ?? 0,
       remoteChecked: finished.remoteChecked ?? 0,
       remoteDead: finished.remoteDead ?? 0,
       filesChecked: finished.filesChecked ?? 0,
@@ -191,6 +195,7 @@ const stats = computed<RunStats>(() => {
     failedFiles: live.failedFiles,
     noImages: live.noImages,
     localized: live.localized,
+    localizedUnique: live.localizedUnique,
     remoteChecked: live.remoteChecked,
     remoteDead: live.remoteDead,
     filesChecked: live.filesChecked,
@@ -252,6 +257,7 @@ function liveReset(): void {
   live.failedFiles = 0
   live.noImages = 0
   live.localized = 0
+  live.localizedUnique = 0
   live.remoteChecked = 0
   live.remoteDead = 0
   live.filesChecked = 0
@@ -353,6 +359,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.reused -= reusedInResult(row.result)
     live.failed -= row.result.failed
     live.localized -= row.result.localized ?? 0
+    live.localizedUnique -= row.result.localizedUnique ?? 0
     live.remoteChecked -= row.result.checked ?? 0
     live.remoteDead -= row.result.dead ?? 0
     scoreStatus(row.result.status, -1)
@@ -365,6 +372,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.reused += reusedInResult(result)
   live.failed += result.failed
   live.localized += result.localized ?? 0
+  live.localizedUnique += result.localizedUnique ?? 0
   live.remoteChecked += result.checked ?? 0
   live.remoteDead += result.dead ?? 0
   scoreStatus(result.status, 1)

@@ -461,6 +461,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.Images += res.Images
 		sum.Uploaded += res.Uploaded
 		sum.Localized += res.Localized
+		sum.LocalizedUnique += res.LocalizedUnique
 		sum.RemoteChecked += res.Checked
 		sum.RemoteDead += res.Dead
 		sum.FailedImages += res.Failed
@@ -629,6 +630,8 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
 	}
 
+	// 记「这一篇里到底下成了几个不同的文件」，只为把「20 处引用、1 张图」说清楚。
+	var localizedNames map[string]struct{}
 	for _, it := range items {
 		switch it.Status {
 		case StatusUploaded:
@@ -640,6 +643,19 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			res.Reused++
 		case StatusLocalized:
 			res.Localized++
+			// 同一张图被引用 20 次时 Localized 是 20，可 images/ 里只有一个文件。
+			// 只报 20 会让人以为另外 19 张失败了，所以另记一个去重后的张数。
+			if it.URL != "" {
+				if localizedNames == nil {
+					localizedNames = make(map[string]struct{}, 8)
+				}
+				if _, seen := localizedNames[it.URL]; !seen {
+					localizedNames[it.URL] = struct{}{}
+					res.LocalizedUnique++
+				}
+			} else {
+				res.LocalizedUnique++
+			}
 		case StatusRemoteOK:
 			res.Checked++
 		case StatusRemoteBad:

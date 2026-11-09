@@ -70,7 +70,17 @@ const parts = computed<Part[]>(() => {
       list.push({ text: t('footer.failed', { count: stats.failed }), tone: 'bad' })
     }
     if (stats.localized > 0) {
-      list.push({ text: t('footer.localized', { count: stats.localized }), tone: 'plain' })
+      // 同一张图被引用多次时 localized 是引用处数，可 images/ 里只有一个文件。
+      // 只显示引用处数会让人以为其余的没下下来，所以去重后的张数才是主数。
+      const unique = stats.localizedUnique > 0 ? stats.localizedUnique : stats.localized
+      if (unique < stats.localized) {
+        list.push({
+          text: t('footer.localizedUnique', { count: unique, refs: stats.localized }),
+          tone: 'plain',
+        })
+      } else {
+        list.push({ text: t('footer.localized', { count: unique }), tone: 'plain' })
+      }
     }
     if (stats.remoteChecked > 0 && stats.localized === 0) {
       // 检测模式：remoteChecked 就是处理过的远程引用总数（含失效的）。

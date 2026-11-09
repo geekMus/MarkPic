@@ -51,15 +51,21 @@ type FileResult struct {
 	Reused   int    `json:"reused"`
 	// Localized 是「下载回本地」的张数，Dead 是检测出来失效的远程图张数，
 	// Checked 是检测过的远程图张数（含失效的）。都按引用处算，和 Items 对得上。
-	Localized  int      `json:"localized"`
-	Dead       int      `json:"dead"`
-	Checked    int      `json:"checked"`
-	Failed     int      `json:"failed"`
-	Skipped    int      `json:"skipped"`
-	OutputPath string   `json:"outputPath,omitempty"`
-	Error      string   `json:"error,omitempty"`
-	Warnings   []string `json:"warnings,omitempty"`
-	Items      []Item   `json:"items"`
+	Localized int `json:"localized"`
+	// LocalizedUnique 是同一篇文档里「去重之后下载了几张」。
+	//
+	// 一篇文档里同一张图被引用 20 次是常事，Localized 会数成 20，可 images/ 里
+	// 只有一个文件 —— 只报 20 会让人以为另外 19 张失败了。两个数一起给，
+	// 界面上就能写成「下载 1 张（20 处引用）」。
+	LocalizedUnique int      `json:"localizedUnique"`
+	Dead            int      `json:"dead"`
+	Checked         int      `json:"checked"`
+	Failed          int      `json:"failed"`
+	Skipped         int      `json:"skipped"`
+	OutputPath      string   `json:"outputPath,omitempty"`
+	Error           string   `json:"error,omitempty"`
+	Warnings        []string `json:"warnings,omitempty"`
+	Items           []Item   `json:"items"`
 }
 
 // FileTask 是排队中的文件（run.started 时下发）。
@@ -84,9 +90,11 @@ type Summary struct {
 	Reused       int    `json:"reused"`
 	FailedImages int    `json:"failedImages"`
 	// 远程图片相关的三个数：本地化（下载回本地）张数、检测过的张数、其中失效的张数。
-	Localized     int `json:"localized"`
-	RemoteChecked int `json:"remoteChecked"`
-	RemoteDead    int `json:"remoteDead"`
+	Localized int `json:"localized"`
+	// LocalizedUnique 是去重之后真正下载了几张（按文件算，不按引用处算）。
+	LocalizedUnique int `json:"localizedUnique"`
+	RemoteChecked   int `json:"remoteChecked"`
+	RemoteDead      int `json:"remoteDead"`
 	// FilesChecked 是「只做检测、没改写文档」的文件数。
 	FilesChecked int  `json:"filesChecked"`
 	Cancelled    bool `json:"cancelled"`

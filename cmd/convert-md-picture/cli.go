@@ -222,6 +222,11 @@ func changedDesc(r *conv.FileResult) string {
 	case r.Uploaded > 0 && r.Localized > 0:
 		return fmt.Sprintf("上传 %d 张，下载 %d 张远程图", r.Uploaded, r.Localized)
 	case r.Localized > 0:
+		// 同一张图被引用多次时，按引用处数会报成「下载 20 张」而 images/ 里只有
+		// 一个文件；去重后的张数才是用户真正关心的那个数。
+		if r.LocalizedUnique > 0 && r.LocalizedUnique < r.Localized {
+			return fmt.Sprintf("下载 %d 张远程图（%d 处引用）", r.LocalizedUnique, r.Localized)
+		}
 		return fmt.Sprintf("下载 %d 张远程图", r.Localized)
 	default:
 		return fmt.Sprintf("%d 张图片", r.Uploaded)
@@ -316,7 +321,13 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 		parts = append(parts, fmt.Sprintf("替换 %d 处链接", s.Uploaded))
 	}
 	if s.Localized > 0 {
-		parts = append(parts, fmt.Sprintf("下载 %d 张远程图", s.Localized))
+		// 同一张图被引用 20 次时 Localized 是 20，可 images/ 里只有一个文件。
+		// 只报 20 会让人以为另外 19 张失败了，所以两个数一起说。
+		if s.LocalizedUnique > 0 && s.LocalizedUnique < s.Localized {
+			parts = append(parts, fmt.Sprintf("下载 %d 张远程图（%d 处引用）", s.LocalizedUnique, s.Localized))
+		} else {
+			parts = append(parts, fmt.Sprintf("下载 %d 张远程图", s.Localized))
+		}
 	}
 	if s.FilesChecked > 0 {
 		parts = append(parts, fmt.Sprintf("检测 %d 个文件", s.FilesChecked))

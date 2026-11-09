@@ -109,6 +109,19 @@ const pendingCount = computed(() => items.value.filter(item => item.status === '
 /** 下载回本地：有几张远程图落到了磁盘上。 */
 const localizedCount = computed(() => items.value.filter(item => item.status === 'localized').length)
 
+/**
+ * 上面那个数按引用处算：同一张图在这篇文档里被引用 20 次就是 20，
+ * 可 images/ 里只有一个文件。这一行要显示的是「下成了几个文件」。
+ */
+const localizedUniqueCount = computed(() => {
+  const seen = new Set<string>()
+  for (const item of items.value) {
+    if (item.status !== 'localized') continue
+    seen.add(item.url ?? item.target)
+  }
+  return seen.size
+})
+
 /** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */
 const localKeptCount = computed(() => items.value.filter(item => item.status === 'local-kept').length)
 
@@ -294,7 +307,7 @@ function replaced(status: ImageStatus): boolean {
           <span class="stat__k">{{ t('row.stat.uploaded') }}</span>
         </span>
         <span v-if="localizedCount > 0" class="stat">
-          <span class="stat__n num">{{ localizedCount }}</span>
+          <span class="stat__n num">{{ localizedUniqueCount }}</span>
           <span class="stat__k">{{ t('row.stat.localized') }}</span>
         </span>
         <span v-if="localKeptCount > 0" class="stat">

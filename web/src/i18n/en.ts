@@ -183,6 +183,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.failed': '{count} failed',
   'footer.cancelled': 'Cancelled',
   'footer.localized': '{count} downloaded',
+  'footer.localizedUnique': '{count} downloaded ({refs} links)',
   'footer.remoteChecked': '{count} remote links checked',
   'footer.remoteDead': '{count} of them broken',
   'footer.remoteDeadDownloaded': '{count} could not be downloaded',
