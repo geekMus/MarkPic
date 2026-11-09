@@ -67,6 +67,7 @@ var (
 	fresh      = flag.Bool("fresh", false, "每轮开始前删掉上次的输出文件（模拟首次写入，而不是覆盖已有文件）")
 	cpuProfile = flag.String("cpuprofile", "", "把 e2e 的 CPU profile 写到这个文件")
 	memProfile = flag.String("memprofile", "", "把 e2e 的堆 profile 写到这个文件")
+	corpus     = flag.String("corpus", "", "只读语料模式：直接解析这个目录里现有的 .md，不造夹具、不写入")
 	quiet      = flag.Bool("quiet", false, "只打印最后一行汇总")
 )
 
@@ -312,6 +313,14 @@ func main() {
 	flag.Parse()
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
+	// -corpus 是「拿真实文档量解析」的模式：不造夹具、不写任何文件，
+	// 直接把目录里现有的 .md 读进来。真实语料和合成夹具的分布差很远
+	// （真实文档短、代码块多、图片少），只跑合成夹具容易高估或低估。
+	if *corpus != "" {
+		runCorpus(*corpus)
+		return
+	}
+
 	dir := *dirFlag
 	if dir == "" {
 		var err error
@@ -345,6 +354,35 @@ func main() {
 	if *mode == "e2e" || *mode == "both" {
 		runE2EAndReport(dir, f)
 	}
+}
+
+// runCorpus 用目录里现有的真实 .md 量纯解析：不造夹具、不写文件。
+func runCorpus(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		fail(err)
+	}
+	f := &fixture{dir: dir}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".md") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			continue
+		}
+		f.files = append(f.files, path)
+		f.docs = append(f.docs, data)
+		f.total += len(data)
+	}
+	if len(f.docs) == 0 {
+		fail(fmt.Errorf("%s 里没有 .md 文件", dir))
+	}
+	if !*quiet {
+		fmt.Printf("# 真实语料：%d 篇 · %.1f MB\n", len(f.docs), float64(f.total)/(1<<20))
+	}
+	runParse(f)
 }
 
 func runParse(f *fixture) {
