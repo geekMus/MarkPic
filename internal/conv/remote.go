@@ -385,8 +385,22 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 	if strings.EqualFold(dst, srcAbs) {
 		return r.relFor(docDir, dst), nil
 	}
-	// 目标位置已经有一份：只有内容确实一样才算「已经搬过」。
+	// 目标位置已经有一份、内容也确实一样：算「已经搬过」。
 	// 只比大小是不够的 —— 两张不同的图完全可能一样大，那样 b.md 就会指向 a.md 那张图。
+	if same, err := sameFile(srcAbs, dst); err == nil && same {
+		return r.relFor(docDir, dst), nil
+	}
+	// 目标位置有一份**别人的**图（同名不同内容）：不能覆盖。
+	//
+	// 这里踩过坑：`c.md` 早先引用过 `s2/pic.png`，下载成 `images/pic.png`；后来同目录的
+	// `b.md` 引用 `s1/pic.png`（同名、同大小、不同内容），这一句 copyFile 直接把
+	// `images/pic.png` 换成了 s1 的图 —— `c.converted.md` 里的链接从此指向另一张图，
+	// 而 c.md 那一轮早就跑完了，谁也不会再回头检查它。
+	//
+	// 所以这里和 downloadRemote 用同一套起名规则：被占了就加序号，
+	// 让这一篇文档用 `pic-2.png`，别人的 `pic.png` 一个字节都不动。
+	name := r.pickName(dir, rawURL, filepath.Base(srcAbs), srcAbs)
+	dst = filepath.Join(dir, name)
 	if same, err := sameFile(srcAbs, dst); err == nil && same {
 		return r.relFor(docDir, dst), nil
 	}
@@ -396,7 +410,7 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 	if err := copyFile(srcAbs, dst); err != nil {
 		return "", err
 	}
-	r.remoteCache.Store(rawURL, dir, filepath.Base(dst), size)
+	r.remoteCache.Store(rawURL, dir, name, size)
 	return r.relFor(docDir, dst), nil
 }
 
@@ -414,7 +428,24 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result, fresh 
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 	ext := filepath.Ext(base)
 	if ext == "" {
-		ext = res.Ext(rawURL)
+		// 第一版这里直接用了 base：地址里没有后缀时（/noext 这种）就永远补不上
+		// 扩展名，写回文档的链接也没有后缀，浏览器拿不到类型。统一用 stem+ext。
+		base = stem + res.Ext(rawURL)
+	}
+	return r.pickName(dir, rawURL, base, fresh)
+}
+
+// pickName 在一个目录里给「这张远程图」挑一个不会被别人占用的文件名。
+//
+// base 是首选名字（带后缀），fresh 是这张图的内容（拿来和磁盘上的同名文件比对）。
+// 同一个目录里可能同时住着好几篇文档的图片：别人先占了 pic.png，这一篇就得用
+// pic-2.png —— 覆盖别人的图是这里最不能犯的错，因为那篇文档早就跑完了，
+// 谁也不会再回头检查它的链接还指不指得对。
+func (r *Runner) pickName(dir, rawURL, base, fresh string) string {
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	ext := filepath.Ext(base)
+	if stem == "" {
+		stem = "remote-" + shortHash(rawURL)
 	}
 
 	r.remoteMu.Lock()
@@ -423,8 +454,6 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result, fresh 
 		r.remoteNames = make(map[string]string)
 	}
 	for i := 1; i <= 999; i++ {
-		// 第一版这里直接用了 base：地址里没有后缀时（/noext 这种）就永远补不上
-		// 扩展名，写回文档的链接也没有后缀，浏览器拿不到类型。统一用 stem+ext。
 		name := stem + ext
 		if i > 1 {
 			name = fmt.Sprintf("%s-%d%s", stem, i, ext)

@@ -690,12 +690,97 @@ func TestRemoteCopyToOtherDirReplacesWrongSameSizeFile(t *testing.T) {
 	cfg.Concurrency = 1
 	NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docA, docB})
 
-	got, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
+	// b 目录里那张 pic.png 是 y/pic.png 的（别人的图），一个字节都不能动；
+	// b.md 这一篇改用 pic-2.png，链接必须指到那张内容确实是 x 的图上。
+	kept, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !bytes.Equal(kept, sameSizeB) {
+		t.Fatal("别人的 pic.png 被覆盖了：同目录里另一篇文档的链接会指向错误的图")
+	}
+	got, err := os.ReadFile(filepath.Join(dirB, "images", "pic-2.png"))
+	if err != nil {
+		t.Fatalf("b.md 应该拿到 pic-2.png: %v", err)
+	}
 	if !bytes.Equal(got, sameSizeA) {
-		t.Fatal("b 目录里还是那张旧图：同名同大小时被当成了「已经搬过」")
+		t.Fatal("pic-2.png 的内容不是 x/pic.png：同名同大小时被当成了「已经搬过」")
+	}
+	out, _ := os.ReadFile(filepath.Join(dirB, "b.converted.md"))
+	if !strings.Contains(string(out), "(images/pic-2.png)") {
+		t.Fatalf("b.md 的链接应该指向 pic-2.png，实际是: %s", out)
+	}
+}
+
+// 同目录里另一篇**早就跑完**的文档已经下过同名的图，这次绝不能覆盖它。
+//
+// 真机踩到的场景：c.md 先引用 s2/pic.png，落成 images/pic.png；后来同目录的 b.md
+// 引用 s1/pic.png（同名、同大小、不同内容）。这一轮里 b.md 不是领头者（别的目录的
+// 文档先下到了 s1），它走的是「把别人下好的那份复制过来」那条路，而旧代码直接
+// copyFile 覆盖 —— c.converted.md 里的链接从此指向另一张图，可 c.md 那一轮早就跑完了，
+// 谁也不会再回头检查它。
+func TestRemoteCopyDoesNotClobberAnotherDocsImage(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	if err := os.MkdirAll(dirA, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dirB, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		switch r.URL.Path {
+		case "/s1/pic.png":
+			_, _ = w.Write(sameSizeA)
+		case "/s2/pic.png":
+			_, _ = w.Write(sameSizeB)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer host.Close()
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+
+	// 第一轮：b 目录里的 c.md 先占下 images/pic.png（s2 那张）。
+	docC := filepath.Join(dirB, "c.md")
+	writeFile(t, docC, "![丙]("+host.URL+"/s2/pic.png)\n")
+	NewRunner(cfg, i18n.ZH, "run1", nil).RunCollect(context.Background(), []string{docC})
+	before, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, sameSizeB) {
+		t.Fatalf("准备阶段不对，images/pic.png 应该是 s2 那张")
+	}
+
+	// 第二轮：a 目录的 a.md 和 b 目录的 b.md 都要 s1/pic.png。
+	// 并发 1 且 a.md 排前面，保证 a 当领头者、b 走「复制」那条路。
+	docA := filepath.Join(dirA, "a.md")
+	docB := filepath.Join(dirB, "b.md")
+	writeFile(t, docA, "![甲]("+host.URL+"/s1/pic.png)\n")
+	writeFile(t, docB, "![乙]("+host.URL+"/s1/pic.png)\n")
+	cfg.Concurrency = 1
+	NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docA, docB})
+
+	after, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, sameSizeB) {
+		t.Fatal("c.md 的图被后来那篇文档覆盖了：它的链接现在指向另一张图")
+	}
+	got, err := os.ReadFile(filepath.Join(dirB, "images", "pic-2.png"))
+	if err != nil {
+		t.Fatalf("b.md 应该拿到自己的 pic-2.png: %v", err)
+	}
+	if !bytes.Equal(got, sameSizeA) {
+		t.Fatal("pic-2.png 的内容不是 s1 那张")
+	}
+	out, _ := os.ReadFile(filepath.Join(dirB, "b.converted.md"))
+	if !strings.Contains(string(out), "(images/pic-2.png)") {
+		t.Fatalf("b.md 的链接应该指向 pic-2.png，实际是: %s", out)
 	}
 }
 

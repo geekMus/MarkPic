@@ -2333,3 +2333,35 @@ CommonMark 里 `![a](images/4 x.png)` 的地址在第一个空格处就结束了
 \TestRemoteDownloadSurvivesOneTransientFailure\（走完整 Runner 的那条路，
 夹具新增 \/flaky.png\：第一次 503、第二次正常）。把 \downloadAttempts\ 改回 1，
 这五条里四条立刻红——包括 Runner 那条报「所有本地图片都处理失败，未生成文件」。
+
+## 复制别人的图，也不能盖掉别人的图
+
+「同一张图只下载一次，其它文档复制过去」这条捷径有个洞：复制时目标文件名是
+写死的 `filepath.Base(srcAbs)`，`sameFile` 不一致就直接 `copyFile` 覆盖。
+下载那条路早就走撞名规则（`pic.png` → `pic-2.png`），复制这条路绕过了它。
+
+真机复现（\srv/s1/pic.png\ 与 \srv/s2/pic.png\ 同为 68 字节、内容不同，
+hash `CAE90068` / `D9E5D4FC`）：
+
+| 轮次 | 输入 | 结果 |
+| --- | --- | --- |
+| 1 | `dirB/c.md` → `s2/pic.png` | `dirB/images/pic.png` = `D9E5D4FC` ✓ |
+| 2 | `dirA/a.md` + `dirB/b.md` → `s1/pic.png`（`-c 1`，a 当领头者，b 走复制） | `dirB/images/pic.png` **被改成 `CAE90068`** ✗ |
+
+第二轮的受害者是 `c.md`：它那一轮早就跑完了，`c.converted.md` 里的
+\images/pic.png\ 从此指向另一张图，而**没有任何一处会报错**，也不会有人
+回头检查已经跑完的文档。这种「悄悄改坏历史产物」的错误比下载失败严重得多。
+
+改法：把 `remoteFileName` 里那段候选循环抽成 \pickName(dir, rawURL, base, fresh)\
+（本轮内存表、缓存归属反查、残骸判定、序号、\remote-<hash>\ 兜底都在里面），
+下载和复制两条路都走它。复制前先 \sameFile\，一致就直接返回；不一致才
+\pickName\ 要一个没被占的名字。
+
+改完的实测（同一夹具、同一个命令）：\pic.png\ 仍是 `D9E5D4FC`，
+\pic-2.png\ 是 `CAE90068`，\c.converted.md\ 与 \b.converted.md\ 各自指对。
+
+顺带修掉一条**断言方向反了**的旧测试：\TestRemoteCopyToOtherDirReplacesWrongSameSizeFile\
+原本要求「b 目录的 pic.png 变成新图」——那正是 bug 的行为。改成要求
+`pic.png` 保持原样、新图落在 \pic-2.png\。另加
+\TestRemoteCopyDoesNotClobberAnotherDocsImage\ 覆盖上面那个真实场景
+（跨目录、并发 1、a.md 排前面保证 b 走复制路径）。
