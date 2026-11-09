@@ -711,3 +711,231 @@ func TestKeyIgnoresFragmentButKeepsQuery(t *testing.T) {
 		}
 	}
 }
+
+// TestProbeBacksOffWhenRateLimited 是最重要的一条：限流不能变成「地址失效」。
+//
+// 实测背景：一台 5 次/秒的图床，100 个全都有效的地址里 85 个被报成「失效」——
+// 那不是图的问题，是 16 路并发一起敲门把人惹毛了。修好之后必须做到两件事：
+// 一是不再误报，二是别把好好的图床拖慢（正常图床一个 429 都不该出现）。
+func TestProbeBacksOffWhenRateLimited(t *testing.T) {
+	const (
+		perSec = 5
+		urls   = 30
+	)
+	var mu sync.Mutex
+	var window int64
+	var used, limited, ok int64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now().Unix()
+		mu.Lock()
+		if now != window {
+			window = now
+			used = 0
+		}
+		allowed := used < perSec
+		if allowed {
+			used++
+		}
+		mu.Unlock()
+		if !allowed {
+			atomic.AddInt64(&limited, 1)
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		atomic.AddInt64(&ok, 1)
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", strconv.Itoa(len(tinyPNG)))
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := newClient(t)
+	var bad int64
+	var wg sync.WaitGroup
+	for i := 0; i < urls; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			res, err := c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", srv.URL, i))
+			if err != nil || !res.OK() {
+				atomic.AddInt64(&bad, 1)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if bad != 0 {
+		t.Fatalf("限流不该把有效地址报成失效：%d/%d 个被判坏（429 %d 次，成功 %d 次）",
+			bad, urls, atomic.LoadInt64(&limited), atomic.LoadInt64(&ok))
+	}
+	if atomic.LoadInt64(&limited) == 0 {
+		t.Fatal("这个夹具本该触发限流，一次 429 都没有说明测试没测到东西")
+	}
+}
+
+// TestProbeDoesNotSlowDownHealthyHost 是上一条的对照组：
+// 自适应限速只在真被限流时才生效，正常图床不该为此多付任何等待。
+func TestProbeDoesNotSlowDownHealthyHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", strconv.Itoa(len(tinyPNG)))
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := newClient(t)
+	start := time.Now()
+	var wg sync.WaitGroup
+	for i := 0; i < 60; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, _ = c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", srv.URL, i))
+		}(i)
+	}
+	wg.Wait()
+
+	// 60 个本地请求没有任何服务端延迟，正常应该几十毫秒。
+	// 给到 3 秒的宽容度：这条测的是「有没有引入人为等待」，不是精确性能。
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("正常图床被拖慢了：60 个本地请求花了 %v", elapsed)
+	}
+	if rate := c.currentRate(); rate != 0 {
+		t.Fatalf("没被限流就不该限速，当前速率 = %v 次/秒", rate)
+	}
+}
+
+// TestRateLimitDecreaseHappensOncePerEvent 挡住一个特别隐蔽的坑。
+//
+// 16 路并发会同时拿到 429。如果每个 429 都乘 0.5，速率从 20 直接掉到下限 1 次/秒，
+// 100 张图要跑 112 秒。一次「撞墙」只该降一次 —— TCP 的乘性减也是每个拥塞窗口
+// 一次，不是每个丢包一次。
+func TestRateLimitDecreaseHappensOncePerEvent(t *testing.T) {
+	c := New(5 * time.Second)
+	c.cool(time.Second) // 第一次撞墙：进入限速状态
+
+	first := c.currentRate()
+	if first <= 0 {
+		t.Fatalf("撞墙之后应该开始限速，当前速率 = %v", first)
+	}
+	// 模拟同一批请求的回声：冷却窗口内再来 15 个 429。
+	for i := 0; i < 15; i++ {
+		c.cool(time.Second)
+	}
+	if got := c.currentRate(); got != first {
+		t.Fatalf("同一批 429 只该降一次速率：%v → %v", first, got)
+	}
+
+	// 冷却窗口过去之后，再撞墙才该继续降。
+	c.gateMu.Lock()
+	c.cooledUntil = time.Now().Add(-time.Second)
+	c.gateMu.Unlock()
+	c.cool(time.Second)
+	if got := c.currentRate(); got >= first {
+		t.Fatalf("冷却过去后再撞墙该继续降：%v → %v", first, got)
+	}
+}
+
+// TestRateLimitRecoversGradually 验证「顺利就慢慢试探回来」，但绝不越过天花板。
+func TestRateLimitRecoversGradually(t *testing.T) {
+	c := New(5 * time.Second)
+	c.cool(time.Second)
+	low := c.currentRate()
+
+	for i := 0; i < 200; i++ {
+		c.gateMu.Lock()
+		c.cooledUntil = time.Now().Add(-time.Second)
+		c.gateMu.Unlock()
+		c.relax()
+	}
+	high := c.currentRate()
+	if high <= low {
+		t.Fatalf("一路顺利该把速率试探回来：%v → %v", low, high)
+	}
+	c.gateMu.Lock()
+	ceiling := c.ceiling
+	c.gateMu.Unlock()
+	if high > ceiling+0.001 {
+		t.Fatalf("试探不该越过撞过墙的位置：速率 %v > 天花板 %v", high, ceiling)
+	}
+}
+
+// TestParseRetryAfter 覆盖三种输入：秒数、HTTP 日期、以及各种不合法。
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"0", 0},
+		{"-5", 0},
+		{"1", time.Second},
+		{"7", 7 * time.Second},
+		{"abc", 0},
+		{"9227000000", maxRetryAfter}, // 撑爆 int64 的天文数字要截断
+		{time.Now().Add(30 * time.Second).UTC().Format(http.TimeFormat), 30 * time.Second},
+		{time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat), 0}, // 已经过去
+	}
+	for _, c := range cases {
+		got := parseRetryAfter(c.in)
+		// HTTP 日期只能精确到秒，允许 1 秒误差。
+		if diff := got - c.want; diff > time.Second || diff < -time.Second {
+			t.Errorf("parseRetryAfter(%q) = %v，想要 %v", c.in, got, c.want)
+		}
+	}
+}
+
+// TestProbeRateLimitsOnGetFallback 补上另一条通往 429 的路。
+//
+// 有些图床不认 HEAD（回 405），我们于是退化成 GET 去嗅探类型 —— 限流就发生在这一趟
+// 上。以前 probeGet 会把 (429, nil) 原样返回，重试逻辑只认「err != nil」，于是这次
+// 限流**一次都没重试过**，一个好好的地址被直接判成失效。
+func TestProbeRateLimitsOnGetFallback(t *testing.T) {
+	var mu sync.Mutex
+	var window int64
+	var used int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 不认 HEAD：让 probeAt 走 GET 那条路。
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		now := time.Now().Unix()
+		mu.Lock()
+		if now != window {
+			window = now
+			used = 0
+		}
+		allowed := used < 2
+		if allowed {
+			used++
+		}
+		mu.Unlock()
+		if !allowed {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := newClient(t)
+	// 前两个请求占满本秒的额度，第三个必然吃 429，然后必须靠重试+退避活下来。
+	for i := 0; i < 3; i++ {
+		res, err := c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", srv.URL, i))
+		if err != nil || !res.OK() {
+			t.Fatalf("第 %d 个地址被限流判死了：res=%+v err=%v", i, res, err)
+		}
+	}
+}

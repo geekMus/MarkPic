@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -23,6 +26,23 @@ import (
 // 不是我们自己能优化的部分。
 type Client struct {
 	http *http.Client
+
+	// 全体共享的冷却闸门：一个协程撞上限流，其它协程一起等。
+	//
+	// 没有它的时候，16 路并发会在同一秒里把额度撞满，然后**每一张**都拿到 429 ——
+	// 实测一台 5 次/秒的图床，100 个全都有效的地址里有 85 个被报成「失效」。
+	// 那不是图的问题，是我们自己在敲门。
+	gateMu    sync.Mutex
+	gateUntil time.Time
+	// rate 是当前允许的请求速率（次/秒，0 表示不限制）。光「一起等一秒」不够：
+	// 16 路会在同一毫秒醒来，再一起把下一轮的额度撞满，于是又整批 429。
+	rate float64
+	// ceiling 是「撞过墙的位置」对应的速率，试探到这里就停，不再一头撞回去。
+	ceiling float64
+	// cooledUntil 记着「这次撞墙的冷却到什么时候」。一次撞墙只降一次速率：
+	// 16 路同时收到 429 时，若每个都乘 0.5，速率会从 20 掉到下限 1。
+	cooledUntil time.Time
+	nextSlot    time.Time
 }
 
 // New 造一个默认客户端。timeout 是单次请求的上限（含连接、重定向、读完响应头）。
@@ -107,6 +127,9 @@ type Result struct {
 	Sniffed string
 	// Size 是内容长度；未知为 -1。
 	Size int64
+	// RetryAfter 是对方在 Retry-After 头里要求的等待时长（没给就是 0）。
+	// 限流时按它等，比我们自己猜一个退避时间靠谱。
+	RetryAfter time.Duration
 	// FinalURL 是跟随跳转之后的地址。
 	FinalURL string
 }
@@ -168,26 +191,238 @@ func (c *Client) Probe(ctx context.Context, rawURL string) (Result, error) {
 // 写死一个短值：检测是给人看的报告，多等两秒换一个少些误报的结论值得。
 const retryDelay = 400 * time.Millisecond
 
+// 限流（429/503）时的冷却参数。
+const (
+	// defaultCooldown 是对方没给 Retry-After 时我们自己退避的时长。
+	defaultCooldown = time.Second
+	// maxCooldown 是单次最多等多久。再长就不礼貌了，而且单次请求的总超时是 20 秒。
+	maxCooldown = 10 * time.Second
+	// maxRetryAfter 是 Retry-After 能接受的等待上限，顺带挡住把 int64 撑爆的天文数字。
+	maxRetryAfter = 24 * time.Hour
+	// rateLimitRetries 是限流专用的重试预算，比普通重试宽松：
+	// 图床是活着的，只是在让我们慢一点，多等几轮很正常。
+	rateLimitRetries = 4
+)
+
+// waitTurn 在对方要求的冷却结束前等一等，并按当前节奏排队。
+//
+// 两件事都要做：gateUntil 是「大家都别敲了，等到这一刻」，spacing 是「之后按这个
+// 间隔一个一个来」。只有前者的时候，16 路协程会在同一毫秒一起醒来、再一起把下一轮
+// 额度撞满 —— 实测 100 个有效地址仍有 17 个被报成「失效」。
+func (c *Client) waitTurn(ctx context.Context) error {
+	c.gateMu.Lock()
+	slot := time.Now()
+	if c.gateUntil.After(slot) {
+		slot = c.gateUntil
+	}
+	if c.nextSlot.After(slot) {
+		slot = c.nextSlot
+	}
+	// 这里必须直接读 rate 算间隔，不能调 c.spacing()：那个函数也要 gateMu，
+	// 而 Go 的 Mutex 不可重入 —— 会当场死锁（我踩过一次，测试直接挂住）。
+	c.nextSlot = slot.Add(gapFor(c.rate))
+	c.gateMu.Unlock()
+
+	wait := time.Until(slot)
+	if wait <= 0 {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return nil
+	}
+}
+
+// cool 撞上限流时调用：全体停一下，并把请求速率砍半。
+//
+// 速率用 AIMD（乘性减、加性增）调整，跟 TCP 拥塞控制一个道理：撞墙就砍半退开，
+// 顺利就一点点试探回来。这个形状是被实测逼出来的 ——
+//   - 只砍不还：一次偶发限流让整轮都按最慢的节奏爬，100 张图 46 秒（下限 20 秒）；
+//   - 每次成功就折半：立刻撞回去，170 次请求里 73 次 429；
+//   - 对**间隔**做加性增（每次减 2ms）：同样慢，因为 1/spacing 在间隔大时变化极缓。
+//
+// 加性增必须加在**速率**上：从 5 次/秒往回试探时，+0.5 次/秒是立刻能感觉到的，
+// 而对应的间隔从 200ms 到 182ms 只差一点点。
+func (c *Client) cool(d time.Duration) {
+	if d <= 0 {
+		d = defaultCooldown
+	}
+	if d > maxCooldown {
+		d = maxCooldown
+	}
+	c.gateMu.Lock()
+	defer c.gateMu.Unlock()
+	now := time.Now()
+	if until := now.Add(d); until.After(c.gateUntil) {
+		c.gateUntil = until
+	}
+	// 一次「撞墙」只降一次速率，而不是每个 429 都降一次。
+	//
+	// 这是整个自适应里最关键的一条：16 路并发会同时拿到 429，如果每个都乘 0.5，
+	// 速率从 20 直接掉到下限 1 次/秒 —— 实测 100 张图要 112 秒。TCP 的乘性减也是
+	// 「每个拥塞窗口一次」，不是每个丢包一次，同一个道理。
+	//
+	// 判据是「我们是不是已经在这个冷却窗口里了」：已经在等，说明这次 429 是上一批
+	// 请求的回声，不该再降。
+	if now.Before(c.cooledUntil) {
+		return
+	}
+	c.cooledUntil = now.Add(d)
+	// 撞墙的位置就是「对方容忍的上限」，记下来当作天花板：之后试探到它跟前就停，
+	// 不再一头撞回去。没有这条，加性增会一路涨到刚才撞墙的那个速率上，然后又挨一次
+	// 429 —— 实测 100 张图 308 次请求里 109 次是 429，光等冷却就耗掉大半时间。
+	if c.rate > 0 {
+		c.ceiling = c.rate * ceilingRatio
+		c.rate *= decreaseRatio
+	} else {
+		// 第一次撞墙：从 0（不限速）退到一个大多数图床都受得了的位置。
+		c.ceiling = probeRate * ceilingRatio
+		c.rate = probeRate * decreaseRatio
+	}
+	if c.rate < minRate {
+		c.rate = minRate
+	}
+}
+
+// relax 表示这一趟顺利：把速率往上加一小步，但绝不越过天花板。
+func (c *Client) relax() {
+	c.gateMu.Lock()
+	defer c.gateMu.Unlock()
+	if c.rate <= 0 {
+		return
+	}
+	c.rate += rateStep
+	if c.ceiling > 0 && c.rate > c.ceiling {
+		c.rate = c.ceiling
+	}
+	if c.rate > maxRate {
+		c.rate = maxRate
+	}
+}
+
+// spacing 是当前速率对应的请求间隔（0 表示不限制）。
+func (c *Client) spacing() time.Duration {
+	c.gateMu.Lock()
+	rate := c.rate
+	c.gateMu.Unlock()
+	return gapFor(rate)
+}
+
+// currentRate 返回当前允许的请求速率（次/秒，0 表示不限速）。给测试用。
+func (c *Client) currentRate() float64 {
+	c.gateMu.Lock()
+	defer c.gateMu.Unlock()
+	return c.rate
+}
+
+// gapFor 把速率换算成间隔。抽出来是为了让 waitTurn 能在持锁时直接算，
+// 不必再进一次 gateMu。
+func gapFor(rate float64) time.Duration {
+	if rate <= 0 {
+		return 0
+	}
+	return time.Duration(float64(time.Second) / rate)
+}
+
+// 自适应速率的参数（单位：次/秒）。
+const (
+	// probeRate 是第一次撞到限流时参考的速率：退到它的 decreaseRatio 倍。
+	probeRate = 20
+	// minRate 是速率下限：再慢就不如直接报错了。
+	minRate = 1
+	// maxRate 是速率上限。
+	maxRate = 200
+	// rateStep 是每次成功后往回加多少。
+	rateStep = 0.5
+	// decreaseRatio 是撞墙时速率乘以多少（乘性减）。
+	decreaseRatio = 0.5
+	// ceilingRatio 是「撞墙位置」到天花板的距离：留一点余量，试探到 80% 就停，
+	// 免得每次都刚好踩在边上再挨一记 429。
+	ceilingRatio = 0.8
+)
+
+// parseRetryAfter 解析 Retry-After 头：可以是多少秒，也可以是 HTTP 日期。
+// 解析不出来（或已经过期）返回 0，调用方会退回默认冷却。
+func parseRetryAfter(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(value); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		if secs > int(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if when, err := http.ParseTime(value); err == nil {
+		if d := time.Until(when); d > 0 {
+			if d > maxRetryAfter {
+				return maxRetryAfter
+			}
+			return d
+		}
+	}
+	return 0
+}
+
+// isRateLimited 判断状态码是不是「对方让我们慢一点」。
+// 429 是明确的限流；503 常常是图床过载时的同一种回答。
+func isRateLimited(status int) bool {
+	return status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable
+}
+
 // probeRetry 在「可能是对方抖了一下」的情况下重试一次。
 //
 // 检测模式最容易招人恨的就是误报：CDN 偶发 502、连接被重置，都会让一个好好的地址
 // 被打上「失效」。一次重试能挡掉绝大多数这类噪声，代价只是慢 400ms。
 // 404/410 这类「确定的结论」不重试。
 func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) {
-	res, err := c.probeAt(ctx, rawURL)
-	if !worthRetrying(res, err) {
-		return res, err
+	var res Result
+	var err error
+	// 两本独立的预算：普通瞬时故障 2 次，限流 5 次。写成死循环 + 两处显式
+	// return 是故意的 —— 用 `attempt < 2 || limited <= 4` 当条件，遇到 502 这种
+	// 「可重试但不算限流」的回答时两本预算都还在，循环永远退不出去。
+	for attempt, limited := 0, 0; ; {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return res, err
+			case <-time.After(retryDelay << uint(attempt-1)):
+			}
+		}
+		if werr := c.waitTurn(ctx); werr != nil {
+			return res, err
+		}
+		res, err = c.probeAt(ctx, rawURL)
+		if err == nil {
+			// 这一趟成了：说明现在的间隔是安全的，放松一档。
+			c.relax()
+			return res, err
+		}
+		if !worthRetrying(res, err) {
+			return res, err
+		}
+		if isRateLimited(res.Status) {
+			limited++
+			if limited > rateLimitRetries {
+				return res, err
+			}
+			// 全体一起等：光自己退避没用，其它协程还在往里冲。
+			c.cool(rateLimitWait(res, limited))
+			continue
+		}
+		// 这一趟成了：说明刚才的间隔是安全的，可以往回放松一档。
+		c.relax()
+		attempt++
+		if attempt >= 2 {
+			return res, err
+		}
 	}
-	select {
-	case <-ctx.Done():
-		return res, err
-	case <-time.After(retryDelay):
-	}
-	again, aerr := c.probeAt(ctx, rawURL)
-	if aerr != nil && err == nil {
-		return res, err
-	}
-	return again, aerr
 }
 
 // worthRetrying 判断这次失败值不值得再问一遍。
@@ -277,13 +512,32 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	if res.Status == http.StatusPartialContent {
 		return res, ErrPartial
 	}
+	// 限流时不用再 GET 一遍：答案已经写在头上了，再敲一次门只会让冷却更久。
+	if isRateLimited(res.Status) {
+		return res, &statusError{Status: res.Status}
+	}
 	// HEAD 没带正文，嗅探不了类型。所以「状态码成功但类型不是图片（或压根没给）」
 	// 也得用 GET 看一眼前 512 字节 —— 否则 application/octet-stream 的图床
 	// 会被整片误判成坏的。
 	if res.OK() || isDefinitelyGone(res.Status) {
 		return res, nil
 	}
-	return c.probeGet(ctx, rawURL)
+	got, gerr := c.probeGet(ctx, rawURL)
+	if gerr != nil {
+		return got, gerr
+	}
+	// GET 也没拿到图片，就把状态码变成错误。
+	//
+	// 这一步不能省：以前这里原样返回 (429, nil)，重试逻辑只认「err != nil」，
+	// 于是限流**一次都没重试过** —— 实测一台 5 次/秒的图床，100 个有效地址里
+	// 85 个被报成「失效」。状态码得走到 worthRetrying 那里才算数。
+	//
+	// 只转非 2xx：2xx 但内容不是图片是「这张图坏了」，由调用方看 OK() 判断，
+	// 不是「这一趟没成」。
+	if got.Status < 200 || got.Status > 299 {
+		return got, &statusError{Status: got.Status}
+	}
+	return got, nil
 }
 
 // ErrRedirectLoop 表示这个地址跳来跳去，跳满了上限也没落到一张图上。
@@ -321,6 +575,7 @@ func (c *Client) probeHead(ctx context.Context, rawURL string) (Result, error) {
 		ContentType: resp.Header.Get("Content-Type"),
 		Size:        resp.ContentLength,
 		FinalURL:    resp.Request.URL.String(),
+		RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
 	}, nil
 }
 
@@ -350,6 +605,7 @@ func (c *Client) probeGet(ctx context.Context, rawURL string) (Result, error) {
 		ContentType: resp.Header.Get("Content-Type"),
 		Size:        contentLength(resp),
 		FinalURL:    resp.Request.URL.String(),
+		RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
 	if n > 0 {
 		res.Sniffed = http.DetectContentType(head[:n])
@@ -427,10 +683,14 @@ func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, max
 const downloadAttempts = 3
 
 // downloadRetry 在瞬时故障上重试，每次重试前把写入目标退回开头。
+//
+// 限流（429/503）单独算预算，并且走全体共享的冷却闸门：下载这边同样会被图床限流，
+// 一群协程一起撞上去，结果就是「好好的图全都下不下来」。
 func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
 	var res Result
 	var err error
-	for attempt := 0; attempt < downloadAttempts; attempt++ {
+	// 与 probeRetry 同构：两本预算分开算，普通故障和限流各走各的上限。
+	for attempt, limited := 0, 0; ; {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -438,16 +698,61 @@ func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, 
 			case <-time.After(retryDelay << uint(attempt-1)):
 			}
 		}
+		if werr := c.waitTurn(ctx); werr != nil {
+			return res, err
+		}
 		var written int64
 		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes)
-		if err == nil || !worthRetrying(res, err) {
+		if err == nil {
+			c.relax()
+			return res, err
+		}
+		if !worthRetrying(res, err) {
 			return res, err
 		}
 		if rerr := rewind(w, written); rerr != nil {
 			return res, err
 		}
+		if isRateLimited(res.Status) {
+			limited++
+			if limited > rateLimitRetries {
+				return res, err
+			}
+			c.cool(rateLimitWait(res, limited))
+			continue
+		}
+		c.relax()
+		attempt++
+		if attempt >= downloadAttempts {
+			return res, err
+		}
 	}
-	return res, err
+}
+
+// retryAfterOf 取对方要求的等待时长；没给就用默认冷却。
+func retryAfterOf(res Result) time.Duration {
+	if res.RetryAfter > 0 {
+		return res.RetryAfter
+	}
+	return defaultCooldown
+}
+
+// rateLimitWait 算这次被限流之后该等多久。
+//
+// 只等 Retry-After 是不够的：16 路并发会在同一毫秒一起醒来，然后同一毫秒一起
+// 把下一轮的额度撞满 —— 实测一台 5 次/秒的图床，光等 Retry-After 时 100 个有效
+// 地址里仍有 17 个被报成「失效」。所以每次再撞一次就把等待翻倍，再叠一个抖动，
+// 让它们自然错开。
+func rateLimitWait(res Result, limited int) time.Duration {
+	wait := retryAfterOf(res) << uint(limited-1)
+	if wait <= 0 || wait > maxCooldown {
+		wait = maxCooldown
+	}
+	// 抖动取 [0, wait/2)：同一批协程醒来后落在一个窗口里，而不是同一瞬间。
+	if half := int64(wait / 2); half > 0 {
+		wait += time.Duration(rand.Int63n(half))
+	}
+	return wait
 }
 
 // errNotRewindable 表示写入目标退不回开头，没法安全重试。
@@ -556,6 +861,7 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 		ContentType: resp.Header.Get("Content-Type"),
 		Size:        contentLength(resp),
 		FinalURL:    resp.Request.URL.String(),
+		RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
 	if res.Status < 200 || res.Status > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))

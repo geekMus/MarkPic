@@ -2661,3 +2661,47 @@ func Key(rawURL string) string {
 刻意**不**把它们塞进结尾的「失效的远程地址」清单：那份清单是「照着改文档」用的，而 `ftp://` 不是坏了，是我们压根没试。混进去会让人去查一个并不存在的死链。
 
 回归：`TestRemoteUnsupportedSchemeIsLeftAlone`（断言 `RemoteUnsupported==1` 且 `Skipped==0`）、`TestRemoteUnsupportedIsCountedAlongsideSupported`（一篇文章里 1 张 http + 3 处碰不了的，断言 `Checked==1`、`RemoteUnsupported==3`、汇总同口径）。两条都验证过承重：把 `res.RemoteUnsupported++` 换回 `res.Skipped++`，立刻报「碰不了的地址该记进 RemoteUnsupported，实际 0」。
+## 限流图床把 85 个有效地址报成了失效
+
+一台 5 次/秒的图床，100 个全都有效的地址，`--remote check -c 16` 报出「远程图 100 张，失效 85 张」，
+耗时 2466 ms。用户会拿着这份报告去改文档 —— 改的全是好图。
+
+| 版本 | 耗时 | 请求 / 429 | 失效 |
+| --- | --- | --- | --- |
+| 改前（重试一次、各退各的） | 2466 ms | — | **85** |
+| 只加共享冷却闸门（等 `Retry-After`） | 16585 ms | — | 17 |
+| + 翻倍退避 + 抖动 | 53584 ms | — | 6 |
+| + 自适应间隔（撞墙翻倍、成功减半） | 46415 ms | — | **0**（太慢） |
+| + 成功后也放松（每次成功都放松） | 36464 ms | 170 / 73 | 0（振荡） |
+| AIMD 作用在**间隔**上（每次减 2 ms） | 44859 ms | 199 / 109 | 0 |
+| AIMD 作用在**速率**上（+0.5 次/秒） | 46241 ms | 308 / 109 | 0 |
+| + 天花板封顶（0.8× 撞墙速率） | 112680 ms | 423 / 125 | 0（每 429 各乘 0.5 → 掉到 1 次/秒） |
+| **+ 一次撞墙只降一次（`cooledUntil` 守卫）** | **23776 / 23055 / 25923 ms** | 566/168、716/223、140/43 | **0** |
+
+两个根因，第二个是修第一个时才发现的：
+
+1. `probeRetry` 只重试一次、等 400 ms，而 429 的第二次仍在同一秒窗口内 → 必然再 429；
+   16 路并发各敲各的，没有「一起退避」。
+2. **`probeGet` 把 `(429, nil)` 原样返回**。`probeAt` 里 HEAD 拿到的响应若不是图片也不是「确定没了」，
+   就退化成 GET 嗅探类型，而 GET 那条路对非 2xx 也 `return res, nil`。重试逻辑只认 `err != nil`，
+   于是**限流一次都没重试过**。85 个误报是这条直接造成的。
+
+改法（`internal/remoteimg`）：`Client` 加共享冷却闸门（`gateMu`/`gateUntil`/`nextSlot`）+ AIMD 速率
+（`rate`/`ceiling`/`cooledUntil`）；`waitTurn` 在锁内算间隔并排队（**不能调 `spacing()`**，那把锁不可重入，
+实测死锁挂满 120 秒）；`cool` 夹到 `[1s, 10s]`，**冷却窗口内只降一次速率**；`relax` 每次成功 +0.5 次/秒、
+封顶在撞墙位置的 0.8×；`probeAt` 两处补 `statusError` 转换；`probeRetry`/`downloadRetry` 改成「普通 2 次 +
+限流 5 次」两本预算的死循环（不能用 `attempt < 2 || limited <= rateLimitRetries` 当条件 —— 遇到 502 这种
+「可重试但不算限流」的回答时两本预算都还在，循环永远退不出去）。
+
+**最关键的教训**：乘性减必须「每个拥塞事件一次」，不是「每个 429 一次」—— 和 TCP 拥塞控制同理。
+16 路并发同时拿到 429，若各乘 0.5，速率从 20 直接掉到下限 1，100 张图要跑 112 秒。
+
+回归（`internal/remoteimg/remoteimg_test.go`，都验证过承重）：`TestProbeBacksOffWhenRateLimited`（5 次/秒、
+30 并发，误报必须为 0 且确实触发过限流）、`TestProbeDoesNotSlowDownHealthyHost`（60 个本地请求 < 3 秒且
+`currentRate() == 0`）、`TestRateLimitDecreaseHappensOncePerEvent`（把守卫改成 `if false &&` 立刻红：
+「同一批 429 只该降一次速率：10 → 1」）、`TestRateLimitRecoversGradually`、`TestParseRetryAfter`（9 组）、
+`TestProbeRateLimitsOnGetFallback`（HEAD 回 405 逼走 GET，第 3 个地址必须靠重试活下来；把 GET 的
+`statusError` 转换删掉立刻红）。
+
+实测（修好之后，同一批 100 个有效地址）：5 次/秒的图床 `check` 23.8/23.1/25.9 秒、`download` 23.5 秒
+（100/100 落盘）、2 次/秒 66.7/71.0 秒，**误报 0**；不限流的图床仍是 337 ms。
