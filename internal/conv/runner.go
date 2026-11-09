@@ -593,7 +593,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	// 预检模式跳过真正的网络动作，待处理项保持 pending
 	if !r.cfg.DryRun {
-		r.runUnits(ctx, id, filepath.Dir(path), groups, remotes, items)
+		r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
 	}
 
 	for _, it := range items {
@@ -878,6 +878,21 @@ func (r *Runner) planOutput(src string, create bool) (string, error) {
 		ext := filepath.Ext(src)
 		return r.reserveOutput(src, strings.TrimSuffix(src, ext)+r.cfg.Suffix+".md"), nil
 	}
+}
+
+// remoteBaseDir 是「下载回来的远程图该放在哪」的基准目录。
+//
+// 关键点是它必须跟着**输出文档**走，而不是源文档：`-o directory` 模式下文档会被写到
+// 另一个目录，图片若还放在源目录旁边，输出文档里的 `images/x.png` 就指不到东西了
+// （实测：源目录多了个 images/，输出文档里全是断链）。
+func (r *Runner) remoteBaseDir(src string) string {
+	if r.cfg.Output == settings.OutputDirectory && strings.TrimSpace(r.cfg.OutDir) != "" {
+		if abs, err := filepath.Abs(r.cfg.OutDir); err == nil {
+			return abs
+		}
+		return r.cfg.OutDir
+	}
+	return filepath.Dir(src)
 }
 
 // planOutputs 按输入顺序把这一轮所有文件的输出路径定下来。

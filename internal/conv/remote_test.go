@@ -400,3 +400,39 @@ func TestRemoteDownloadHandlesProtocolRelativeURL(t *testing.T) {
 		t.Fatalf("输出里不该还有远程地址: %s", out)
 	}
 }
+
+// `-o directory` 模式下文档会被写到另一个目录：下载回来的图片必须跟着**输出文档**走，
+// 否则输出文档里的 images/x.png 是断链（实测过：图片落到了源目录旁边）。
+func TestRemoteDownloadFollowsOutputDirectory(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "docs")
+	out := filepath.Join(t.TempDir(), "out")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := fakeImageHost(t)
+	doc := filepath.Join(src, "a.md")
+	writeFile(t, doc, "![p]("+host.URL+"/ok.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:1", settings.RemoteDownload)
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = out
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	if results[0].Localized != 1 {
+		t.Fatalf("应该下载 1 张: %+v", results[0])
+	}
+	if _, err := os.Stat(filepath.Join(out, "images", "ok.png")); err != nil {
+		t.Fatalf("图片应该落在输出目录旁边: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(src, "images")); err == nil {
+		t.Fatal("源目录旁边不该多出一个 images/")
+	}
+	body, err := os.ReadFile(filepath.Join(out, "a.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "images/ok.png") {
+		t.Fatalf("输出文档里的链接不对: %s", body)
+	}
+}

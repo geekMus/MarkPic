@@ -1937,3 +1937,16 @@ settle **7.5 s**、**1338 帧里最长一帧 12.5 ms**、控制台 0 错误。
 测试：`TestNormalizeAddsSchemeToProtocolRelative`、`TestRemoteDownloadHandlesProtocolRelativeURL`、
 `TestProbeRetriesTransientFailures`（第一次 502、第二次成功，断言正好请求 2 次）、
 `TestProbeDoesNotRetryDefiniteMisses`（404 只请求 1 次）。
+### 第 42 轮的补丁 2：下载的图要跟着输出文档走
+
+`-o directory --out-dir out` 配 `--remote download` 时，图片被下到了**源目录**旁边的
+`images/`，而文档写到了 `out/` —— 输出文档里的 `images/x.png` 直接是断链，源目录还多出
+一个没人用的 `images/`（实测：`\docs\images\…png` + `\out\a.md`，`a.md` 里写着 `images/…png`）。
+
+改法：新增 `Runner.remoteBaseDir(src)` —— 目录模式下返回 `OutDir` 的绝对路径，其余模式
+（旁挂副本、原地替换）仍返回源文件所在目录。`runUnits` 的基准目录由 `filepath.Dir(path)`
+换成它。
+
+回归：`TestRemoteDownloadFollowsOutputDirectory`（断言图落在 `out/images/`、源目录旁
+没有 `images/`、输出文档里的链接是 `images/ok.png`）；另手动复核 sidecar 模式仍然把图放在
+源文件旁边（`\images\…png` 与 `\a.converted.md` 同级）。
