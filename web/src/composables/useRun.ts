@@ -32,6 +32,14 @@ export interface RunRow {
   /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
   missing?: boolean
   /**
+   * 这一行是个目录：真正的文档要等开跑时才展开成一行一个。
+   *
+   * 预览是按前缀把目录里的图片数加起来的，所以能分辨出「这一行不是文档」。
+   * 底栏靠它说「1 个目录」而不是「1 个文件」—— 粘一个目录进去却看到「1 个文件」，
+   * 用户会以为只有一篇会被处理。
+   */
+  isDir?: boolean
+  /**
    * 这一行的转换结果（或预检结果）。
    *
    * 结果直接挂在行上，行对象自己就是响应式的：某一行完成时只有那一行重渲染，
@@ -49,6 +57,8 @@ export type RunRowView = RunRow
 
 export interface RunStats {
   files: number
+  /** 队列里那些还没展开的目录行有几行（开跑之后目录展开成文件，这里回到 0）。 */
+  dirs: number
   images: number
   uploaded: number
   /** 靠缓存省下的去重图片数（跑完之后才有准确值）。 */
@@ -182,6 +192,8 @@ const stats = computed<RunStats>(() => {
   if (finished) {
     return {
       files: finished.files,
+      // 跑完之后目录已经展开成一个个文件了，这里不再有「目录」这回事。
+      dirs: 0,
       images: finished.images,
       uploaded: finished.uploaded,
       reused: finished.reused,
@@ -207,6 +219,7 @@ const stats = computed<RunStats>(() => {
 
   return {
     files: rows.value.length,
+    dirs: rows.value.reduce((n, row) => n + (row.isDir ? 1 : 0), 0),
     images: live.images,
     uploaded: live.uploaded,
     reused: live.reused,
@@ -802,6 +815,10 @@ function addPaths(input: string[]): string[] {
   if (phase.value === 'done' || phase.value === 'cancelled') resetOutcome()
 
   const known = new Set(rows.value.map(row => pathKey(row.path)))
+  // 已经在队列里的目录，它下面的文件开跑时会被那个目录一起扫出来。
+  // 这时候再单独加一份文件，等于同一篇文档进队列两次：页脚会把图片数算两遍，
+  // 跑完还会看到两行同名结果。所以目录里的路径直接并进那行目录，不再新开一行。
+  const dirPrefixes = rows.value.filter(row => row.isDir).map(row => pathKey(row.path) + '\\')
   const added: string[] = []
 
   for (const raw of input) {
@@ -809,6 +826,7 @@ function addPaths(input: string[]): string[] {
     if (path === '') continue
     const key = pathKey(path)
     if (key === '' || known.has(key)) continue
+    if (dirPrefixes.some(prefix => key.startsWith(prefix))) continue
     known.add(key)
     added.push(path)
     const { name, dir } = splitPath(path)
@@ -828,11 +846,20 @@ function addPaths(input: string[]): string[] {
   return added
 }
 
-/** 用 /api/preview 的结果补齐队列行的图片数量（目录行按前缀汇总）。 */
-function applyPreview(result: PreviewResult): void {
+/**
+ * 用 /api/preview 的结果补齐队列行的图片数量（目录行按前缀汇总）。
+ *
+ * 只更新这一次真的预检过的行：预览请求带的是刚加进来的那几个路径，返回的也只有它们
+ * （以及目录里的文件）。早先对每一行都套这个结果，于是「先加一个目录、再加一个别的文件」
+ * 会把那个目录的图片数从 4 改成 1，甚至把它标成「找不到」—— 新的预览结果里本来就没有它。
+ */
+function applyPreview(result: PreviewResult, touched: readonly string[]): void {
   const byPath = new Map(result.files.map(file => [pathKey(file.path), file]))
+  const touchedKeys = new Set(touched.map(pathKey))
 
   for (const row of rows.value) {
+    const rowKey = pathKey(row.path)
+    if (!touchedKeys.has(rowKey) && !byPath.has(rowKey)) continue
     const exact = byPath.get(pathKey(row.path))
     if (exact) {
       // 预检结果也留在行上：行的 images 有了，逐图明细（L 行）才有出处，
@@ -841,6 +868,7 @@ function applyPreview(result: PreviewResult): void {
       row.images = exact.images
       row.total = exact.images
       row.missing = false
+      row.isDir = false
       continue
     }
 
@@ -859,6 +887,8 @@ function applyPreview(result: PreviewResult): void {
       row.images = sum
       row.total = sum
       row.missing = false
+      // 按前缀匹配上的，说明这一行是目录而不是某个具体文档。
+      row.isDir = true
     } else {
       row.missing = true
     }

@@ -110,7 +110,7 @@ async function enqueue(paths: string[]): Promise<void> {
   }
   manualOpen.value = false
   try {
-    applyPreview(await preview(added, settingsSnapshot()))
+    applyPreview(await preview(added, settingsSnapshot()), added)
   } catch (error) {
     warning(t('error.preview', { detail: describeError(error, t('error.unknown')) }))
   }

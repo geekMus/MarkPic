@@ -194,6 +194,8 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.dryRun': 'Dry run',
   'footer.queueEmpty': 'Queue is empty',
   'footer.files': '{count} files',
+  'footer.filesAndDirs': '{files} files · {dirs} folders',
+  'footer.dirsOnly': '{dirs} folders',
   'footer.images': '{count} images',
   'footer.noImages': 'No images found',
   'footer.uploaded': '{count} replaced',

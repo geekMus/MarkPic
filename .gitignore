@@ -20,3 +20,6 @@ web/.vite.config.ts.*.tmpdir/
 
 # 根目录只是任务入口（scripts/ 的快捷方式），不需要锁文件
 /pnpm-lock.yaml
+
+# 一次性截图/临时消息文件，别跟着代码进仓库
+.tmp-*

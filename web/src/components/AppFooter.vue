@@ -48,7 +48,17 @@ const parts = computed<Part[]>(() => {
   const stats = props.stats
   if (stats.files === 0) return [{ text: t('footer.queueEmpty'), tone: 'plain' }]
 
-  const list: Part[] = [{ text: t('footer.files', { count: stats.files }), tone: 'plain' }]
+  // 队列里还留着目录行时，说「1 个文件」会让粘了整个目录的人以为只处理一篇；
+  // 目录行开跑之后会展开成一行一个文档，所以这里只在还没展开的时候改口。
+  const dirs = stats.dirs
+  const filesOnly = stats.files - dirs
+  const filePart: Part =
+    dirs === 0
+      ? { text: t('footer.files', { count: stats.files }), tone: 'plain' }
+      : filesOnly === 0
+        ? { text: t('footer.dirsOnly', { dirs }), tone: 'plain' }
+        : { text: t('footer.filesAndDirs', { files: filesOnly, dirs }), tone: 'plain' }
+  const list: Part[] = [filePart]
   list.push(
     stats.images > 0
       ? { text: t('footer.images', { count: stats.images }), tone: 'plain' }
