@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io"
@@ -173,6 +174,78 @@ func TestPreviewDoesNotUploadOrWrite(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "note.converted.md")); err == nil {
 		t.Fatal("预检不应生成文件")
+	}
+}
+
+// 预览响应会按 Accept-Encoding 压缩：5000 篇文档的预览是 20 MB 的 JSON，
+// 浏览器收压缩版能省下一个数量级的传输时间。
+func TestPreviewIsGzippedWhenClientAccepts(t *testing.T) {
+	pic := newFakePicgo(t)
+	_, base := newTestServer(t, pic.srv.URL)
+
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "a")
+	doc := filepath.Join(dir, "note.md")
+	writeFile(t, doc, "![a](a.png)\n")
+	payload, err := json.Marshal(map[string]any{"paths": []string{doc}})
+	if err != nil {
+		t.Fatalf("构造请求失败: %v", err)
+	}
+
+	// 不带 Accept-Encoding：明文，谁都读得了。
+	plain, err := http.Post(base+"/api/preview", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("请求失败: %v", err)
+	}
+	defer plain.Body.Close()
+	if enc := plain.Header.Get("Content-Encoding"); enc != "" {
+		t.Fatalf("没要求压缩却收到 Content-Encoding=%q", enc)
+	}
+	if vary := plain.Header.Get("Vary"); !strings.Contains(vary, "Accept-Encoding") {
+		t.Fatalf("Vary = %q，应当声明依赖 Accept-Encoding", vary)
+	}
+
+	// 说要 gzip：必须是 gzip，且解出来还是同一份 JSON。
+	req, err := http.NewRequest(http.MethodPost, base+"/api/preview", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("构造请求失败: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := resp.Header.Get("Content-Encoding"); got != "gzip" {
+		t.Fatalf("Content-Encoding = %q，期望 gzip", got)
+	}
+	zr, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		t.Fatalf("响应不是合法的 gzip: %v", err)
+	}
+	var out previewResponse
+	if err := json.NewDecoder(zr).Decode(&out); err != nil {
+		t.Fatalf("解析压缩后的预检结果失败: %v", err)
+	}
+	if len(out.Files) != 1 || out.Files[0].Images != 1 {
+		t.Fatalf("压缩后的内容不对：文件 %d 个", len(out.Files))
+	}
+
+	// q=0 表示明确拒绝，不能被当成接受。
+	req2, err := http.NewRequest(http.MethodPost, base+"/api/preview", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("构造请求失败: %v", err)
+	}
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Accept-Encoding", "gzip;q=0")
+	resp2, err := http.DefaultTransport.RoundTrip(req2)
+	if err != nil {
+		t.Fatalf("请求失败: %v", err)
+	}
+	defer resp2.Body.Close()
+	if got := resp2.Header.Get("Content-Encoding"); got != "" {
+		t.Fatalf("gzip;q=0 不该压缩，收到 %q", got)
 	}
 }
 

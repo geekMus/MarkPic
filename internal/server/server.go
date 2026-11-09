@@ -6,6 +6,7 @@ package server
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -370,7 +371,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	if files == nil {
 		files = []conv.FileResult{}
 	}
-	writeJSON(w, http.StatusOK, previewResponse{Files: files, Summary: sum})
+	writeJSONFor(w, r, http.StatusOK, previewResponse{Files: files, Summary: sum})
 }
 
 // settingsPatch 是「只覆盖用户改动过的字段」的请求体。
@@ -540,7 +541,7 @@ func (s *Server) handleRunCurrent(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSONFor(w, r, http.StatusOK, out)
 }
 
 func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
@@ -697,6 +698,46 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(v)
+}
+
+// writeJSONFor 是「知道请求的」版本：客户端愿意收 gzip 就压一压。
+//
+// 这个差别在预览接口上很显著：5000 篇文档的预览响应是 20 MB 的 JSON，
+// 压缩后不到 1 MB。浏览器解压比它省下的传输时间便宜得多，而 curl 之类
+// 不发 Accept-Encoding 的客户端拿到的仍是明文，行为不变。
+func writeJSONFor(w http.ResponseWriter, r *http.Request, code int, v any) {
+	h := w.Header()
+	h.Set("Content-Type", "application/json; charset=utf-8")
+	h.Set("Vary", "Accept-Encoding")
+	var dst io.Writer = w
+	if acceptsGzip(r) {
+		h.Set("Content-Encoding", "gzip")
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		dst = gz
+	}
+	w.WriteHeader(code)
+	enc := json.NewEncoder(dst)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
+}
+
+// acceptsGzip 判断客户端是否接受 gzip（zstd/br 就没必要了，gzip 兼容性最好）。
+func acceptsGzip(r *http.Request) bool {
+	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
+		token := strings.TrimSpace(part)
+		if i := strings.IndexByte(token, ';'); i >= 0 {
+			// 带 q=0 表示明确不要
+			if strings.Contains(strings.ReplaceAll(token[i:], " ", ""), "q=0") {
+				continue
+			}
+			token = strings.TrimSpace(token[:i])
+		}
+		if strings.EqualFold(token, "gzip") {
+			return true
+		}
+	}
+	return false
 }
 
 // langOf 取这次请求希望的语言：前端每个请求都带 Accept-Language。
