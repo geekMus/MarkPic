@@ -524,20 +524,13 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			it.Status = StatusMissing
 			it.Error = i18n.T(r.lang, i18n.KeyConvEmptyTarget)
 		default:
-			candidates := imgpath.ResolveAll(path, ref.Target)
-			if len(candidates) == 0 {
+			// 先算主候选（正常写法）；它不存在时才算退化写法——
+			// 绝大多数引用的第一发就命中，四种候选全算出来只是白花分配。
+			abs, ok := imgpath.ResolveExisting(path, ref.Target, r.fileExists)
+			if !ok {
 				it.Status = StatusMissing
 				it.Error = i18n.T(r.lang, i18n.KeyConvUnresolvedTarget)
 				break
-			}
-			// 先按 URL 语义解码的那个，不存在再退回文档里逐字写的那个
-			// （文件名里真的带 %20 时只有后者找得到文件）。
-			abs := candidates[0]
-			for _, cand := range candidates {
-				if r.fileExists(cand) {
-					abs = cand
-					break
-				}
 			}
 			it.AbsolutePath = abs
 			if !r.fileExists(abs) {
