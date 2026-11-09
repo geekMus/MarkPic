@@ -624,6 +624,9 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 // 结果两张图被当成一张：只下载了先遇到的那张，另一处链接指向了错误的图。
 // 主机名不区分大小写（DNS 语义），`HTTPS://Host/x.png` 与 `https://host/x.png`
 // 确实是同一处，所以这两截还是要折。
+//
+// 片段（`#frag`）整个丢掉：它根本不会发给服务器，`pic.png#a` 与 `pic.png#b`
+// 是同一个资源。查询串则必须留着 —— `?w=800` 和 `?w=400` 常常真是两张图。
 func Key(rawURL string) string {
 	s := strings.TrimSpace(rawURL)
 	u, err := url.Parse(s)
@@ -633,6 +636,7 @@ func Key(rawURL string) string {
 	}
 	u.Scheme = strings.ToLower(u.Scheme)
 	u.Host = strings.ToLower(u.Host)
+	u.Fragment, u.RawFragment = "", ""
 	return u.String()
 }
 

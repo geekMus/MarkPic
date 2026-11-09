@@ -688,3 +688,26 @@ func TestProbeRejectsPartialContent(t *testing.T) {
 		t.Fatalf("206 是确定结论，不该重试，实际请求 %d 次", requests)
 	}
 }
+
+// 片段（`#frag`）不会发给服务器，`pic.png#a` 与 `pic.png` 是同一个资源，
+// 该并成一处下载；查询串则常常真的指向不同的图（`?w=800` 与 `?w=400`），不能并。
+func TestKeyIgnoresFragmentButKeepsQuery(t *testing.T) {
+	cases := []struct {
+		a, b string
+		same bool
+	}{
+		{"https://h/x.png#a", "https://h/x.png", true},
+		{"https://h/x.png#a", "https://h/x.png#b", true},
+		{"https://H/x.png", "https://h/x.png", true},
+		{"HTTPS://h/x.png", "https://h/x.png", true},
+		{"https://h/PIC.png", "https://h/pic.png", false},
+		{"https://h/x.png?w=1", "https://h/x.png?w=2", false},
+		{"https://h/x.png?w=1", "https://h/x.png", false},
+	}
+	for _, tc := range cases {
+		got := Key(tc.a) == Key(tc.b)
+		if got != tc.same {
+			t.Errorf("Key(%q)==Key(%q) 应该是 %v，实际 %v（%q vs %q）", tc.a, tc.b, tc.same, got, Key(tc.a), Key(tc.b))
+		}
+	}
+}
