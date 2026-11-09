@@ -39,7 +39,10 @@ const DefaultRemoteDir = "images"
 
 // CurrentSchemaVersion 是设置文件的结构版本。加载到比它旧的设置时会做一次性迁移，
 // 迁移完写回，用户之后再改回旧值就不会再被动。
-const CurrentSchemaVersion = 3
+//
+// 4：默认并发从 16 提到 32（见 DefaultConcurrency）。版本 3 及更早写出来的
+// 设置里那个 16 绝大多数是「从没动过」，所以顺带提上去。
+const CurrentSchemaVersion = 4
 
 // Settings 是全部可配置项。JSON 字段名即 HTTP API 字段名。
 type Settings struct {
@@ -85,20 +88,29 @@ func Default() Settings {
 	}
 }
 
-// MaxConcurrency 是并发上传数的上限。再往上实测就没有收益了（图床反而更不稳）。
-const MaxConcurrency = 32
+// MaxConcurrency 是并发上传数的上限。再往上实测就没有收益了（图床反而更不稳）：
+// 真 PicGo + 120 张各不相同的图，并发 48 稳定在 27~29 秒，并发 64 变成
+// 68.8 / 31.5 / 46.4 秒——48 到 64 之间有一道墙，越过去只会互相拖。
+const MaxConcurrency = 64
 
-// DefaultConcurrency 是默认并发上传数。上传是纯等网络，并发太低最吃亏：
-// 真 PicGo + 150 KB 的图、59 张，跑 6 篇文档（每轮配置重复 3 次取最好）：
-// 并发 8 → 8.8~10.0 s，并发 12 → 5.9~8.9 s，并发 16 → 5.6~6.2 s，
-// 并发 20 → 5.3~6.1 s，并发 32 → 不稳（出现过 30 s 的轮次）。
-// 16 是收益拐点：再往上只多压图床、不多拿速度。
-const DefaultConcurrency = 16
+// DefaultConcurrency 是默认并发上传数。上传是纯等网络，并发太低最吃亏。
+//
+// 真 PicGo + 120 张各不相同的图（交错跑，抵消网络漂移）：
+// 并发 16 → 31.9~37.8 s（波动大），并发 32 → 23~32 s，并发 48 → 22.7~29 s，
+// 并发 64 → 68.8 / 31.5 / 46.4 s（明显崩）。20 张的小规模下 32 与 48 打平
+// （8.4 / 8.1 s），16 仍要 13.5 s。
+//
+// 早先这里定的是 16，理由是「32 不稳（出现过 30 s 的轮次）」。那个结论已经过期：
+// 当时的 32 既没有连接池（每条空闲连接上限是 Go 默认的 2，多出来的用完就关，
+// 每张图重新握手），也没有限流退避（图床一限流就整批失败）。两样补齐之后
+// 32 与 48 不但更快，还比 16 更稳（16 的波动来自排队排到队尾的那几张）。
+const DefaultConcurrency = 48
 
-// 旧版本的默认并发数：1.0 是 4，2.0（含）之前是 8。
+// 旧版本的默认并发数：1.0 是 4，2.0（含）之前是 8，4.0 之前是 16。
 const (
 	legacyConcurrency  = 4
 	legacyConcurrency2 = 8
+	legacyConcurrency3 = 16
 )
 
 // migrate 把旧版本的设置补成当前版本，返回是否改动过。
@@ -108,7 +120,7 @@ func (s *Settings) migrate() bool {
 	}
 	// 只在用户用的还是「当时那个版本的默认值」时顺手提上去；迁移写回之后再
 	// 改回旧值就不会被覆盖。
-	if s.Concurrency == legacyConcurrency || s.Concurrency == legacyConcurrency2 {
+	if s.Concurrency == legacyConcurrency || s.Concurrency == legacyConcurrency2 || s.Concurrency == legacyConcurrency3 {
 		s.Concurrency = DefaultConcurrency
 	}
 	s.SchemaVersion = CurrentSchemaVersion

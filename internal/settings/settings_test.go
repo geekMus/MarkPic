@@ -141,6 +141,31 @@ func TestStoreMigratesLegacyConcurrency(t *testing.T) {
 	if got := store2.Load(); got.Concurrency != DefaultConcurrency {
 		t.Fatalf("2.0 的默认并发应当迁移到 %d，得到 %d", DefaultConcurrency, got.Concurrency)
 	}
+
+	// 3.x 写出来的设置文件：有 schemaVersion=3，并发是当时的默认值 16。
+	// 16 是绝大多数用户「从没动过」的那个值，值得顺手提上去。
+	path3 := filepath.Join(t.TempDir(), "settings.json")
+	store3 := NewStore(path3)
+	v3 := `{"endpoint":"http://127.0.0.1:36677","concurrency":16,"retries":2,"output":"sidecar",` +
+		`"suffix":".converted","backup":true,"reuseUploads":true,"schemaVersion":3}`
+	if err := os.WriteFile(path3, []byte(v3), 0o644); err != nil {
+		t.Fatalf("写 3.x 设置失败: %v", err)
+	}
+	if got := store3.Load(); got.Concurrency != DefaultConcurrency {
+		t.Fatalf("3.x 的默认并发应当迁移到 %d，得到 %d", DefaultConcurrency, got.Concurrency)
+	}
+
+	// 但「不是默认值」的并发数一个都不该被动：3.x 里手动设的 12 保持 12。
+	path4 := filepath.Join(t.TempDir(), "settings.json")
+	store4 := NewStore(path4)
+	v3custom := `{"endpoint":"http://127.0.0.1:36677","concurrency":12,"retries":2,"output":"sidecar",` +
+		`"suffix":".converted","backup":true,"reuseUploads":true,"schemaVersion":3}`
+	if err := os.WriteFile(path4, []byte(v3custom), 0o644); err != nil {
+		t.Fatalf("写自定义并发的设置失败: %v", err)
+	}
+	if got := store4.Load(); got.Concurrency != 12 {
+		t.Fatalf("用户自己设的 12 不该被改：%d", got.Concurrency)
+	}
 }
 
 func TestStoreToleratesBOM(t *testing.T) {

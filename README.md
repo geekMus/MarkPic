@@ -77,7 +77,7 @@ convert-md-picture .\docs --dry-run
 | `--remote <ignore\|check\|download>` | 文章里的远程图怎么处理，默认 `ignore`（原样留着） |
 | `--remote-dir <dir>` | `download` 模式把图片放到文档旁边的哪个子目录，默认 `images` |
 | `-e, --endpoint <url>` | PicGo 服务地址，默认 `http://127.0.0.1:36677` |
-| `-c, --concurrency <int>` | 同时处理的文件数，也是同时上传的图片数，1-32，默认 16 |
+| `-c, --concurrency <int>` | 同时处理的文件数，也是同时上传的图片数，1-64，默认 48（实测 48 是拐点：16 慢一倍且更抖，64 反而崩） |
 | `--retries <int>` | 上传失败重试次数，0-5，默认 2 |
 | `-q, --quiet` | 只输出汇总 |
 | `-v, --version` | 显示版本 |

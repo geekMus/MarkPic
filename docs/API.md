@@ -15,7 +15,7 @@ GUI 模式下，单文件 exe 会在 `127.0.0.1:<port>` 启动一个**仅监听�
 ```ts
 type Settings = {
   endpoint: string          // PicGo 本地服务地址，默认 "http://127.0.0.1:36677"
-  concurrency: number       // 1..32，默认 16
+  concurrency: number       // 1..64，默认 48
   retries: number           // 0..5，默认 2
   output: 'sidecar' | 'in-place' | 'directory'
   suffix: string            // 默认 ".converted"
