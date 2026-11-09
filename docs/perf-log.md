@@ -3210,3 +3210,90 @@ if res.Size <= 0 {
 修后同一个夹具（12 张、1 秒/张、2.5 秒取消）：`images/` 里只有 3 个 67 字节的文件，未完成的那些老老实实报「已取消」。
 
 教训：**「没有错误」和「成功了」不是一回事**。错误变量默认是 nil，凡是「拿 err 当返回值」的地方，都要问一句：这条路径上 err 真的被赋过值吗？
+## 4 MB 的图下了 61 秒，然后报「超时」
+
+一张 4 MB 的图，图床限速 150 KB/s —— 这在图床里算快的一档。下载它应该要 27 秒左右。实际结果：
+
+```
+[失败] doc.md  所有本地图片都处理失败，未生成文件
+       第 1 行  失败  http://127.0.0.1:36725/img/big.png（下载失败：context deadline
+       exceeded (Client.Timeout or context cancellation while reading body)）
+共 1 个文件 · 没下载回来 1 张 · 失败 1 个 · 用时 61.2s
+```
+
+61 秒 = 三次尝试 × 20 秒。`http.Client` 上挂着 `Timeout: 20s`，它覆盖的是**整次请求**：连上、拿到响应头、把正文读完，全算在同一个 20 秒里。于是「图在慢慢下」和「图床死了」被同一个数字判死，而且重试也救不了 —— 每一次都在同一个 20 秒处断。
+
+超时的本意是「别永远挂着」，不是「一次请求必须在 20 秒内结束」。这两件事得拆开：
+
+```go
+// 改前：整次请求的总闸
+&http.Client{
+	Timeout:   timeout,
+	Transport: newTransport(defaultIdleConns),
+}
+
+// 改后：只卡「对方什么时候开始答话」
+&http.Client{
+	Transport: newTransport(defaultIdleConns, timeout),
+}
+// newTransport 里：
+//   ResponseHeaderTimeout: headerTimeout
+```
+
+探测（HEAD/GET 那 512 字节）另给一个整趟上限，反正是问一句就走：
+
+```go
+if c.timeout > 0 {
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+}
+```
+
+下载这边要回答的是另一个问题：**多久没有新数据进来**。总时长给一个很宽的兜底（45 分钟，够 64 MB 在 40 KB/s 上走完），真正干活的是看门狗：
+
+```go
+// 每 2 秒看一眼「上次收到字节是多久前」，超过 30 秒就把响应体关掉 ——
+// 阻塞中的 Read 会立刻返回错误，调用方也就知道是「对方卡住了」，不是网络断。
+case <-t.C:
+	if c.stall > 0 && guard.idle() >= c.stall {
+		guard.stalled.Store(true)
+		_ = resp.Body.Close()
+		return
+	}
+```
+
+关掉连接之后，读到的错误是 `use of closed network connection` —— 对用户来说这是句废话（他会以为是我们的问题）。所以看门狗同时记一个标记，读到错误时换成自己的说法：
+
+```go
+if guard != nil && guard.stalled.Load() {
+	return res, total, ErrStalled
+}
+```
+
+并且 `ErrStalled` 明确**不重试**：每试一次都要白等一整个 30 秒，而「连上了不再吐数据」极少是抖一下就能好的。
+
+修后同一个夹具：
+
+```
+[完成] doc.md  下载 1 张远程图
+共 1 个文件 · 下载 1 张远程图 · 用时 27.6s
+big.png=4194304
+```
+
+卡死的那个（服务器只吐 31 字节就挂住）：
+
+```
+改前：92.0s（三次尝试，每次都在总超时上断，报「use of closed network connection」）
+改后：31.0s（一次就判死，报「download stalled: server stopped sending data」）
+```
+
+回归三条：
+
+- `TestDownloadSlowBodyIsNotCutByRequestTimeout`：正文分四次慢吐，总耗时 240 ms，客户端探测上限只有 100 ms —— 必须下完并且字节数对。
+- `TestDownloadStallIsReported`：服务器给完开头就挂住，`c.stall = 250ms`，必须报 `ErrStalled` 且 4 秒内返回。
+- 早先的 `TestTimeoutIsReported` 仍然守着「不答话的服务器 50 ms 就放弃」。
+
+三条都做过承载验证：把总超时放回 `http.Client` 上，第一条立刻红；去掉 `guard.stalled.Store(true)`，第二条报的是 `use of closed network connection`。
+
+教训：**「一次请求的上限」和「整份数据的时限」不是一回事**。超时数字挂错地方，症状是「网络慢的时候全失败、网络快的时候全正常」—— 这种 bug 只有拿一个够慢但健康的对端才测得出来。

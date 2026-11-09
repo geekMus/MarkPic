@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -27,6 +28,11 @@ import (
 // 不是我们自己能优化的部分。
 type Client struct {
 	http *http.Client
+
+	// timeout 是一次探测的上限，也是「等响应头」的上限；下载不用它卡总时长。
+	timeout time.Duration
+	// stall 是下载时「多久没有新字节进来」的判死线，测试里会调小。
+	stall time.Duration
 
 	// hosts 是**每个主机各一份**的自适应节奏。限流是主机的属性，不是全局的：
 	// 一家图床让我们慢一点，不代表另一家也受不了同样的节奏。早先这里只有一个全局
@@ -58,15 +64,21 @@ type hostLimiter struct {
 	nextSlot    time.Time
 }
 
-// New 造一个默认客户端。timeout 是单次请求的上限（含连接、重定向、读完响应头）。
+// New 造一个默认客户端。timeout 是「一次探测」的上限（连接、重定向、读完响应头）。
+//
+// 注意它**不是**整次下载的上限：下载一张 4 MB 的图，150 KB/s 要 27 秒，按「一次请求
+// 20 秒」去掐会把好好的图全判死（实测就是 `context deadline exceeded ... while
+// reading body`）。下载另有一套规矩：总时长上限很宽，卡的是「多久没有新字节进来」
+// ——见 DownloadTo 里的看门狗。
 func New(timeout time.Duration) *Client {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
 	return &Client{
+		timeout: timeout,
+		stall:   stallTimeout,
 		http: &http.Client{
-			Timeout:   timeout,
-			Transport: newTransport(defaultIdleConns),
+			Transport: newTransport(defaultIdleConns, timeout),
 			// 图片站跳转很常见（图床换域名、CDN 摘链），跟随即可；
 			// 但要有个上限，别被循环跳转拖死。
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -122,7 +134,7 @@ func hostOf(rawURL string) string {
 // 真实站点上一次 TLS 握手是几十毫秒，这个差距会直接乘在「几百张图」上。
 const defaultIdleConns = 32
 
-func newTransport(idlePerHost int) *http.Transport {
+func newTransport(idlePerHost int, headerTimeout time.Duration) *http.Transport {
 	if idlePerHost < 2 {
 		idlePerHost = 2
 	}
@@ -133,6 +145,9 @@ func newTransport(idlePerHost int) *http.Transport {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: time.Second,
+		// 只卡「对方什么时候开始答话」：给了这个，慢但在吐数据的图不会因为
+		// 总时长被掐断，而完全不答话的服务器依然 20 秒就放弃。
+		ResponseHeaderTimeout: headerTimeout,
 		ForceAttemptHTTP2:     true,
 	}
 }
@@ -150,13 +165,14 @@ func (c *Client) SetConcurrency(n int) {
 		if tr.MaxIdleConnsPerHost >= n {
 			return
 		}
-		c.http.Transport = newTransport(n)
+		c.http.Transport = newTransport(n, c.timeout)
 		// 旧池子里的连接不会再用到，主动关掉，免得挂到超时才释放。
 		tr.CloseIdleConnections()
 	}
 }
 
-// DefaultTimeout 是单次请求的默认上限。
+// DefaultTimeout 是一次探测的默认上限：连接、等响应头、读完那 512 字节。
+// 它**不**管下载的总时长（慢但正常的图会被它误杀），下载另有看门狗，见 DownloadTo。
 const DefaultTimeout = 20 * time.Second
 
 // DefaultMaxBytes 是单张图片允许的最大字节数。
@@ -531,6 +547,11 @@ func worthRetrying(res Result, err error) bool {
 		if errors.Is(err, ErrRedirectLoop) {
 			return false
 		}
+		// 对方连上了却不再吐数据，多半是它自己卡住了：每试一次都要白等
+		// 一整个 stallTimeout，而这种情况极少是「抖一下就好了」。
+		if errors.Is(err, ErrStalled) {
+			return false
+		}
 		// 域名解析不出来是「确定没有这个站」，再问一遍也是一样的结果。
 		// 这一条很要紧：一篇文章里几十条死链时，每条都白等 400ms 会让检查器慢到没人用
 		// （实测 200 条死链从 15.2 秒降到 1.4 秒）。
@@ -582,6 +603,13 @@ func isConnectStage(err error) bool {
 func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	if err := checkScheme(rawURL); err != nil {
 		return Result{}, err
+	}
+	// 探测是「问一句就走」，整趟给 timeout 封顶：HEAD 不回、GET 只吐半个头，
+	// 都别让一篇文章卡在这里。
+	if c.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.timeout)
+		defer cancel()
 	}
 	res, err := c.probeHead(ctx, rawURL)
 	if err != nil {
@@ -748,6 +776,51 @@ func (e *NotImageError) Error() string {
 // 上层的分支判断不用跟着改。
 func (e *NotImageError) Is(target error) bool { return target == ErrNotImage }
 
+// downloadTimeout 是单次下载的总上限。
+//
+// 不按「一次请求 20 秒」去掐：一张 4 MB 的图在 150 KB/s 的链路上要走 27 秒，
+// 按 20 秒掐会把好好的图全判死（实测报的就是 `context deadline exceeded ...
+// while reading body`）。这里只防「永远走不完」，正常几张图根本碰不到它。
+const downloadTimeout = 45 * time.Minute
+
+// stallTimeout 是「多久没有新字节进来」就判死。
+//
+// 连上了却再也不吐数据，比连不上更常见（图床限流、中间代理挂住、CDN 边缘抽风）。
+// 这种连接读起来是阻塞的，只能靠看门狗把响应体关掉把它叫醒。
+const stallTimeout = 30 * time.Second
+
+// stallCheck 是看门狗的检查间隔。
+const stallCheck = 2 * time.Second
+
+// ErrStalled 表示连上了、但对方再也不往下吐数据。
+var ErrStalled = errors.New("download stalled: server stopped sending data")
+
+// stallGuard 记着「上一次收到字节是什么时候」，并记下是不是被看门狗掐断的。
+type stallGuard struct {
+	last    atomic.Int64
+	stalled atomic.Bool
+}
+
+func (g *stallGuard) touch() { g.last.Store(time.Now().UnixNano()) }
+
+func (g *stallGuard) idle() time.Duration {
+	return time.Duration(time.Now().UnixNano() - g.last.Load())
+}
+
+// guardReader 每读到字节就拍一下看门狗。
+type guardReader struct {
+	r io.Reader
+	g *stallGuard
+}
+
+func (r *guardReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	if n > 0 {
+		r.g.touch()
+	}
+	return n, err
+}
+
 // DownloadTo 把图片读进 w，同时返回检测结果。
 // maxBytes<=0 时用 DefaultMaxBytes；超过上限返回 ErrTooLarge（已写入的部分由调用方丢弃）。
 //
@@ -755,7 +828,14 @@ func (e *NotImageError) Is(target error) bool { return target == ErrNotImage }
 // 写入目标得能退回开头（临时文件可以）。已经写进去半张图又退不回去的时候，
 // 宁可把失败报出来，也不能让半截内容和下一次的内容拼在一起。
 func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
-	res, err := c.downloadRetry(ctx, Normalize(rawURL), w, maxBytes)
+	// 总时长上限只是兜底（防止永远走不完），真正卡住「对方不再吐数据」的是下面的
+	// 看门狗：每 stallCheck 检查一次，超过 stallTimeout 没有新字节就把响应体关掉。
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	guard := &stallGuard{}
+	guard.touch()
+
+	res, err := c.downloadRetry(ctx, Normalize(rawURL), w, maxBytes, guard)
 	if err == nil || !isProtocolRelative(rawURL) {
 		return res, err
 	}
@@ -763,7 +843,7 @@ func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, max
 	if checkScheme(alt) != nil {
 		return res, err
 	}
-	return c.downloadRetry(ctx, alt, w, maxBytes)
+	return c.downloadRetry(ctx, alt, w, maxBytes, guard)
 }
 
 // downloadAttempts 是一次下载最多试几次（含第一次）。
@@ -774,7 +854,7 @@ const downloadAttempts = 3
 //
 // 限流（429/503）单独算预算，并且走全体共享的冷却闸门：下载这边同样会被图床限流，
 // 一群协程一起撞上去，结果就是「好好的图全都下不下来」。
-func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
+func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, maxBytes int64, guard *stallGuard) (Result, error) {
 	var res Result
 	var err error
 	var lastRate float64
@@ -796,7 +876,7 @@ func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, 
 			return res, werr
 		}
 		var written int64
-		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes)
+		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes, guard)
 		if err == nil {
 			c.relax(rawURL)
 			return res, err
@@ -938,7 +1018,7 @@ func (s *stickyWriter) Write(p []byte) (int, error) {
 var ErrPartial = errors.New("server returned partial content")
 
 // downloadAt 做一次下载，同时告诉调用方写进去了多少字节（重试要靠它退回开头）。
-func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, int64, error) {
+func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64, guard *stallGuard) (Result, int64, error) {
 	if err := checkScheme(rawURL); err != nil {
 		return Result{}, 0, err
 	}
@@ -955,6 +1035,34 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// 看门狗：连上了却再也不吐数据时，光靠总时长要等 45 分钟。
+	// 这里每 stallCheck 看一眼「上次收到字节是多久前」，超了就把响应体关掉 ——
+	// 阻塞中的 Read 会立刻返回错误，调用方也就知道是「对方卡住了」，不是网络断。
+	var body io.Reader = resp.Body
+	if guard != nil {
+		body = &guardReader{r: resp.Body, g: guard}
+		stop := make(chan struct{})
+		defer close(stop)
+		go func() {
+			t := time.NewTicker(stallCheck)
+			defer t.Stop()
+			for {
+				select {
+				case <-stop:
+					return
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if c.stall > 0 && guard.idle() >= c.stall {
+						guard.stalled.Store(true)
+						_ = resp.Body.Close()
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	res := Result{
 		Status:      resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"),
@@ -963,7 +1071,7 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 		RetryAfter:  parseRetryAfter(resp.Header.Get("Retry-After")),
 	}
 	if res.Status < 200 || res.Status > 299 {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		_, _ = io.Copy(io.Discard, io.LimitReader(body, 4<<10))
 		if isRedirect(res.Status) {
 			// 报「HTTP 302」会让人以为只差一步，其实这一圈永远走不完。
 			return res, 0, ErrRedirectLoop
@@ -977,14 +1085,18 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	// 这种响应体写下去就是半张图（上面的 Content-Length 也只是这一段的长），
 	// 看起来却完全正常 —— 必须当失败处理。
 	if res.Status == http.StatusPartialContent {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		_, _ = io.Copy(io.Discard, io.LimitReader(body, 4<<10))
 		return res, 0, ErrPartial
 	}
 
 	// 边读边嗅探：先看开头 512 字节是不是图片，再决定要不要继续往下写。
 	head := make([]byte, sniffPrefix)
-	n, readErr := io.ReadFull(resp.Body, head)
+	n, readErr := io.ReadFull(body, head)
 	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
+		// 读开头就卡住：多半是看门狗把连接关了，报「连接被关」会让人以为是我们的问题。
+		if guard != nil && guard.stalled.Load() {
+			return res, 0, ErrStalled
+		}
 		return res, 0, readErr
 	}
 	if n > 0 {
@@ -1006,11 +1118,14 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	if _, err := sw.Write(head[:n]); err != nil {
 		return res, sw.n, &writeError{err}
 	}
-	written, err := io.Copy(sw, io.LimitReader(resp.Body, maxBytes-int64(n)+1))
+	written, err := io.Copy(sw, io.LimitReader(body, maxBytes-int64(n)+1))
 	total := int64(n) + written
 	if err != nil {
 		if sw.err != nil {
 			return res, total, &writeError{sw.err}
+		}
+		if guard != nil && guard.stalled.Load() {
+			return res, total, ErrStalled
 		}
 		return res, total, err
 	}

@@ -1122,3 +1122,69 @@ func TestDownloadToCancelledWhileQueueingIsAnError(t *testing.T) {
 		t.Fatalf("取消之后不该写任何字节，实际 %d", buf.Len())
 	}
 }
+
+// 慢但在吐数据的图不该被「一次请求的 20 秒」掐死。
+//
+// 踩过的现场：4 MB 的图在 150 KB/s 的链路上要 27 秒，客户端把 Timeout 设在
+// http.Client 上，于是读到一半报 `context deadline exceeded ... while reading body`，
+// 重试三次全在同一个地方断，好好的图一个都没下来。
+func TestDownloadSlowBodyIsNotCutByRequestTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		// 分几次慢慢吐，总耗时明显超过下面那个 100ms 的请求上限。
+		for i := 0; i < 4; i++ {
+			time.Sleep(60 * time.Millisecond)
+			_, _ = w.Write(bytes.Repeat([]byte{0}, 4096))
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	c := New(100 * time.Millisecond)
+	var buf bytes.Buffer
+	res, err := c.DownloadTo(context.Background(), srv.URL+"/slow.png", &buf, 0)
+	if err != nil {
+		t.Fatalf("慢但在吐数据的图不该失败: %v", err)
+	}
+	if int64(buf.Len()) != res.Size || res.Size != int64(len(tinyPNG)+4*4096) {
+		t.Fatalf("写进去的字节不对: 缓冲区 %d、Size %d", buf.Len(), res.Size)
+	}
+}
+
+// 连上了却不再吐数据，要尽快判死，而不是等到总时长上限。
+func TestDownloadStallIsReported(t *testing.T) {
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", "100000")
+		_, _ = w.Write(tinyPNG) // 只给开头这一点，然后挂住
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-done:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(done)
+
+	c := New(5 * time.Second)
+	c.stall = 250 * time.Millisecond
+
+	var buf bytes.Buffer
+	start := time.Now()
+	_, err := c.DownloadTo(context.Background(), srv.URL+"/stall.png", &buf, 0)
+	if !errors.Is(err, ErrStalled) {
+		t.Fatalf("应该报 ErrStalled，实际 %v", err)
+	}
+	if spent := time.Since(start); spent > 4*time.Second {
+		t.Fatalf("卡住要早点判死，实际花了 %v", spent)
+	}
+}
