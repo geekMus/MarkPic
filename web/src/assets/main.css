@@ -27,6 +27,12 @@
   --panel-2: #f5f7f9;
   --border-panel: #e2e7ee;
 
+  /* 窗口四边的「收边」：不是画一条线，而是从边往内极浅地压暗一点，
+     让人一眼看出窗口到哪里为止（浅色桌面上一整片白，以前根本找不到边）。
+     宽度给得比内边距小，压暗只落在画布上，不会盖住面板里的字。 */
+  --edge-glow: rgba(13, 17, 23, 0.2);
+  --edge-light: rgba(255, 255, 255, 0.35);
+
   --ink: #0d1117;
   --ink-2: #4d5765;
   --ink-3: #8a94a3;
@@ -86,6 +92,10 @@
   --panel: #14171d;
   --panel-2: #1a1e25;
   --border-panel: #232830;
+
+  /* 深色窗口本来就是一片黑，靠压暗找不到边：反过来用一层极淡的冷光收边。 */
+  --edge-glow: rgba(226, 232, 240, 0.45);
+  --edge-light: rgba(226, 232, 240, 0.12);
 
   --ink: #e9edf3;
   --ink-2: #a6b0be;
@@ -166,6 +176,31 @@ body::before {
 
 :root[data-theme='dark'] body::before {
   background: radial-gradient(46% 60% at 24% 30%, rgba(56, 189, 211, 0.12), transparent 72%);
+}
+
+/* 窗口边界的「收边」。
+ *
+ * 去掉系统边框之后，窗口就是一块画布直接压在桌面上：桌面浅一点、浏览器白一点，
+ * 边界就彻底看不见了 —— 用户找不到自己窗口到哪儿结束。描一条边能解决，但会显得便宜。
+ *
+ * 这里反过来做：在窗口内侧打一圈非常柔的光（浅色主题是一道极浅的压暗），像一块玻璃
+ * 边缘的反光，有厚度、没有线。盖在上层而不是画在 body 背景里 —— 面板是贴边的，画在
+ * 底下会被它整块盖住，一点也看不见。pointer-events: none，不挡操作。
+ */
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  box-shadow:
+    inset 0 0 26px -3px var(--edge-glow),
+    inset 0 0 0 1px transparent;
+  content: '';
+  pointer-events: none;
+}
+
+/* 顶边再给一道更亮的光：窗口像是从桌面上浮起来，上沿才有厚度。 */
+body::after {
+  background: linear-gradient(to bottom, var(--edge-light), transparent 20px);
 }
 
 h1,
