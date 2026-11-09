@@ -41,8 +41,16 @@ func runCLI(cfg settings.Settings, paths []string, quiet, jsonOut bool) int {
 		err := pc.Ping(ctx)
 		cancel()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "无法连接 PicGo：%v\n", err)
-			fmt.Fprintln(os.Stderr, "请确认 PicGo 正在运行，并且「PicGo 设置 → 设置 Server」中已开启服务。")
+			// -j 说好「stdout 上只有一份 JSON」：这里如果只往 stderr 丢两行人话，
+			// 脚本会拿到一个空 stdout，连「为什么没跑」都不知道。
+			msg := fmt.Sprintf("无法连接 PicGo：%v。请确认 PicGo 正在运行，并且「PicGo 设置 → 设置 Server」中已开启服务。", err)
+			if jsonOut {
+				if werr := writeJSONFailure(os.Stdout, cfg, msg); werr != nil {
+					fmt.Fprintf(os.Stderr, "写出 JSON 失败：%v\n", werr)
+				}
+			} else {
+				fmt.Fprintln(os.Stderr, msg)
+			}
 			return 1
 		}
 	}
@@ -727,6 +735,9 @@ type jsonReport struct {
 	Summary   conv.Summary      `json:"summary"`
 	Files     []conv.FileResult `json:"files"`
 	DeadLinks []jsonDeadLink    `json:"deadLinks"`
+	// Error 是「这一轮根本没开始」的原因（比如图床没开）。-j 模式下它同样以 JSON 交付，
+	// 不让脚本对着一片空白去猜。
+	Error string `json:"error,omitempty"`
 	// Warnings 是「没能照常处理」的说明，与普通模式打到 stderr 的是同一批句子。
 	Warnings []string `json:"warnings,omitempty"`
 }
@@ -781,5 +792,25 @@ func writeJSONReport(w io.Writer, cfg settings.Settings, sum conv.Summary, p *pr
 
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
+	return enc.Encode(report)
+}
+
+// writeJSONFailure 是「这一轮根本没开始」时的 JSON：结构与正常报告一致，
+// 只是 files/deadLinks 为空、多一个 error 说明。脚本拿到它就知道是出事了，
+// 而不是以为这堆文档里一张图都没有。
+func writeJSONFailure(w io.Writer, cfg settings.Settings, msg string) error {
+	report := jsonReport{
+		Version:   version.String(),
+		Output:    cfg.Output,
+		Remote:    cfg.Remote,
+		DryRun:    cfg.DryRun,
+		Summary:   conv.Summary{RunID: "cli"},
+		Files:     []conv.FileResult{},
+		DeadLinks: []jsonDeadLink{},
+		Error:     msg,
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	enc.SetEscapeHTML(false)
 	return enc.Encode(report)
 }

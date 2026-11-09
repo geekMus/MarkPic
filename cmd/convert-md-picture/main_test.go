@@ -263,3 +263,33 @@ func TestJSONReportCarriesWarnings(t *testing.T) {
 		t.Fatalf("warnings 该带上路径不存在那条，实际 %q", got.Warnings[0])
 	}
 }
+func TestJSONFailureKeepsReportShape(t *testing.T) {
+	// 图床没开时 -j 也要给一份 JSON：脚本拿到空 stdout 只会以为「这批文档没图」。
+	var buf bytes.Buffer
+	if err := writeJSONFailure(&buf, settings.Default(), "无法连接 PicGo：端口未响应"); err != nil {
+		t.Fatalf("writeJSONFailure 出错：%v", err)
+	}
+	var got struct {
+		Error     string            `json:"error"`
+		Files     []json.RawMessage `json:"files"`
+		DeadLinks []json.RawMessage `json:"deadLinks"`
+		Summary   struct {
+			RunID string `json:"runId"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("解析 JSON 失败：%v", err)
+	}
+	if !strings.Contains(got.Error, "无法连接 PicGo") {
+		t.Fatalf("error 字段该带上原因，实际 %q", got.Error)
+	}
+	if got.Files == nil || got.DeadLinks == nil {
+		t.Fatalf("files/deadLinks 该是空数组而不是 null：%s", buf.String())
+	}
+	if len(got.Files) != 0 || len(got.DeadLinks) != 0 {
+		t.Fatalf("两个数组都该是空的，实际 %d / %d", len(got.Files), len(got.DeadLinks))
+	}
+	if got.Summary.RunID != "cli" {
+		t.Fatalf("summary.runId 该是 cli，实际 %q", got.Summary.RunID)
+	}
+}

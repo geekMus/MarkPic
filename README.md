@@ -148,7 +148,7 @@ convert-md-picture .\docs --dry-run
 
 退出码：`check` 和 `download` 模式下发现失效的远程地址都会返回 `1`（脚本里可以 `convert-md-picture --remote check docs/ || echo 有死链`）—— 检测时那是这一轮要找的东西，下载时它意味着文档里还留着断链。全部有效返回 `0`。
 
-想把结果交给脚本处理时加 `-j`：stdout 上只有一份 JSON（`summary` 是汇总，`files` 是逐文件明细，`deadLinks` 是按地址去重后的清单，`warnings` 是那些「没能照常处理」的说明，字段与 `/api/run` 那套事件一致）。退出码规则不变，所以 `convert-md-picture -j --remote check docs/ | jq '.deadLinks[].url'` 拿来喂 CI 是够用的。带账号密码的地址在这份 JSON 里同样被抹成 `***@`。
+想把结果交给脚本处理时加 `-j`：stdout 上只有一份 JSON（`summary` 是汇总，`files` 是逐文件明细，`deadLinks` 是按地址去重后的清单，`warnings` 是那些「没能照常处理」的说明，`error` 是「这一轮根本没开始」的原因（比如图床没开），字段与 `/api/run` 那套事件一致）。退出码规则不变，所以 `convert-md-picture -j --remote check docs/ | jq '.deadLinks[].url'` 拿来喂 CI 是够用的。带账号密码的地址在这份 JSON 里同样被抹成 `***@`。
 
 ### 输出方式
 
