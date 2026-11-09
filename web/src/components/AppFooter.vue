@@ -101,8 +101,13 @@ const parts = computed<Part[]>(() => {
     if (stats.remoteReused > 0 && !allReused) {
       list.push({ text: t('footer.remoteReused', { count: stats.remoteReused }), tone: 'plain' })
     }
+    // 「失败」有两个口径：几个文件没写成、几张图没成。只写图片数时，
+    // 「文档没写成但一张图都没失败」的场合页脚会干脆不提失败（CLI 那边报「失败 1 个」）。
+    if (stats.failedFiles > 0) {
+      list.push({ text: t('footer.failedFiles', { count: stats.failedFiles }), tone: 'bad' })
+    }
     if (stats.failed > 0) {
-      list.push({ text: t('footer.failed', { count: stats.failed }), tone: 'bad' })
+      list.push({ text: t('footer.failedImages', { count: stats.failed }), tone: 'bad' })
     }
     if (stats.localized > 0) {
       // 同一张图被引用多次时 localized 是引用处数，可 images/ 里只有一个文件。
