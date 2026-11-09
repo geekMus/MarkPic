@@ -275,6 +275,7 @@ onBeforeUnmount(() => {
     <AppFooter
       :stats="stats"
       :phase="phase"
+      :remote-mode="settings.remote"
       :busy="busy"
       :can-start="canStart"
       :can-reveal="canReveal"

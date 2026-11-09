@@ -223,6 +223,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.checked': '{count} files checked',
   'footer.remoteUnsupported': '{count} links cannot be handled',
   'footer.remoteKept': '{count} remote image(s) left as they are',
+  'footer.remoteKeptDryRun': '{count} remote image(s) would be downloaded',
   'footer.localMissing': '{count} local image(s) not found',
   'error.remoteDirRequired': 'Please fill in the sub-folder for downloaded images',
 

@@ -219,6 +219,7 @@ export const zh = {
   'footer.checked': '检测 {count} 个文件',
   'footer.remoteUnsupported': '{count} 处地址没法处理',
   'footer.remoteKept': '{count} 处远程图原样保留',
+  'footer.remoteKeptDryRun': '试运行没有下载的远程图 {count} 处',
   'footer.localMissing': '{count} 张本地图找不到',
   'error.remoteDirRequired': '请填写图片要放到哪个子目录',
 

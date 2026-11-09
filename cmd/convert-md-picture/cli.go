@@ -48,6 +48,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet, jsonOut bool) int {
 	}
 
 	p := newPrinter(quiet, jsonOut)
+	p.dryRun = cfg.DryRun
 	p.header(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -106,6 +107,9 @@ type printer struct {
 	// remote 记住这次是哪种远程模式：下载模式下「失败」指的是下载不下来，
 	// 说成「上传失败」会让用户以为是自己把图传丢了。
 	remote string
+	// 试运行 + 下载模式下，「远程图原样保留」其实说的是「这一轮没去下」，
+	// 措辞要跟着模式走，否则用户会以为是自己选择了保留。
+	dryRun bool
 	// 失效的远程地址按 URL 去重收在这里。一篇文档里同一个死链可能被引用几十次，
 	// 逐行罗列只会把终端刷满；用户真正要的是一份「到底哪几个地址坏了」的清单，
 	// 能照着去改文档或者找图床。
@@ -126,6 +130,25 @@ const maxDeadLinks = 20
 
 // maxDeadWhere 是每个地址最多回指几处引用。
 const maxDeadWhere = 3
+
+// keptDesc 说清楚「这些远程图为什么这一轮没动」。
+//
+// 默认模式下它们是按策略原样保留；下载模式的试运行里则是「这一轮根本没去下」——
+// 同样一句话放在那儿就成了假话。
+func (p *printer) keptDesc(n int) string {
+	if p.dryRun && p.remote == string(settings.RemoteDownload) {
+		return fmt.Sprintf("试运行没有下载的远程图 %d 处", n)
+	}
+	return fmt.Sprintf("远程图原样保留 %d 处", n)
+}
+
+// keptNote 是括号里那半句，语序要和「没有可处理的图片（…）」接得上。
+func (p *printer) keptNote(n int) string {
+	if p.dryRun && p.remote == string(settings.RemoteDownload) {
+		return fmt.Sprintf("试运行没有下载 %d 处远程图", n)
+	}
+	return fmt.Sprintf("另有 %d 处远程图原样保留", n)
+}
 
 func newPrinter(quiet, jsonOut bool) *printer {
 	return &printer{quiet: quiet, jsonOut: jsonOut, width: 20, dead: make(map[string]*deadLink)}
@@ -261,7 +284,7 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		// 默认模式下远程图原样保留，一篇只有远程图的文档会落到「无图」里 ——
 		// 不说一句，读起来像这张文档一张图都没有。
 		if r.RemoteKept > 0 {
-			return fmt.Sprintf("  [无图]  %s  没有可处理的图片（另有 %d 处远程图原样保留）", name, r.RemoteKept)
+			return fmt.Sprintf("  [无图]  %s  没有可处理的图片（%s）", name, p.keptNote(r.RemoteKept))
 		}
 		return fmt.Sprintf("  [无图]  %s  没有可处理的图片", name)
 	case conv.FileChecked:
@@ -530,7 +553,7 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	if s.RemoteKept > 0 {
 		// 默认模式不碰远程图，可一篇只有远程图的文档会报成「无图」；
 		// 汇总里补一句，免得让人以为文档里真没有图。
-		parts = append(parts, fmt.Sprintf("远程图原样保留 %d 处", s.RemoteKept))
+		parts = append(parts, p.keptDesc(s.RemoteKept))
 	}
 	if s.NoImages > 0 {
 		parts = append(parts, fmt.Sprintf("无图 %d 个", s.NoImages))

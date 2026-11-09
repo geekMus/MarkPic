@@ -223,3 +223,19 @@ func TestJSONReportCarriesDetailsAndRedactedDeadLinks(t *testing.T) {
 		t.Errorf("JSON 模式不该再打印人读的抬头：\n%s", buf.String())
 	}
 }
+
+// TestKeptDescFollowsMode 钉住「远程图没动」的措辞：同一个数字在两种模式下意思不同。
+func TestKeptDescFollowsMode(t *testing.T) {
+	download := newPrinter(true, false)
+	download.remote = string(settings.RemoteDownload)
+	download.dryRun = true
+	if got := download.keptDesc(3); !strings.Contains(got, "试运行") || strings.Contains(got, "原样保留") {
+		t.Errorf("下载模式试运行的措辞 = %q，应当说明这一轮没有下载", got)
+	}
+
+	ignore := newPrinter(true, false)
+	ignore.remote = string(settings.RemoteIgnore)
+	if got := ignore.keptDesc(3); !strings.Contains(got, "原样保留") {
+		t.Errorf("默认模式的措辞 = %q，应当说明是按策略保留", got)
+	}
+}

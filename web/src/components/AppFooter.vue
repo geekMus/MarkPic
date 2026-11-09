@@ -7,6 +7,8 @@ import { useI18n } from '../i18n'
 const props = defineProps<{
   stats: RunStats
   phase: RunPhase
+  /** 远程图模式：试运行 + 下载模式下，「没动的远程图」是这一轮没去下，不是按策略保留。 */
+  remoteMode?: 'ignore' | 'check' | 'download'
   busy: boolean
   canStart: boolean
   canReveal: boolean
@@ -66,7 +68,8 @@ const parts = computed<Part[]>(() => {
   )
   if (settled.value) {
     // 只碰远程图的两种模式里「替换 0」是句废话，把版面让给下载/检测那几个数。
-    const remoteOnly = stats.localized > 0 || stats.remoteChecked > 0 || stats.filesChecked > 0
+    const remoteOnly =
+      stats.localized > 0 || stats.remoteChecked > 0 || stats.filesChecked > 0 || stats.remoteKept > 0
     if (stats.uploaded > 0 || !remoteOnly) {
       list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
     }
@@ -149,7 +152,9 @@ const parts = computed<Part[]>(() => {
     }
     if (stats.remoteKept > 0) {
       // 默认模式不碰远程图，可「没有可处理的图片」那句单看像是一张图都没有。
-      list.push({ text: t('footer.remoteKept', { count: stats.remoteKept }), tone: 'plain' })
+      const keptKey =
+      props.dryRun && props.remoteMode === 'download' ? 'footer.remoteKeptDryRun' : 'footer.remoteKept'
+    list.push({ text: t(keptKey, { count: stats.remoteKept }), tone: 'plain' })
     }
     if (stats.remoteUnsupported > 0) {
       // ftp://、data: 这类地址既不算检测过、也不算失效，不单列就没人知道它们存在。
