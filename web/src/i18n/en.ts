@@ -53,6 +53,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.section.remote': 'Remote images in your articles',
   'settings.endpoint': 'Server address',
   'settings.endpoint.hint': 'Default http://127.0.0.1:36677',
+  'settings.endpoint.optional': 'Nothing is uploaded in this mode, so this can stay empty',
   'settings.section.concurrency': 'Concurrency and retries',
   'settings.concurrency': 'Concurrency',
   'settings.concurrency.hint': 'Documents processed at once — and images uploaded at once',

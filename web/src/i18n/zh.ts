@@ -52,6 +52,7 @@ export const zh = {
   'settings.section.remote': '文章里的远程图',
   'settings.endpoint': '服务地址',
   'settings.endpoint.hint': '默认 http://127.0.0.1:36677',
+  'settings.endpoint.optional': '这一轮不上传图片，地址可以留空',
   'settings.section.concurrency': '并发与重试',
   'settings.concurrency': '并发数',
   'settings.concurrency.hint': '同时处理的文件数，也是同时上传的图片数',

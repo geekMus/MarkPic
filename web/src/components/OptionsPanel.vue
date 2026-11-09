@@ -39,6 +39,9 @@ const remoteHintKey = computed<MessageKey>(
   () => REMOTE_MODES.find(mode => mode.value === props.settings.remote)?.hintKey ?? 'settings.remote.ignore.hint',
 )
 
+/** 这一轮到底会不会上传：只检测 / 只下载 / 试运行都不上传，PicGo 地址就是可选的。 */
+const needsPicgo = computed(() => props.settings.remote === 'ignore' && !props.settings.dryRun)
+
 const LANG_OPTIONS: readonly { value: Lang; labelKey: MessageKey }[] = [
   { value: 'zh', labelKey: 'language.zh' },
   { value: 'en', labelKey: 'language.en' },
@@ -102,7 +105,9 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
                 :value="settings.endpoint"
                 @input="emit('update', { endpoint: textValue($event) })"
               />
-              <span class="field__hint">{{ t('settings.endpoint.hint') }}</span>
+              <span class="field__hint">
+                {{ t(needsPicgo ? 'settings.endpoint.hint' : 'settings.endpoint.optional') }}
+              </span>
             </label>
           </section>
 

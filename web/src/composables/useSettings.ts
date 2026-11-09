@@ -191,7 +191,10 @@ async function save(): Promise<boolean> {
   }
 
   const endpoint = draft.endpoint.trim()
-  if (endpoint === '') {
+  // 只有真要上传时才非得有 PicGo 地址：只检测 / 只下载远程图、以及试运行都不上传，
+  // 这时候拦住「保存」纯属添乱（服务端本来也会把空地址回落成默认值）。
+  const uploads = draft.remote === 'ignore' && !draft.dryRun
+  if (uploads && endpoint === '') {
     warning(t('error.picgoRequired'))
     return false
   }
