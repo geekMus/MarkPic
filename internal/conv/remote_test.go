@@ -1279,3 +1279,45 @@ func TestRemoteRateLimitSaysWhatItIs(t *testing.T) {
 		t.Fatalf("该说清楚是对方在让我们慢一点：%s", msg)
 	}
 }
+
+// 预检 + 只检测：检测是纯读的，预检不该把它一起跳过。
+//
+// 实测 449 篇的真实语料加 --dry-run 后，380 处死链一个都没查出来，报告里只剩
+// 「无图 67 个」 —— 用户看到的像是「没问题」，其实什么都没查。
+func TestDryRunStillChecksRemoteImages(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	if err := os.WriteFile(filepath.Join(dir, "local.png"), pngBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	src := "# 标题`n`n![本地](local.png)`n`n![远程好图](" + host.URL + "/ok.png)`n`n![远程死链](" + host.URL + "/broken.png)`n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, hitCount := fakePicGo(t, nil)
+	cfg := remoteCfg(picgoSrv.URL, settings.RemoteCheck)
+	cfg.DryRun = true
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Status != FileChecked {
+		t.Fatalf("状态应该是 checked，实际 %q（错误：%s）", res.Status, res.Error)
+	}
+	if res.Checked != 2 || res.Dead != 1 {
+		t.Fatalf("预检里也该检测 2 张、失效 1 张，实际 checked=%d dead=%d", res.Checked, res.Dead)
+	}
+	if sum.RemoteChecked != 2 || sum.RemoteDead != 1 {
+		t.Fatalf("汇总不对: checked=%d dead=%d", sum.RemoteChecked, sum.RemoteDead)
+	}
+	// 检测归检测，本地图在预检里绝不能传上去。
+	if n := len(hitCount()); n != 0 {
+		t.Fatalf("预检不该上传任何图片，图床却收到 %v", hitCount())
+	}
+	if got, _ := os.ReadFile(doc); string(got) != src {
+		t.Fatalf("预检不该改文档:`n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "images")); err == nil {
+		t.Fatal("预检不该创建本地图片目录")
+	}
+}

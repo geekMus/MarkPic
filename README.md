@@ -72,7 +72,7 @@ convert-md-picture .\docs --dry-run
 | `-s, --suffix <str>` | 旁路输出后缀，默认 `.converted`（最终文件名 = 原名 + 后缀 + `.md`） |
 | `--in-place` | 等价于 `--output in-place`，会先备份 `.bak` |
 | `--backup` | 原地替换前备份，默认开启；用 `--backup=false` 关闭 |
-| `--dry-run` | 只检查，不上传、不写文件 |
+| `--dry-run` | 只检查，不上传、不写文件（`--remote check` 是纯读的，照样会去检测） |
 | `--no-reuse` | 不复用上次的上传/下载结果，每张图都重新传、重新下 |
 | `--remote <ignore\|check\|download>` | 文章里的远程图怎么处理，默认 `ignore`（原样留着） |
 | `--remote-dir <dir>` | `download` 模式把图片放到文档旁边的哪个子目录，默认 `images` |

@@ -626,9 +626,15 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		remotes = r.buildRemoteGroups(items, refs)
 	}
 
-	// 预检模式跳过真正的网络动作，待处理项保持 pending
+	// 预检模式跳过真正的网络动作，待处理项保持 pending。
+	//
+	// 但「只检测远程图」这一档是纯读的：不发一张图、不改一个字节，检测结果本身
+	// 就是用户要的东西 —— 跳过它等于什么都没查。实测 449 篇的真实语料里，加上
+	// --dry-run 就只有「无图 67 个」，380 处死链一个都没查出来。
 	if !r.cfg.DryRun {
 		r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
+	} else if remoteMode == settings.RemoteCheck {
+		r.runUnits(ctx, id, r.remoteBaseDir(path), nil, remotes, items)
 	}
 
 	// 记「这一篇里到底下成了几个不同的文件」，只为把「20 处引用、1 张图」说清楚。
@@ -680,8 +686,8 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		}
 	}
 
-	// 只做检测：一个字都不改，直接把报告带回去。
-	if remoteMode == settings.RemoteCheck && !r.cfg.DryRun {
+	// 只做检测：一个字都不改，直接把报告带回去（预检里也是这样）。
+	if remoteMode == settings.RemoteCheck {
 		res.Status = FileChecked
 		return res
 	}

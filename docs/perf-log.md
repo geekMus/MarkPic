@@ -2299,12 +2299,12 @@ CommonMark 里 `![a](images/4 x.png)` 的地址在第一个空格处就结束了
 多一条红字，点开一看还是好的；下载错了是**文档里留下一个远程地址**——用户得
 自己发现、自己重跑。
 
-所以 \emoteimg.DownloadTo\ 现在也重试，但比检测多做两件事：
+所以 \`remoteimg.DownloadTo\ 现在也重试，但比检测多做两件事：
 
 1. **最多试 3 次**（400 ms、800 ms 退避），不是 2 次。丢的东西不一样。
 2. **重试前把写入目标退回开头**。下载是边读边写，第一次可能已经写进去半张图；
    直接重来会把两次的内容拼在一起，得到一个「大小对、打不开」的文件——这比
-   下载失败糟得多。\ewind\ 只认「能截断 + 能定位」的目标（\os.CreateTemp\
+   下载失败糟得多。\`rewind\ 只认「能截断 + 能定位」的目标（\os.CreateTemp\
    出来的文件就是）；退不回去的目标（\ytes.Buffer\ 之类）宁可报错也不拼。
 
 判断「值不值得再试」这件事，检测和下载共用 \worthRetrying\，这次把三个分支
@@ -2751,3 +2751,45 @@ func Key(rawURL string) string {
 一个方法上的提醒：这一轮的绝对秒数在一天里漂了将近一倍（同一台机器、同一个图床，
 上午 23 秒、晚上 36 秒）。所以任何「A 比 B 快」的结论都必须是**交错** A/B，
 否则测的其实是网络，不是程序。
+## 预检把「只检测」一起跳过了：449 篇语料里 380 处死链一个都没查出来
+
+这一轮想给检测功能做一次规模复核，顺手拿真实语料跑了一遍
+（`%TEMP%\cmp-real-corpus`：449 篇 Markdown、1.1 MB，其中 382 篇带远程图引用）：
+
+    convert-md-picture --remote check -c 48 --dry-run <语料目录>
+
+    共 449 个文件 · 无图 67 个 · 用时 0.2s
+
+0.2 秒，382 篇里「有图」的 382 篇全被算成无图 —— 这不是快，是**什么都没查**。
+去掉 `--dry-run` 再跑，同一条命令 1.0 秒，报出「检测 382 个文件 · 远程图 382 张 ·
+其中失效 380 张」（语料里是 `example.com` 的占位图，380 张 404 是预期的）。
+
+原因在 `internal/conv/runner.go` 里一行守卫：
+
+    if !r.cfg.DryRun {
+        r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
+    }
+
+`--dry-run` 的本意是「不上传、不写文件」—— 那是对**有副作用**的动作说的。可
+`--remote check` 只发 HEAD/GET，不改文档、不落图片、不上传，检测结果本身就是用户
+要的东西。把它一起跳过，等于用户开了「先看看」，程序回一句「看完了，什么都没有」。
+
+改法是把「纯读的那一档」从预检的跳过名单里摘出来：
+
+    if !r.cfg.DryRun {
+        r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
+    } else if remoteMode == settings.RemoteCheck {
+        // 传 nil 而不是 groups：检测归检测，本地图在预检里绝不能传上去。
+        r.runUnits(ctx, id, r.remoteBaseDir(path), nil, remotes, items)
+    }
+
+并且把「检测模式提前返回」的那行守卫也去掉 `!r.cfg.DryRun`，让它同样以
+`FileChecked` 收尾。回归 `TestDryRunStillChecksRemoteImages`（`internal/conv/remote_test.go`）
+一篇文档里同时放一张本地图和两张远程图，断言三件事：检测 2 张、失效 1 张；
+**图床收到 0 次请求**；文档与目录一个字节都没动。
+
+修完同一条命令：449 篇 0.5 秒、检测 382 篇、380 处死链一条不落，退出码 1。
+顺带也确认了去重是有效的：382 处引用只对着 1 个不同的地址，报告里也只列一次。
+
+教训一句话：**「不写文件」和「不做任何事」是两回事**。给预检加守卫时，要把每个动作
+问一遍「这个动作有副作用吗」，只跳过有副作用的那些。
