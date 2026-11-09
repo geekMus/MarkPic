@@ -376,3 +376,27 @@ func TestRemoteDownloadIgnoresDocsWithoutRemoteImages(t *testing.T) {
 		t.Fatalf("不该上传: %v", hitCount())
 	}
 }
+
+// 协议相对的远程图（//host/x.png）也要能下载回来。
+func TestRemoteDownloadHandlesProtocolRelativeURL(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	rel := strings.TrimPrefix(host.URL, "http:")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![p]("+rel+"/ok.png)\n")
+
+	r := NewRunner(remoteCfg("http://127.0.0.1:1", settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Localized != 1 {
+		t.Fatalf("协议相对地址应该被下载: %+v", res)
+	}
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "//") {
+		t.Fatalf("输出里不该还有远程地址: %s", out)
+	}
+}

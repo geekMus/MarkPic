@@ -97,6 +97,55 @@ func IsImageType(mime string) bool {
 // 先用 HEAD（最省流量），遇到「不支持 HEAD」的站再退化成只取前 512 字节的 GET：
 // 有些图床对 HEAD 回 403/405，直接判定失败会大面积误报。
 func (c *Client) Probe(ctx context.Context, rawURL string) (Result, error) {
+	res, err := c.probeRetry(ctx, Normalize(rawURL))
+	if err == nil || !isProtocolRelative(rawURL) {
+		return res, err
+	}
+	// `//host/x.png` 猜 https 猜错了（老图床只开 http）时再试一次 http。
+	// 只在「连不上」这种传输层错误上回退：状态码错误说明地址本身有结论了。
+	alt := "http:" + strings.TrimSpace(rawURL)
+	if checkScheme(alt) != nil {
+		return res, err
+	}
+	return c.probeRetry(ctx, alt)
+}
+
+// retryDelay 是「可能只是抖了一下」时第二次尝试前的等待。
+// 写死一个短值：检测是给人看的报告，多等两秒换一个少些误报的结论值得。
+const retryDelay = 400 * time.Millisecond
+
+// probeRetry 在「可能是对方抖了一下」的情况下重试一次。
+//
+// 检测模式最容易招人恨的就是误报：CDN 偶发 502、连接被重置，都会让一个好好的地址
+// 被打上「失效」。一次重试能挡掉绝大多数这类噪声，代价只是慢 400ms。
+// 404/410 这类「确定的结论」不重试。
+func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) {
+	res, err := c.probeAt(ctx, rawURL)
+	if !worthRetrying(res, err) {
+		return res, err
+	}
+	select {
+	case <-ctx.Done():
+		return res, err
+	case <-time.After(retryDelay):
+	}
+	again, aerr := c.probeAt(ctx, rawURL)
+	if aerr != nil && err == nil {
+		return res, err
+	}
+	return again, aerr
+}
+
+// worthRetrying 判断这次失败值不值得再问一遍。
+func worthRetrying(res Result, err error) bool {
+	if err != nil {
+		// 传输层错误（超时、重置、EOF）多半是瞬时的。
+		return true
+	}
+	return res.Status >= 500 || res.Status == http.StatusTooManyRequests
+}
+
+func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	if err := checkScheme(rawURL); err != nil {
 		return Result{}, err
 	}
@@ -198,6 +247,19 @@ var ErrNotImage = errors.New("response is not an image")
 // DownloadTo 把图片读进 w，同时返回检测结果。
 // maxBytes<=0 时用 DefaultMaxBytes；超过上限返回 ErrTooLarge（已写入的部分由调用方丢弃）。
 func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
+	res, err := c.downloadAt(ctx, Normalize(rawURL), w, maxBytes)
+	if err == nil || !isProtocolRelative(rawURL) {
+		return res, err
+	}
+	alt := "http:" + strings.TrimSpace(rawURL)
+	if checkScheme(alt) != nil {
+		return res, err
+	}
+	// 已经写过半截的字节要由调用方丢掉，这里只保证 http 这一次从干净状态开始。
+	return c.downloadAt(ctx, alt, w, maxBytes)
+}
+
+func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
 	if err := checkScheme(rawURL); err != nil {
 		return Result{}, err
 	}
@@ -259,9 +321,27 @@ func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, max
 	return res, nil
 }
 
+// Normalize 把地址整理成能直接请求的样子。
+//
+// 主要是协议相对地址（`//cdn.example.com/x.png`）：这种写法在网页里靠页面的协议补全，
+// 但 Markdown 文件本身没有「页面协议」可言。这里统一按 https 处理——现在还有
+// http-only 图床的概率，远低于猜错协议导致整篇图都检测不了的概率。
+func Normalize(rawURL string) string {
+	s := strings.TrimSpace(rawURL)
+	if strings.HasPrefix(s, "//") {
+		return "https:" + s
+	}
+	return s
+}
+
+// isProtocolRelative 判断地址是不是 `//host/x.png` 这种「没写协议」的写法。
+func isProtocolRelative(rawURL string) bool {
+	return strings.HasPrefix(strings.TrimSpace(rawURL), "//")
+}
+
 // checkScheme 只接受 http/https：ftp 与 data URI 既检测不了也下载不了。
 func checkScheme(rawURL string) error {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
+	u, err := url.Parse(Normalize(rawURL))
 	if err != nil {
 		return err
 	}
@@ -276,7 +356,7 @@ func checkScheme(rawURL string) error {
 
 // Supports 判断这个地址能不能做检测/下载（只支持 http/https）。
 func Supports(rawURL string) bool {
-	return checkScheme(rawURL) == nil
+	return checkScheme(Normalize(rawURL)) == nil
 }
 
 // extByType 是常见图片类型对应的后缀。

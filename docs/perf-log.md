@@ -1924,3 +1924,16 @@ settle **7.5 s**、**1338 帧里最长一帧 12.5 ms**、控制台 0 错误。
   再叠一层就成了「下载失败  上传失败  下载失败：HTTP 500」）。
 - 界面逐图状态同理：远程地址的失败显示「下载失败」，本地图片的失败仍是「上传失败」。
 - 明细聚合行在只碰远程图的模式里不再显示「0 替换」（那是句废话），换成「N 下载 / N 本地保留」。
+### 第 42 轮的补丁：协议相对地址 + 检测重试
+
+`//cdn.example.com/x.png` 这种写法（网页里靠页面协议补全，Markdown 里没有页面协议可言）
+原来被判成「不是 http/https」直接跳过。现在 `remoteimg.Normalize` 统一补 `https:`，
+猜错了（老图床只开 http）再退回 `http:` 试一次；下载路径同样处理。
+
+检测模式还加了**一次重试**（400 ms）：CDN 偶发 502 / 连接被重置都会让一个好好的地址
+被打上「失效」，这是检查器最招人恨的误报。404/410 这种确定的结论不重试。
+代价是 check 模式在真出错时慢 400 ms —— 夹具里 4 个地址 1.6 s（原本 1.1 s，多的就是重试等待）。
+
+测试：`TestNormalizeAddsSchemeToProtocolRelative`、`TestRemoteDownloadHandlesProtocolRelativeURL`、
+`TestProbeRetriesTransientFailures`（第一次 502、第二次成功，断言正好请求 2 次）、
+`TestProbeDoesNotRetryDefiniteMisses`（404 只请求 1 次）。

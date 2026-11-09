@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -286,5 +287,80 @@ func TestExt(t *testing.T) {
 		if got := tc.res.Ext(tc.url); got != tc.want {
 			t.Fatalf("Ext(%q) = %q，想要 %q", tc.url, got, tc.want)
 		}
+	}
+}
+
+// 协议相对地址（//cdn.example.com/x.png）在网页里靠页面协议补全，
+// 但 Markdown 文件没有页面协议，所以统一按 https 处理。
+func TestNormalizeAddsSchemeToProtocolRelative(t *testing.T) {
+	cases := map[string]string{
+		"//cdn.example.com/a.png":       "https://cdn.example.com/a.png",
+		"  //cdn.example.com/a.png  ":   "https://cdn.example.com/a.png",
+		"https://cdn.example.com/a.png": "https://cdn.example.com/a.png",
+		"http://cdn.example.com/a.png":  "http://cdn.example.com/a.png",
+		"/local/path/a.png":             "/local/path/a.png",
+	}
+	for in, want := range cases {
+		if got := Normalize(in); got != want {
+			t.Errorf("Normalize(%q) = %q，想要 %q", in, got, want)
+		}
+	}
+	if !Supports("//cdn.example.com/a.png") {
+		t.Error("协议相对地址应该支持")
+	}
+	if Supports("data:image/png;base64,AAAA") || Supports("ftp://x/a.png") {
+		t.Error("data: 与 ftp 不该被支持")
+	}
+}
+
+// 检测模式最容易招人恨的是误报：CDN 偶发 502 / 连接被重置，一个好好的地址被打上「失效」。
+// 一次重试能挡掉绝大多数噪声；404 这种确定的结论不该重试。
+func TestProbeRetriesTransientFailures(t *testing.T) {
+	var mu sync.Mutex
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		count++
+		n := count
+		mu.Unlock()
+		if n == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := New(5 * time.Second)
+	res, err := c.Probe(context.Background(), srv.URL+"/flaky.png")
+	if err != nil {
+		t.Fatalf("重试之后应该成功: %v", err)
+	}
+	if !res.OK() {
+		t.Fatalf("第二次拿到了图片，应该算有效: %+v", res)
+	}
+	if count != 2 {
+		t.Fatalf("应该正好请求 2 次，实际 %d 次", count)
+	}
+}
+
+func TestProbeDoesNotRetryDefiniteMisses(t *testing.T) {
+	var mu sync.Mutex
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		count++
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	c := New(5 * time.Second)
+	if _, err := c.Probe(context.Background(), srv.URL+"/gone.png"); err != nil {
+		t.Fatalf("404 不是传输层错误: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("404 不该重试，实际请求 %d 次", count)
 	}
 }
