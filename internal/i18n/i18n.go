@@ -72,6 +72,7 @@ const (
 	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
 	KeyConvRemoteUnsupported  Key = "conv.remoteUnsupported"
 	KeyConvRemoteTooLarge     Key = "conv.remoteTooLarge"
+	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
 	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
 	KeyConvRemoteNamingFailed Key = "conv.remoteNamingFailed"
 
@@ -299,6 +300,10 @@ var catalog = map[Key]entry{
 	KeyConvRemoteTooLarge: {
 		"远程图片太大了（超过 %d MB），没有下载",
 		"The remote image is larger than %d MB, so it was not downloaded",
+	},
+	KeyConvRemoteEmpty: {
+		"这个地址能打开，但内容是空的（0 字节），不是一张能用的图片",
+		"That address responds, but the body is empty (0 bytes), so it is not a usable image",
 	},
 	KeyConvRemoteDownloadFail: {
 		"下载失败：%v",

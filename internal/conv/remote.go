@@ -227,6 +227,9 @@ func remoteOutcome(res remoteimg.Result, err error, lang i18n.Lang) remoteFile {
 	case res.Status >= 400:
 		// 明确的 4xx/5xx：这张图在图床上已经没了。
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDead), res.Status)}
+	case res.Size == 0:
+		// 200 + 图片类型 + 0 字节：坏图床常见，报「不是图片」会让人以为是类型问题。
+		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteEmpty)}
 	default:
 		// 200 但内容不是图片（占位图、错误页、防盗链返回的 HTML）。
 		kind := res.ContentType
@@ -249,7 +252,15 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteTooLarge), remoteimg.DefaultMaxBytes>>20)}
 	}
 	if errors.Is(err, remoteimg.ErrNotImage) {
-		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteNotImage)}
+		kind := "?"
+		var notImage *remoteimg.NotImageError
+		if errors.As(err, &notImage) && notImage.Kind != "" {
+			kind = notImage.Kind
+		}
+		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteNotImage), kind)}
+	}
+	if errors.Is(err, remoteimg.ErrEmpty) {
+		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteEmpty)}
 	}
 	return remoteFile{status: StatusFailed, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDownloadFail), err)}
 }

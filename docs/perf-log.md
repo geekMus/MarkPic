@@ -2060,3 +2060,25 @@ HTTP 500 在重试）。缓存命中时输出文档照常改写（链接仍然�
 
 复测：同样 200 条死链 **15.2 秒 → 8.3 秒**。剩下的时间是 DNS 解析本身的延迟
 （200 个不同域名，16 路并发分担），没法再压。
+### 三个「看起来正常、其实是坏的」远程图分支
+
+拿一台本地静态服务器造了三种坏响应，逐个看工具怎么说：
+
+| 服务器回什么 | 改之前 | 改之后 |
+| --- | --- | --- |
+| 200 + `text/html` 的页面 | 下载模式：`这个地址返回的不是图片（%s）` —— **`%s` 没被替换** | `这个地址返回的不是图片（text/html; charset=utf-8）` |
+| 200 + `Content-Type: image/png` + **0 字节** | 下载模式：**算成功**，磁盘上留下一个 0 字节的 `empty.png` | `这个地址能打开，但内容是空的（0 字节），不是一张能用的图片` |
+| 200 + 70 MB 的 `big.png` | 正确报「太大了（超过 64 MB）」 | 同左 |
+
+两个真 bug 的来历：
+
+- **`%s` 没被替换**：`remoteOutcomeDownload` 里 `i18n.T(lang, i18n.KeyConvRemoteNotImage)` 忘了传参，
+  而 `T` 只在 `len(args) == 0` 时原样返回文案，于是格式动词就留在屏幕上。
+  顺手把「实际拿到的是什么类型」这件事做成 `remoteimg.NotImageError{Kind}`（带 `Is` 方法，
+  `errors.Is(err, ErrNotImage)` 照样成立），下载与检测两条路径都能说出具体类型。
+- **0 字节算成功**：`DownloadTo` 原来只在 `n > 0` 时嗅探类型，`n == 0` 时 `res.OK()` 靠
+  `Content-Type: image/png` 就判成功。现在 `DownloadTo` 先判空正文（`ErrEmpty`），
+  `Result.OK()` 也把 `Size == 0` 算成不可用 —— 否则**检测模式会说「全部有效」，
+  用户下载完才发现图是空的**，这比直接报错糟糕得多。
+
+新增测试：`TestDownloadRejectsEmptyBody`、`TestNotImageCarriesTheActualType`。

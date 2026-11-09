@@ -64,12 +64,17 @@ type Result struct {
 	FinalURL string
 }
 
-// OK 表示这个地址能当图片用：能连上、状态码是成功、而且内容确实是图片。
+// OK 表示这个地址能当图片用：能连上、状态码是成功、内容确实是图片，而且不是空的。
 //
 // 为什么还要看内容：图床挂掉之后常有「200 + 一张默认占位图/一段 HTML」的玩法，
 // 光看状态码会把它们全算成健康。
 func (r Result) OK() bool {
 	if r.Status < 200 || r.Status > 299 {
+		return false
+	}
+	// Size 已知且是 0：头说是图片、正文一个字节都没有，浏览器也显示不出来。
+	// 检测模式必须把这种算成失效，否则用户拿着「全部有效」的报告去下载才发现是空的。
+	if r.Size == 0 {
 		return false
 	}
 	return IsImageType(r.imageType())
@@ -281,6 +286,30 @@ var ErrTooLarge = errors.New("image is larger than the limit")
 // ErrNotImage 表示地址能打开、但内容不是图片。
 var ErrNotImage = errors.New("response is not an image")
 
+// ErrEmpty 表示地址能打开、也说是图片，但正文是空的。
+//
+// 0 字节的图片在磁盘上是个坏文件，浏览器也显示不出来；把它当成「下载成功」
+// 会让用户拿到一篇图全是空白的文档，而且没有任何提示。
+var ErrEmpty = errors.New("response body is empty")
+
+// NotImageError 带上「实际拿到的是什么类型」，好让上层把话说清楚
+// （「这个地址返回的不是图片（text/html）」比「返回的不是图片」有用得多）。
+type NotImageError struct {
+	// Kind 是实际内容类型，拿不到时是空串。
+	Kind string
+}
+
+func (e *NotImageError) Error() string {
+	if e.Kind == "" {
+		return ErrNotImage.Error()
+	}
+	return "content is " + e.Kind + ", not an image"
+}
+
+// Is 让 errors.Is(err, ErrNotImage) 对这种带细节的错误照样成立，
+// 上层的分支判断不用跟着改。
+func (e *NotImageError) Is(target error) bool { return target == ErrNotImage }
+
 // DownloadTo 把图片读进 w，同时返回检测结果。
 // maxBytes<=0 时用 DefaultMaxBytes；超过上限返回 ErrTooLarge（已写入的部分由调用方丢弃）。
 func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
@@ -336,12 +365,17 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	if n > 0 {
 		res.Sniffed = http.DetectContentType(head[:n])
 	}
+	// 先看正文是不是空的：空正文配「Content-Type: image/png」是最常见的坏图床，
+	// 报「不是图片」会让人以为是类型问题，其实是根本没内容。
+	if n == 0 {
+		return res, ErrEmpty
+	}
 	if !res.OK() {
-		if IsImageType(res.ContentType) && n > 0 {
-			// 头说是图片但不是：当成坏响应，别把占位图/错误页存成 jpg。
-			return res, fmt.Errorf("content is %s, not an image", res.Sniffed)
+		kind := res.Sniffed
+		if kind == "" {
+			kind = res.ContentType
 		}
-		return res, ErrNotImage
+		return res, &NotImageError{Kind: kind}
 	}
 	if _, err := w.Write(head[:n]); err != nil {
 		return res, err

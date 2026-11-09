@@ -417,3 +417,41 @@ func TestProbeStillRetriesServerErrors(t *testing.T) {
 		t.Fatalf("502 应该重试一次，实际请求 %d 次", n)
 	}
 }
+
+// 空正文（0 字节）不是一张能用的图片，不能算下载成功。
+func TestDownloadRejectsEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	var buf bytes.Buffer
+	if _, err := c.DownloadTo(context.Background(), srv.URL+"/empty.png", &buf, 0); !errors.Is(err, ErrEmpty) {
+		t.Fatalf("0 字节的图片应该报 ErrEmpty，拿到 %v", err)
+	}
+}
+
+// 「不是图片」要带上实际拿到的类型，上层才能把话说清楚。
+func TestNotImageCarriesTheActualType(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html><body>not an image</body></html>"))
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	var buf bytes.Buffer
+	_, err := c.DownloadTo(context.Background(), srv.URL+"/page.html", &buf, 0)
+	if !errors.Is(err, ErrNotImage) {
+		t.Fatalf("HTML 页面应该报 ErrNotImage，拿到 %v", err)
+	}
+	var notImage *NotImageError
+	if !errors.As(err, &notImage) {
+		t.Fatalf("应该能取出 *NotImageError：%v", err)
+	}
+	if !strings.Contains(notImage.Kind, "text/html") {
+		t.Fatalf("Kind 应该带上实际类型，拿到 %q", notImage.Kind)
+	}
+}
