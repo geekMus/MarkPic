@@ -1,6 +1,7 @@
 package conv
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -467,5 +468,63 @@ func TestRemoteDirCollidesWithFile(t *testing.T) {
 	msgEn := resEn[0].Items[0].Error
 	if !strings.Contains(msgEn, "already taken by a file") {
 		t.Fatalf("英文文案不对: %q", msgEn)
+	}
+}
+
+// 两个不同地址、同一个文件名（不同图床都叫 pic.png）：第二次不能把第一次的文件覆盖掉，
+// 否则先跑的那篇文档里的链接会悄悄指向另一张图。
+func TestRemoteDownloadDoesNotOverwriteDifferentImage(t *testing.T) {
+	dir := t.TempDir()
+	// 两个地址返回内容不同的图片，文件名都叫 pic.png。
+	bigger := append(append([]byte(nil), pngBytes...), make([]byte, 64)...)
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		switch r.URL.Path {
+		case "/a/pic.png":
+			_, _ = w.Write(pngBytes)
+		case "/b/pic.png":
+			_, _ = w.Write(bigger)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer host.Close()
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	cfg := remoteCfg(picgoSrv.URL, settings.RemoteDownload)
+
+	docA := filepath.Join(dir, "a.md")
+	writeFile(t, docA, "![一]("+host.URL+"/a/pic.png)\n")
+	NewRunner(cfg, i18n.ZH, "run1", nil).RunCollect(context.Background(), []string{docA})
+	saved := filepath.Join(dir, "images", "pic.png")
+	before, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docB := filepath.Join(dir, "b.md")
+	writeFile(t, docB, "![二]("+host.URL+"/b/pic.png)\n")
+	results, _ := NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docB})
+	if results[0].Localized != 1 {
+		t.Fatalf("第二张也该下载成功: %+v", results[0])
+	}
+	after, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("先下载的那张图被后来的同名图覆盖了")
+	}
+	outA, _ := os.ReadFile(filepath.Join(dir, "a.converted.md"))
+	if !strings.Contains(string(outA), "images/pic.png") {
+		t.Fatalf("a.md 的链接变了: %s", outA)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "images"))
+	if len(entries) != 2 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("应该有两张图，实际 %v", names)
 	}
 }

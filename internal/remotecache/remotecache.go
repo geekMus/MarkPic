@@ -121,6 +121,27 @@ func (c *Cache) Lookup(rawURL, dir string) (name string, size int64, ok bool) {
 	return e.Name, e.Size, true
 }
 
+// Owner 反查「这个目录里的这个文件名，上次是哪个地址下的」。
+//
+// 用它来避免覆盖：两个不同地址都叫 pic.png 时，后来那张必须换个名字，
+// 否则先跑那篇文档里的图会被悄悄换掉。
+func (c *Cache) Owner(dir, name string) (rawURL string, size int64, ok bool) {
+	if !c.Enabled() {
+		return "", 0, false
+	}
+	suffix := "\x00" + strings.ToLower(filepath.Clean(dir))
+	want := strings.ToLower(name)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, e := range c.entries {
+		if !strings.HasSuffix(k, suffix) || strings.ToLower(e.Name) != want {
+			continue
+		}
+		return strings.TrimSuffix(k, suffix), e.Size, true
+	}
+	return "", 0, false
+}
+
 // Store 记下「这个地址这次下成了什么」。
 func (c *Cache) Store(rawURL, dir, name string, size int64) {
 	if !c.Enabled() || name == "" || size <= 0 {

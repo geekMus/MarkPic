@@ -2013,3 +2013,32 @@ HTTP 500 在重试）。缓存命中时输出文档照常改写（链接仍然�
 - **下载目录的位置被同名文件占了**：原来报的是系统原话「mkdir …: The system cannot find the
   path specified.」（谁也看不懂），现在说「本地目录 … 已经被一个同名文件占了，放不进图片
   （换个目录名，或先挪走那个文件）」，英文同构；`TestRemoteDirCollidesWithFile` 守着这条。
+### 两个不同地址、同一个文件名：第二张会把第一张悄悄覆盖
+
+复现（真机，图床可用）：
+
+1. `a.md` 引用 `https://webp.mus.pp.ua/test_storage/20261109092351916.png`（197,493 B，
+   SHA-256 `2AB43E05…`），落地 `images/20261109092351916.png`；
+2. `b.md` 引用 `http://127.0.0.1:36691/pic/20261109092351916.png`（70 B，**同名不同内容**）。
+
+第二遍跑完，`images/20261109092351916.png` 变成了那张 70 B 的图，而 `a.converted.md` 里写的
+还是 `images/20261109092351916.png` —— 文档没报错、没提示，只是图片悄悄换成了另一张。
+这类问题最难发现：**没有任何一处失败，产物看起来完全正常。**
+
+根因在 `remoteFileName`：它只在 `r.remoteNames`（**本轮运行的内存表**）里查重名，
+跨运行留在磁盘上的同名文件它一无所知；而 `downloadRemote` 里那句「大小一致就跳过重写」
+只对**同一个地址**成立，不同地址大小不同就直接 `os.Rename` 覆盖。
+
+改法两条，缺一不可：
+
+- 缓存开着时按**归属**判断：`remotecache` 新增 `Owner(dir, name) (rawURL, size, ok)`，
+  用 `lower(url) + "\x00" + lower(clean(dir))` 这个 key 结构反查「这个目录里这个名字
+  上次是哪个地址下的」，归属不同就换下一个候选名；
+- 缓存关掉时（`--no-reuse`）退一步看磁盘：同名文件存在、大小和这次下下来的不一样，
+  那它肯定是另一张图。
+
+回归测试 `TestRemoteDownloadDoesNotOverwriteDifferentImage` 与
+`TestOwnerFindsTheUrlBehindAName` 都是**先写、先看到 FAIL**（`先下载的那张图被后来的同名图覆盖了`）
+才改的代码。真机复验：`b.converted.md` 变成 `![二](images/20261109092351916-2.png)`，
+`images/` 里 `20261109092351916.png 197493` + `20261109092351916-2.png 70`，
+第一张的 SHA-256 仍是 `2AB43E05…`；`--no-reuse` 走磁盘那条路也得到同样的 `-2` 后缀。

@@ -397,6 +397,18 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result) string
 		if owner, taken := r.remoteNames[key]; taken && owner != rawURL {
 			continue
 		}
+		// 上一次运行留下的同名文件也算「被占了」：两个不同地址都叫 pic.png 时，
+		// 第二张若沿用同一个名字，会把先跑那篇文档里的图悄悄换掉。
+		if owner, size, ok := r.remoteCache.Owner(dir, name); ok && size > 0 && !strings.EqualFold(owner, rawURL) {
+			continue
+		}
+		// 缓存关掉时（--no-reuse）没法反查归属，那就退一步看磁盘：
+		// 同名文件存在、而且大小和这次下下来的不一样，那它肯定是另一张图。
+		if res.Size > 0 {
+			if st, serr := os.Stat(abs); serr == nil && !st.IsDir() && st.Size() != res.Size {
+				continue
+			}
+		}
 		r.remoteNames[key] = rawURL
 		return name
 	}

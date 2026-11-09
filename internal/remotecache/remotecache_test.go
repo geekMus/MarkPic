@@ -154,3 +154,21 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// Owner 要能反查出「这个文件名是哪个地址下的」，这是防止覆盖的依据。
+func TestOwnerFindsTheUrlBehindAName(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "remote-cache.json")
+	c := Open(path)
+	c.Store("https://a.example/pic.png", "D:/docs/images", "pic.png", 100)
+
+	if url, size, ok := c.Owner("D:/docs/images", "PIC.PNG"); !ok || url != "https://a.example/pic.png" || size != 100 {
+		t.Fatalf("应该反查到 a.example：%q %d %v", url, size, ok)
+	}
+	if _, _, ok := c.Owner("D:/other/images", "pic.png"); ok {
+		t.Fatal("别的目录不该反查到")
+	}
+	if _, _, ok := c.Owner("D:/docs/images", "other.png"); ok {
+		t.Fatal("别的文件名不该反查到")
+	}
+}
