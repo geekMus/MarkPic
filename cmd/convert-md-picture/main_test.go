@@ -239,3 +239,27 @@ func TestKeptDescFollowsMode(t *testing.T) {
 		t.Errorf("默认模式的措辞 = %q，应当说明是按策略保留", got)
 	}
 }
+func TestJSONReportCarriesWarnings(t *testing.T) {
+	// 普通模式下「路径不存在」打到 stderr；-j 模式如果把它吞掉，脚本只会看到
+	// files:[] 却不知道为什么一个文件都没有。
+	p := newPrinter(false, true)
+	p.emit(conv.Event{Type: conv.EventLog, Level: "warn", Message: "路径不存在，已跳过: C:\\nope"})
+	p.emit(conv.Event{Type: conv.EventLog, Level: "info", Message: "这句只是进度，不该进 warnings"})
+
+	var buf bytes.Buffer
+	if err := writeJSONReport(&buf, settings.Default(), conv.Summary{}, p); err != nil {
+		t.Fatalf("writeJSONReport 出错：%v", err)
+	}
+	var got struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("解析 JSON 失败：%v", err)
+	}
+	if len(got.Warnings) != 1 {
+		t.Fatalf("warnings 该只有一条，实际 %d 条：%v", len(got.Warnings), got.Warnings)
+	}
+	if !strings.Contains(got.Warnings[0], "路径不存在") {
+		t.Fatalf("warnings 该带上路径不存在那条，实际 %q", got.Warnings[0])
+	}
+}

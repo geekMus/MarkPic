@@ -104,6 +104,9 @@ type printer struct {
 	// jsonOut 时终端不再说话，结果全收在这里、最后一次交给 writeJSONReport。
 	jsonOut bool
 	results []conv.FileResult
+	// warnings 收的是「这一轮没能照常处理」的说明（路径不存在、跳到附件、宽松解析）。
+	// 普通模式它们走 stderr，-j 模式如果就这么丢掉，脚本只会看到 0 个文件却不知道为什么。
+	warnings []string
 	// remote 记住这次是哪种远程模式：下载模式下「失败」指的是下载不下来，
 	// 说成「上传失败」会让用户以为是自己把图传丢了。
 	remote string
@@ -185,6 +188,11 @@ func (p *printer) emit(ev conv.Event) {
 			p.mu.Lock()
 			p.noteDead(ev.Result)
 			p.results = append(p.results, *ev.Result)
+			p.mu.Unlock()
+		}
+		if ev.Type == conv.EventLog && ev.Level == "warn" && ev.Message != "" {
+			p.mu.Lock()
+			p.warnings = append(p.warnings, ev.Message)
 			p.mu.Unlock()
 		}
 		return
@@ -713,6 +721,8 @@ type jsonReport struct {
 	Summary   conv.Summary      `json:"summary"`
 	Files     []conv.FileResult `json:"files"`
 	DeadLinks []jsonDeadLink    `json:"deadLinks"`
+	// Warnings 是「没能照常处理」的说明，与普通模式打到 stderr 的是同一批句子。
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type jsonDeadLink struct {
@@ -750,6 +760,7 @@ func writeJSONReport(w io.Writer, cfg settings.Settings, sum conv.Summary, p *pr
 		Summary: sum,
 		Files:   files,
 	}
+	report.Warnings = append([]string(nil), p.warnings...)
 	report.DeadLinks = make([]jsonDeadLink, 0, len(p.deadRank))
 	for _, url := range p.deadRank {
 		e := p.dead[url]
