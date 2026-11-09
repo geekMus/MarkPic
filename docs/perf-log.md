@@ -1960,3 +1960,11 @@ settle **7.5 s**、**1338 帧里最长一帧 12.5 ms**、控制台 0 错误。
 - **规模**：20 篇 × 30 处远程引用（只有 3 个不同地址）→ check **3.1 s**（600 处引用只发 3 次请求，
   去重生效）、download **2.1 s**（400 处成功写回、200 处失败保持原 URL），落盘只有 1 张图
   （每个文档目录各一份），单篇输出里 30 处链接全部指向同一个本地文件。
+### 第 42 轮的补丁 4：界面上的目录模式复核
+
+同一件事在界面上也核了一遍（打包版 exe，端口 17996，`remote=download`、`output=directory`、
+`outDir=…\out`、`remoteDir=assets`）：入队 `src\a.md` 跑完，页脚「1 files · 2 images · 1 failed ·
+1 downloaded」、行状态「Partial」、逐图明细「Downloaded → assets/20261109092351916.png」与
+「Download failed: HTTP 500」、输出行指向 `…\out\a.md`；磁盘上只有 `\out\a.md`、
+`\out\assets\…png`、`\src\a.md` —— 源目录没有多出 `assets/`，`out\a.md` 里的链接
+`assets/20261109092351916.png` 指着真实存在的文件。
