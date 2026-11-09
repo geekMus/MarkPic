@@ -1803,3 +1803,44 @@ func TestRemoteCancelStillSavesDownloadCache(t *testing.T) {
 		t.Fatalf("取消之后要把它记进下载缓存，否则下次白下一遍（name=%q size=%d）", name, size)
 	}
 }
+
+// 空的、或只有半截的本地图，不许传上去。
+//
+// 图床不检查内容：0 字节的文件也能「上传成功」，于是文档里换上一个点开永远
+// 打不开的链接，而这一轮的报告写着「替换 2 处链接」。
+func TestUploadSkipsIncompleteLocalImages(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "empty.png"), "")
+	writeFile(t, filepath.Join(dir, "half.png"), "\x89PNG")
+	writeFile(t, filepath.Join(dir, "good.png"), string(pngBytes))
+	// SVG 是文本，<svg/> 只有 6 个字节，照样是能用的图。
+	writeFile(t, filepath.Join(dir, "tiny.svg"), "<svg/>")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![e](empty.png)\n\n![h](half.png)\n\n![g](good.png)\n\n![s](tiny.svg)\n")
+
+	picgoSrv, hitCount := fakePicGo(t, nil)
+	r := NewRunner(baseCfg(picgoSrv.URL), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Failed != 2 {
+		t.Fatalf("空的与半截的都要算失败，实际 %d（%+v）", res.Failed, res.Items)
+	}
+	if got := len(hitCount()); got != 2 {
+		t.Fatalf("只该把好图和那张 SVG 传上去，图床实际收到 %d 次", got)
+	}
+	for _, it := range res.Items {
+		if strings.Contains(it.Target, "good") || strings.Contains(it.Target, "tiny") {
+			if it.Status != StatusUploaded {
+				t.Errorf("好图该传上去，实际 %s（%s）", it.Status, it.Error)
+			}
+			continue
+		}
+		if it.Status != StatusFailed || !strings.Contains(it.Error, "空的") {
+			t.Errorf("%s 该报「空的或没写完」，实际 %s（%s）", it.Target, it.Status, it.Error)
+		}
+	}
+	if sum.FailedImages != 2 {
+		t.Fatalf("汇总里失败图数该是 2，实际 %d", sum.FailedImages)
+	}
+}

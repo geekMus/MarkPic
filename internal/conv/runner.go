@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -947,6 +948,16 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 		}
 	}
 
+	// 图床不会替我们看内容：0 字节的文件、导出到一半的图，传上去只会换来一个
+	// 打不开的链接 —— 而文档里那条链接看上去已经「换好了」。
+	//
+	// looksComplete 只认几种常见格式的结尾标记（PNG 的 IEND、JPEG 的 FFD9…），
+	// 认不出来的格式一律当完整：宁可放过去，也不能错杀用户那张奇怪格式的图。
+	if unusableImage(absPath) {
+		err := errors.New(i18n.T(r.lang, i18n.KeyConvFileIncomplete))
+		r.closeEntry(entry, "", err)
+		return "", StatusFailed, err
+	}
 	select {
 	case r.sem <- struct{}{}:
 	case <-ctx.Done():
@@ -1228,4 +1239,53 @@ func quoteTitle(title string) string {
 		return `'` + title + `'`
 	}
 	return `"` + strings.ReplaceAll(title, `"`, `\"`) + `"`
+}
+
+// imageSignatures 是几种常见图片格式的开头。用来判断「文件头连签名都不完整」。
+var imageSignatures = [][]byte{
+	{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A},
+	{0xFF, 0xD8, 0xFF},
+	{'G', 'I', 'F', '8'},
+	{'R', 'I', 'F', 'F'},
+	{'B', 'M'},
+	{0x00, 0x00, 0x01, 0x00}, // ICO
+	{0x66, 0x74, 0x79, 0x70}, // ISO BMFF（avif/heic 的 ftyp）
+}
+
+// unusableImage 判断这张本地图根本没必要传：空文件，或者文件头短到连签名都不完整。
+//
+// 为什么只查这两种：图床只认 HTTP 请求、不认内容，一张 0 字节或 `\x89PNG` 四个字节的
+// 「图片」也能「上传成功」，于是文档里换上一个点开永远打不开的链接，而报告写着
+// 「替换 2 处链接」。这两种都无可争议 —— 谁都不需要把半个文件头发出去。
+//
+// 不查结尾标记（`looksComplete` 那一套）是故意的：认不出的格式（avif/heic/…）
+// 一律放行，宁可不拦也不能错杀用户那张奇怪格式的图。SVG 是文本，天然没有二进制签名，
+// 也不会命中这些前缀。
+func unusableImage(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = f.Close() }()
+
+	st, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	if st.Size() <= 0 {
+		return true
+	}
+
+	head := make([]byte, 12)
+	n, err := io.ReadFull(f, head)
+	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return false
+	}
+	head = head[:n]
+	for _, sig := range imageSignatures {
+		if len(head) < len(sig) && bytes.HasPrefix(sig, head) {
+			return true
+		}
+	}
+	return false
 }

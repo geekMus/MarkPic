@@ -48,6 +48,7 @@ const (
 	KeyConvUnresolvedTarget   Key = "conv.unresolvedTarget"
 	KeyConvFileMissing        Key = "conv.fileMissing"
 	KeyConvPathIsDir          Key = "conv.pathIsDir"
+	KeyConvFileIncomplete     Key = "conv.fileIncomplete"
 	KeyConvCancelled          Key = "conv.cancelled"
 	KeyConvAllFailed          Key = "conv.allFailed"
 	KeyConvRewriteFailed      Key = "conv.rewriteFailed"
@@ -223,6 +224,10 @@ var catalog = map[Key]entry{
 	KeyConvFileMissing: {
 		"本地文件不存在：%s",
 		"Local file not found: %s",
+	},
+	KeyConvFileIncomplete: {
+		"本地这张图是空的或者没写完，传上去只会得到一个打不开的链接",
+		"This local image is empty or incomplete; uploading it would only give you a link that cannot be opened",
 	},
 	KeyConvCancelled: {
 		"已取消",
