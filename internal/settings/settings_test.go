@@ -243,3 +243,49 @@ func TestStoreReportsBrokenFile(t *testing.T) {
 		t.Fatalf("设置正常时不应该有提示，实际 %q", note)
 	}
 }
+
+// TestRemoteDirMustStayRelative 盯住一个「悄悄改坏」的分支：`/abs/path` 如果先把
+// 开头的斜杠修剪掉再判断绝对路径，就会被当成 `abs/path` 放进文档旁边，
+// 用户拿到的目录结构和他写下的完全不是一回事。
+func TestRemoteDirMustStayRelative(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+		bad  bool
+	}{
+		{name: "空", in: "", want: DefaultRemoteDir},
+		{name: "点", in: ".", want: DefaultRemoteDir},
+		{name: "普通", in: "assets", want: "assets"},
+		{name: "带尾斜杠", in: "assets/", want: "assets"},
+		{name: "上一级", in: "../images", want: "../images"},
+		{name: "反斜杠", in: `..\images`, want: "../images"},
+		{name: "斜杠开头的绝对路径", in: "/abs/path", bad: true},
+		{name: "UNC", in: `\\server\share`, bad: true},
+		{name: "盘符", in: `C:\Windows\Temp\evil`, bad: true},
+		{name: "盘符正斜杠", in: "C:/Windows/Temp/evil", bad: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := Default()
+			cfg.Remote = RemoteDownload
+			cfg.RemoteDir = c.in
+			err := cfg.Normalize()
+			if c.bad {
+				if err == nil {
+					t.Fatalf("%q 是绝对路径，应该被拒掉，实际存成了 %q", c.in, cfg.RemoteDir)
+				}
+				if !strings.Contains(err.Error(), "相对路径") {
+					t.Fatalf("拒绝的理由要说清楚，实际 %q", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%q 应该能用: %v", c.in, err)
+			}
+			if cfg.RemoteDir != c.want {
+				t.Fatalf("%q 应当归一成 %q，实际 %q", c.in, c.want, cfg.RemoteDir)
+			}
+		})
+	}
+}

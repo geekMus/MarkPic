@@ -173,14 +173,17 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 		return fmt.Errorf(i18n.T(lang, i18n.KeySettingsUnknownRemote), s.Remote)
 	}
 	s.RemoteDir = filepath.ToSlash(strings.TrimSpace(s.RemoteDir))
+	// 绝对路径必须在修剪之前拦住。写成绝对路径会很别扭：文档里要写的是
+	// 「相对这个 Markdown 文件」的路径，绝对路径既不可移植、又会把整台机器的
+	// 目录结构泄进文档里。更要紧的是顺序：`/abs/path` 如果把开头的斜杠修剪掉，
+	// 就成了 `abs/path`，用户的绝对路径会被悄悄当成相对路径，图片落到文档旁边的
+	// `abs/path/` 里 —— 他多半还以为写对了。
+	if strings.HasPrefix(s.RemoteDir, "/") || (len(s.RemoteDir) > 1 && s.RemoteDir[1] == ':') {
+		return errors.New(i18n.T(lang, i18n.KeySettingsRemoteDirAbsolute))
+	}
 	s.RemoteDir = strings.Trim(s.RemoteDir, "/")
 	if s.RemoteDir == "" || s.RemoteDir == "." {
 		s.RemoteDir = DefaultRemoteDir
-	}
-	// 写成绝对路径会很别扭：文档里要写的是「相对这个 Markdown 文件」的路径，
-	// 绝对路径既不可移植、又会把整台机器的目录结构泄进文档里。
-	if filepath.IsAbs(s.RemoteDir) || (len(s.RemoteDir) > 1 && s.RemoteDir[1] == ':') {
-		return errors.New(i18n.T(lang, i18n.KeySettingsRemoteDirAbsolute))
 	}
 	return nil
 }
