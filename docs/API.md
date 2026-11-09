@@ -65,6 +65,7 @@ type FileResult = {
   images: number        // 文档里解析出的图片引用总数
   uploaded: number      // 已经指向图床的引用数（含 reused/cached），不是发出的上传请求数
   reused?: number       // 其中靠复用（本轮去重或上次缓存）拿到的，按引用处算
+uploadRequests?: number // 真的发给图床的次数：内容相同的图只发一次，所以这个数可能小于 uploaded
   localized?: number    // download 模式：这一篇里有几张远程图落到了本地
   dead?: number         // check 模式：这一篇里有几个远程地址打不开（或不是图片）
   checked?: number      // check 模式：这一篇里一共检测了几个远程地址

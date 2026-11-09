@@ -1279,6 +1279,10 @@ func TestUploadSendsIdenticalContentOnce(t *testing.T) {
 		if sum.Uploaded != 4 {
 			t.Errorf("uploaded = %d, want 4：%+v", sum.Uploaded, sum)
 		}
+		// 替换了 4 处，可真的上行 3 次（two.png 与 one.png 内容相同，只发了领头的）。
+		if sum.UploadRequests != 3 {
+			t.Errorf("uploadRequests = %d, want 3：%+v", sum.UploadRequests, sum)
+		}
 		if results[0].Reused != 1 {
 			t.Errorf("这一篇里按内容复用 1 处，实际 %d：%+v", results[0].Reused, results[0])
 		}

@@ -78,7 +78,16 @@ const parts = computed<Part[]>(() => {
         stats.remoteKept > 0))
   if (settled.value) {
     if (stats.uploaded > 0 || !remoteOnly) {
-      list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
+      // 同一份内容被多个名字引用时只上行一次：只报「替换 3 处」会让人以为发了三次。
+      const requests = stats.uploadRequests ?? 0
+      if (requests > 0 && requests < stats.uploaded) {
+        list.push({
+          text: t('footer.uploadedDedup', { count: stats.uploaded, requests }),
+          tone: 'plain',
+        })
+      } else {
+        list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
+      }
     }
     if (stats.reused > 0) {
       list.push({ text: t('footer.reused', { count: stats.reused }), tone: 'plain' })

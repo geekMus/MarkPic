@@ -66,6 +66,8 @@ export interface RunStats {
   uploaded: number
   /** 靠缓存省下的去重图片数（跑完之后才有准确值）。 */
   reused: number
+  /** 真的发给图床几次（内容去重后可能小于 uploaded）。 */
+  uploadRequests: number
   failed: number
   ok: number
   partial: number
@@ -146,6 +148,7 @@ const live = reactive({
   images: 0,
   uploaded: 0,
   reused: 0,
+  uploadRequests: 0,
   failed: 0,
   ok: 0,
   partial: 0,
@@ -208,6 +211,7 @@ const stats = computed<RunStats>(() => {
       images: finished.images,
       uploaded: finished.uploaded,
       reused: finished.reused,
+  uploadRequests: finished.uploadRequests ?? 0,
       failed: finished.failedImages,
       ok: finished.ok,
       partial: finished.partial,
@@ -236,6 +240,7 @@ const stats = computed<RunStats>(() => {
     images: live.images,
     uploaded: live.uploaded,
     reused: live.reused,
+  uploadRequests: live.uploadRequests,
     failed: live.failed,
     ok: live.ok,
     partial: live.partial,
@@ -306,6 +311,7 @@ function liveReset(): void {
   live.images = 0
   live.uploaded = 0
   live.reused = 0
+  live.uploadRequests = 0
   live.failed = 0
   live.ok = 0
   live.partial = 0
@@ -599,6 +605,17 @@ function onSignal(event: RunEvent): void {
         else warning(t('toast.runCancelled'))
       } else if (event.summary.failedImages > 0) {
         warning(t('toast.runFinishedPartial', { count: event.summary.failedImages }))
+      } else if (
+        (event.summary.uploadRequests ?? 0) > 0 &&
+        (event.summary.uploadRequests ?? 0) < event.summary.uploaded
+      ) {
+        // 同一份内容被多个名字引用时只上行一次：「替换 3 处」不等于「发了 3 张」。
+        success(
+          t('toast.runFinishedDedup', {
+            refs: event.summary.uploaded,
+            requests: event.summary.uploadRequests ?? 0,
+          }),
+        )
       } else {
         success(t('toast.runFinished', { count: event.summary.uploaded }))
       }

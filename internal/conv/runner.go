@@ -100,7 +100,10 @@ type Runner struct {
 
 	// 图床整个连不上时别一张张慢慢失败：连续失败到 abortsAfterFailures 张、
 	// 且这一轮一张都没成功过，就判定图床不可用，提前收工。
-	succeeded  atomic.Bool
+	succeeded atomic.Bool
+	// sent 记「真的发给图床几次」：同一份内容被多个名字引用时只有领头那张会上行，
+	// Uploaded 数的是「替换了几处」，两者不是一回事。
+	sent       atomic.Int64
 	failStreak atomic.Int32
 	// 限流（429/503）另算一条线：图床是活的，只是让我们慢一点，
 	// 一直限流时给用户的说法也不一样。
@@ -514,6 +517,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	// Reused 统计的是「这一轮少传了几张图」——按去重后的图片算，
 	// 和 Uploaded（按引用处算）不是一个口径，界面上分开写。
 	sum.Reused = r.uploads.Hits()
+	sum.UploadRequests = int(r.sent.Load())
 	sum.RemoteReused = r.remoteCacheHits()
 	r.SaveUploadCache()
 	r.SaveRemoteCache()
@@ -1023,6 +1027,7 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 		}
 	}
 
+	r.sent.Add(1)
 	url, err := r.client.Upload(ctx, absPath)
 	<-r.sem
 	if okContent && leader {

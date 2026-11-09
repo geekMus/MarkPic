@@ -498,7 +498,13 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 func (p *printer) summaryLine(s *conv.Summary) string {
 	parts := []string{fmt.Sprintf("共 %d 个文件", s.Files)}
 	if s.Uploaded > 0 {
-		parts = append(parts, fmt.Sprintf("替换 %d 处链接", s.Uploaded))
+		// 同一份内容被多个名字引用时，只有领头那张真的上行；「替换 3 处」与
+		// 「传给图床 1 张」都是事实，只报前者会让人以为发了三次。
+		if s.UploadRequests > 0 && s.UploadRequests < s.Uploaded {
+			parts = append(parts, fmt.Sprintf("替换 %d 处链接（实际传给图床 %d 张）", s.Uploaded, s.UploadRequests))
+		} else {
+			parts = append(parts, fmt.Sprintf("替换 %d 处链接", s.Uploaded))
+		}
 	}
 	if s.Localized > 0 {
 		// 同一张图被引用 20 次时 Localized 是 20，可 images/ 里只有一个文件。

@@ -120,6 +120,11 @@ export type RunSummary = {
   uploaded: number
   /** 这一轮靠缓存省下的去重图片数（不是引用数）。 */
   reused: number
+  /**
+   * 真的发给图床几次。同一份内容被多个名字引用时只有领头那张上行，
+   * 所以它会小于 uploaded（uploaded 数的是「替换了几处」）。
+   */
+  uploadRequests?: number
   failedImages: number
   cancelled: boolean
   /**

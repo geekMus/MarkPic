@@ -110,16 +110,19 @@ type FileTask struct {
 
 // Summary 是一次运行的汇总。
 type Summary struct {
-	RunID        string `json:"runId"`
-	Files        int    `json:"files"`
-	OK           int    `json:"ok"`
-	Partial      int    `json:"partial"`
-	Failed       int    `json:"failed"`
-	NoImages     int    `json:"noImages"`
-	Images       int    `json:"images"`
-	Uploaded     int    `json:"uploaded"`
-	Reused       int    `json:"reused"`
-	FailedImages int    `json:"failedImages"`
+	RunID    string `json:"runId"`
+	Files    int    `json:"files"`
+	OK       int    `json:"ok"`
+	Partial  int    `json:"partial"`
+	Failed   int    `json:"failed"`
+	NoImages int    `json:"noImages"`
+	Images   int    `json:"images"`
+	Uploaded int    `json:"uploaded"`
+	Reused   int    `json:"reused"`
+	// UploadRequests 是「真的发了几次上传」：同一份内容被多个名字引用时，
+	// 后面几个只复用结果，不再上行。Uploaded 数的是「替换了几处」，两个数不一样。
+	UploadRequests int `json:"uploadRequests"`
+	FailedImages   int `json:"failedImages"`
 	// 远程图片相关的三个数：本地化（下载回本地）张数、检测过的张数、其中失效的张数。
 	Localized int `json:"localized"`
 	// LocalizedUnique 是去重之后真正下载了几张（按文件算，不按引用处算）。
