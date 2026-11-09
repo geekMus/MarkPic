@@ -49,6 +49,7 @@ const (
 	KeyConvFileMissing        Key = "conv.fileMissing"
 	KeyConvPathIsDir          Key = "conv.pathIsDir"
 	KeyConvFileIncomplete     Key = "conv.fileIncomplete"
+	KeyConvLocalOutsideOutDir Key = "conv.localOutsideOutDir"
 	KeyConvCancelled          Key = "conv.cancelled"
 	KeyConvAllFailed          Key = "conv.allFailed"
 	KeyConvRewriteFailed      Key = "conv.rewriteFailed"
@@ -228,6 +229,10 @@ var catalog = map[Key]entry{
 	KeyConvFileIncomplete: {
 		"本地这张图是空的或者没写完，传上去只会得到一个打不开的链接",
 		"This local image is empty or incomplete; uploading it would only give you a link that cannot be opened",
+	},
+	KeyConvLocalOutsideOutDir: {
+		"有 %d 张本地图在文档目录之外，输出目录里没法跟着搬，副本里的那几个链接仍然指着原处",
+		"%d local image(s) live outside the document's folder, so they were not carried into the output folder; those links still point at the original place",
 	},
 	KeyConvCancelled: {
 		"已取消",

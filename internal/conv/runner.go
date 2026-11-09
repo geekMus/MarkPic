@@ -588,6 +588,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			if abs, ok := imgpath.ResolveExisting(path, ref.Target, r.fileExists); !ok || !r.fileExists(abs) {
 				res.LocalMissing++
 				it.Error = i18n.T(r.lang, i18n.KeyConvFileMissing, filepath.Base(ref.Target))
+			} else {
+				// 记住它到底在哪：输出到别的目录时要把这张图一起搬过去，
+				// 不然副本里那条相对链接就断了。
+				it.AbsolutePath = abs
 			}
 			it.Status = StatusLocalKept
 			items[i] = it
@@ -836,6 +840,7 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		res.Error = perr.Error()
 		return res
 	}
+
 	// 目录模式的输出目录正好就是源文件所在的目录时，输出路径会等于源文件路径 ——
 	// 于是「输出到目录」悄悄变成了「原地覆盖」。这不算错（有人就是想要这个效果，
 	// 备份也照做），但和用户在界面上选的那个模式不是一回事，得说一声。
@@ -863,6 +868,9 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 
 	res.OutputPath = target
+	// 文档写成功了再搬图：写失败时在输出目录里留一堆图片是没意义的。
+	r.carryLocalImages(&res, path, target)
+
 	// Dead 是「远程地址本来就打不开」：那种图没能本地化，链接还是原来那个
 	// 断掉的地址。文件写出来了，但不是全须全尾 —— 说「完成」会让人以为
 	// 这一篇已经收拾干净了，下次再看才发现还有几张是坏的。
@@ -1288,4 +1296,61 @@ func unusableImage(path string) bool {
 		}
 	}
 	return false
+}
+
+// carryLocalImages 把「跟着文档走」的本地图片搬进输出目录。
+//
+// `-o directory` 把文档写到了另一个目录，可本地图片的链接还是按源目录写的
+// （`img/a.png`）—— 文档一搬走，那些链接就指不到了。实测 `out/doc.md` 里留着
+// `img/pic.png`，而 `out/img/` 根本不存在，副本里的图全是断的。
+//
+// 只搬「在文档目录里面、路径不往上跑」的那些。`../assets/a.png` 那种一旦照搬，
+// 文件会写到输出目录之外去，链接与实际位置就对不上了 —— 留原样，并在警告里说一句，
+// 免得用户以为副本是完整的。
+func (r *Runner) carryLocalImages(res *FileResult, srcPath, outPath string) {
+	if r.cfg.Output != settings.OutputDirectory {
+		return
+	}
+	srcDir := filepath.Dir(srcPath)
+	outDir := filepath.Dir(outPath)
+	if strings.EqualFold(filepath.Clean(srcDir), filepath.Clean(outDir)) {
+		// 输出目录就是源目录，链接本来就指得到，不用搬。
+		return
+	}
+	outside := 0
+	for _, it := range res.Items {
+		if it.Status != StatusLocalKept || it.Error != "" || it.AbsolutePath == "" {
+			continue
+		}
+		rel, rerr := filepath.Rel(srcDir, it.AbsolutePath)
+		if rerr != nil || filepath.IsAbs(rel) || rel == ".." ||
+			strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			outside++
+			continue
+		}
+		dest := filepath.Join(outDir, rel)
+		if strings.EqualFold(filepath.Clean(dest), filepath.Clean(it.AbsolutePath)) {
+			continue
+		}
+		// 已经在输出目录里、大小还对得上，就别覆盖用户手上的那份。
+		srcInfo, srcErr := os.Stat(it.AbsolutePath)
+		if srcErr != nil {
+			outside++
+			continue
+		}
+		if st, serr := os.Stat(dest); serr == nil && st.Size() == srcInfo.Size() {
+			continue
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(dest), 0o755); mkErr != nil {
+			outside++
+			continue
+		}
+		if cerr := copyFile(it.AbsolutePath, dest); cerr != nil {
+			outside++
+		}
+	}
+	if outside > 0 {
+		res.Warnings = append(res.Warnings,
+			i18n.T(r.lang, i18n.KeyConvLocalOutsideOutDir, outside))
+	}
 }

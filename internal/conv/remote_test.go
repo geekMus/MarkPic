@@ -1844,3 +1844,44 @@ func TestUploadSkipsIncompleteLocalImages(t *testing.T) {
 		t.Fatalf("汇总里失败图数该是 2，实际 %d", sum.FailedImages)
 	}
 }
+
+func TestOutputDirectoryCarriesLocalImages(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "img"), 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "img", "pic.png"), string(pngBytes))
+	outDir := filepath.Join(dir, "out")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![本地](img/pic.png)\n\n![远程]("+srv.URL+"/r.png)\n")
+
+	cfg := baseCfg(srv.URL)
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = outDir
+	cfg.Remote = settings.RemoteDownload
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+	res := results[0]
+	if res.Status != FileOK {
+		t.Fatalf("这一篇该是完成，实际 %s（%s）", res.Status, res.Error)
+	}
+
+	// 文档搬到了 out/，本地图那张也得跟着过去，否则副本里的 `img/pic.png` 就是断链。
+	carried := filepath.Join(outDir, "img", "pic.png")
+	if st, err := os.Stat(carried); err != nil || st.Size() != int64(len(pngBytes)) {
+		t.Fatalf("本地图没跟着搬过去：%v", err)
+	}
+	out, err := os.ReadFile(res.OutputPath)
+	if err != nil {
+		t.Fatalf("读副本失败: %v", err)
+	}
+	if !strings.Contains(string(out), "![本地](img/pic.png)") {
+		t.Fatalf("本地图的链接不该被改写：%s", out)
+	}
+}
