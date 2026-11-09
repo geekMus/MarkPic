@@ -72,7 +72,7 @@ func (r *Runner) buildRemoteGroups(items []Item, refs []mdscan.Ref) []*remoteGro
 		default:
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(ref.Target))
+		key := remoteimg.Key(ref.Target)
 		g := byURL[key]
 		if g == nil {
 			g = &remoteGroup{url: strings.TrimSpace(ref.Target)}
@@ -300,7 +300,7 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 
 // remoteEntry 取（或建）这个地址在这一轮里的唯一任务。只有领头者返回 leader=true。
 func (r *Runner) remoteEntry(rawURL string) (*remoteFile, bool) {
-	key := strings.ToLower(rawURL)
+	key := remoteimg.Key(rawURL)
 	r.remoteMu.Lock()
 	defer r.remoteMu.Unlock()
 	if e, ok := r.remoteFiles[key]; ok {
@@ -479,7 +479,9 @@ func (r *Runner) pickName(dir, rawURL, base, fresh string) string {
 		}
 		abs := filepath.Join(dir, name)
 		key := strings.ToLower(abs)
-		if owner, taken := r.remoteNames[key]; taken && owner != rawURL {
+		// 比的是去重键而不是原字符串：同一个地址写成 `HTTPS://Host/x.png` 和
+		// `https://host/x.png` 是同一处，但 `host/PIC.png` 与 `host/pic.png` 不是。
+		if owner, taken := r.remoteNames[key]; taken && owner != remoteimg.Key(rawURL) {
 			continue
 		}
 		// 上一次运行留下的同名文件也算「被占了」：两个不同地址都叫 pic.png 时，
@@ -491,7 +493,7 @@ func (r *Runner) pickName(dir, rawURL, base, fresh string) string {
 		// 而且文档里的链接会随着每次损坏漂成 pic-2.png、pic-3.png……
 		ours := false
 		if owner, size, ok := r.remoteCache.Owner(dir, name); ok && size > 0 {
-			if !strings.EqualFold(owner, rawURL) {
+			if remoteimg.Key(owner) != remoteimg.Key(rawURL) {
 				continue
 			}
 			ours = true
@@ -510,7 +512,7 @@ func (r *Runner) pickName(dir, rawURL, base, fresh string) string {
 				}
 			}
 		}
-		r.remoteNames[key] = rawURL
+		r.remoteNames[key] = remoteimg.Key(rawURL)
 		return name
 	}
 	return fmt.Sprintf("remote-%s%s", shortHash(rawURL), ext)

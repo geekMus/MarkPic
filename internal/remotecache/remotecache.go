@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/remoteimg"
 )
 
 // maxEntries 是缓存条数上限。
@@ -145,7 +147,9 @@ func (c *Cache) Len() int {
 // cacheKey 把「哪个地址、下到哪个目录」压成一个键。
 // 目录要进键：同一个地址在不同文档目录下会是不同的本地文件。
 func cacheKey(rawURL, dir string) string {
-	return strings.ToLower(strings.TrimSpace(rawURL)) + "\x00" + strings.ToLower(filepath.Clean(dir))
+	// 用 remoteimg.Key 而不是整条 ToLower：URL 的路径是大小写敏感的，
+	// `host/PIC.png` 和 `host/pic.png` 是两张图，折成一条就会少下一张。
+	return remoteimg.Key(rawURL) + "\x00" + strings.ToLower(filepath.Clean(dir))
 }
 
 // Lookup 查这个地址上次下到了哪里。命中时返回文件名与大小（调用方自己确认文件还在）。

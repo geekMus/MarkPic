@@ -89,6 +89,15 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 		case "/b/pic.png":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(sameSizeB)
+		case "/PIC.png":
+			// 路径大小写不同 = 两张不同的图。真实图床上真这么放过（Linux 服务器上
+			// PIC.png 与 pic.png 是两个文件），而 Windows 上落到同一个文件名，
+			// 必须靠撞名规则分开存。
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(sameSizeA)
+		case "/pic.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(sameSizeB)
 		default:
 			http.NotFound(w, r)
 		}
@@ -948,5 +957,71 @@ func TestRemoteDownloadHealsTruncatedFile(t *testing.T) {
 				t.Fatal("不该多出一个 ok-2.png：坏文件占着名字，把好图挤走了")
 			}
 		})
+	}
+}
+
+// 路径大小写不同就是两张不同的图。
+//
+// URL 的路径是大小写敏感的（Linux 服务器上 PIC.png 与 pic.png 是两个文件），
+// 但 Windows 的文件系统不区分大小写，两者会落到同一个文件名上。早先去重用的是
+// 「整条地址 ToLower」，于是这两处被当成同一张图：只下载了先遇到的那张，
+// 另一处链接指向了错误的图（内容错、还不报错）。
+func TestRemoteKeepsCaseDifferingURLsApart(t *testing.T) {
+	dir := t.TempDir()
+	host, hits := fakeImageHost(t)
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![大写]("+host.URL+"/PIC.png)\n\n![小写]("+host.URL+"/pic.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+	cfg.ReuseUploads = false
+	r := NewRunner(cfg, i18n.ZH, "run1", nil)
+	_, sum := r.RunCollect(context.Background(), []string{doc})
+
+	if sum.Localized != 2 {
+		t.Fatalf("两个地址应该各下一张，实际 localized=%d（hits=%v）", sum.Localized, hits())
+	}
+	images := filepath.Join(dir, "images")
+	entries, err := os.ReadDir(images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("images/ 里应该有两张图，实际 %d 个", len(entries))
+	}
+	// 内容必须各自对得上：大写那处是 sameSizeA，小写那处是 sameSizeB。
+	// 这两张图**大小完全一样**（故意这么造的），所以只能比内容。
+	seenA, seenB := 0, 0
+	for _, e := range entries {
+		body, rerr := os.ReadFile(filepath.Join(images, e.Name()))
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		switch {
+		case bytes.Equal(body, sameSizeA):
+			seenA++
+		case bytes.Equal(body, sameSizeB):
+			seenB++
+		default:
+			t.Fatalf("%s 的内容两张都对不上", e.Name())
+		}
+	}
+	if seenA != 1 || seenB != 1 {
+		t.Fatalf("两张图应该各存一份，实际 A=%d B=%d", seenA, seenB)
+	}
+
+	out, err := os.ReadFile(filepath.Join(dir, "doc.converted.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	lines := strings.Split(got, "\n")
+	if len(lines) < 3 {
+		t.Fatalf("输出不对: %s", got)
+	}
+	if !strings.Contains(lines[0], "images/") || !strings.Contains(lines[2], "images/") {
+		t.Fatalf("两处都该改成相对路径: %s", got)
+	}
+	if lines[0] == lines[2] {
+		t.Fatalf("两个不同地址不该指向同一个文件: %s", got)
 	}
 }

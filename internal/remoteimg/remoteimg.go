@@ -616,6 +616,26 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	return res, total, nil
 }
 
+// Key 返回一个地址的「去重键」：用来判断两处引用说的是不是同一张图。
+//
+// 只把**协议和主机名**折成小写，路径和查询串原样保留 —— URL 里路径是大小写敏感的，
+// `https://host/PIC.png` 和 `https://host/pic.png` 是两张不同的图（实测过一个图床
+// 真的这么放了，一个 67 字节、一个 69 字节）。早先这里对整条地址做了 ToLower，
+// 结果两张图被当成一张：只下载了先遇到的那张，另一处链接指向了错误的图。
+// 主机名不区分大小写（DNS 语义），`HTTPS://Host/x.png` 与 `https://host/x.png`
+// 确实是同一处，所以这两截还是要折。
+func Key(rawURL string) string {
+	s := strings.TrimSpace(rawURL)
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		// 解析不了（畸形地址）就按原样当键：宁可多下一张，也不能把两张图并成一张。
+		return s
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	return u.String()
+}
+
 // Normalize 把地址整理成能直接请求的样子。
 //
 // 主要是协议相对地址（`//cdn.example.com/x.png`）：这种写法在网页里靠页面的协议补全，

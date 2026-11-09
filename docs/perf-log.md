@@ -2508,3 +2508,61 @@ download  → 下载 1 张远程图，1 张地址已失效；images/ 里只有 o
 顺带说一句：这个 bug 和之前那个「0 字节算成功」是同一类 —— **判断一张图能不能用，
 不能只看状态码**。现在的判据是四条：状态码 2xx 且不是 206、正文不是空的、
 内容真的是图片、大小不超过 64 MB。
+
+## 地址只有大小写不同，被当成了同一张图
+
+复现（`%TEMP%\cmp-case-real`，自建 `cmp-casesrv.exe` 在 36703，`/PIC.png` 回 67 字节、
+`/pic.png` 回 69 字节）：
+
+```
+![大写](http://127.0.0.1:36703/PIC.png)
+![小写](http://127.0.0.1:36703/pic.png)
+```
+
+改之前跑 `--remote download`：
+
+```
+[完成] doc.md  下载 2 张远程图      ← 报「2 张」，其实只下了一张
+images/PIC.png 67 字节
+![大写](images/PIC.png)
+![小写](images/PIC.png)             ← 两处指向同一个文件，小写那张的内容丢了
+```
+
+根因在去重键：`buildRemoteGroups`、`remoteEntry`、`remotecache.cacheKey` 三处都用
+`strings.ToLower(整条地址)` 当键。URL 里**路径是大小写敏感的**（Linux 服务器上
+`PIC.png` 与 `pic.png` 是两个文件），折成小写等于宣布「这两张是同一张」——
+于是只有先遇到的那个地址真的发了请求，另一处直接复用结果，链接指向错误的图，
+而且**没有任何一处报错**（汇总里甚至写着「下载 2 张」，因为有两处引用被处理了）。
+
+只有协议和主机名是不区分大小写的（DNS 语义），`HTTPS://Host/x.png` 与
+`https://host/x.png` 确实是同一处。
+
+改法：`internal/remoteimg/remoteimg.go` 新增
+
+```go
+func Key(rawURL string) string {
+	s := strings.TrimSpace(rawURL)
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		// 解析不了（畸形地址）就按原样当键：宁可多下一张，也不能把两张图并成一张。
+		return s
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	return u.String()
+}
+```
+
+四处改用它：`buildRemoteGroups` 的分组键、`remoteEntry` 的去重键、
+`remotecache.cacheKey`（缓存包因此 import 了 remoteimg）、`pickName` 里
+`remoteNames` 的归属比对（原来用 `EqualFold`，同样是整条折小写）。
+
+回归测试 `TestRemoteKeepsCaseDifferingURLsApart`（`internal/conv/remote_test.go`）：
+两个地址大小写不同、内容**字节数完全一样**（只能比内容），断言
+`localized == 2`、`images/` 里两个文件、内容分别是 A 和 B、输出里两行链接不同。
+验证过承重：把 `remoteimg.Key` 换回 `ToLower` 立刻红
+（`images/ 里应该有两张图，实际 1 个`）。
+
+顺带说一句：Windows 上 `PIC.png` 和 `pic.png` 会落到同一个文件名，所以修好之后
+第二张走的是撞名加序号（`PIC-2.png`），这是对的 —— 用户看到两个文件、
+两行不同的链接，而磁盘上确实存着两张不同的图。
