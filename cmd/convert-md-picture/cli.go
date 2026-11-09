@@ -55,7 +55,13 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	sum := runner.Run(ctx, paths)
 
 	if sum.Cancelled {
-		fmt.Println("已取消。")
+		// 「已取消」是用户按了 Ctrl+C；图床连不上被中途掐断是另一回事，
+		// 两件事都说成「已取消」，看日志的人会以为自己手滑了。
+		if sum.AbortReason != "" {
+			fmt.Println("已中止。")
+		} else {
+			fmt.Println("已取消。")
+		}
 	}
 	if sum.Failed > 0 || sum.FailedImages > 0 {
 		return 1
@@ -506,7 +512,11 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 		parts = append(parts, fmt.Sprintf("失败 %d 个", s.Failed))
 	}
 	if s.Cancelled {
-		parts = append(parts, "已取消")
+		if s.AbortReason != "" {
+			parts = append(parts, "已中止")
+		} else {
+			parts = append(parts, "已取消")
+		}
 	}
 	return fmt.Sprintf("%s · 用时 %.1fs", strings.Join(parts, " · "), float64(s.DurationMs)/1000)
 }

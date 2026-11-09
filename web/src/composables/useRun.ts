@@ -87,6 +87,8 @@ export interface RunStats {
   remoteKept: number
   filesChecked: number
   remoteReused: number
+  /** 这一轮被提前掐断的原因（图床连不上之类），空串表示正常跑完或被用户取消。 */
+  abortReason: string
 }
 
 const { danger, warning, success } = useToasts()
@@ -159,6 +161,7 @@ const live = reactive({
   remoteKept: 0,
   filesChecked: 0,
   remoteReused: 0,
+  abortReason: '',
   settled: 0,
 })
 
@@ -170,6 +173,9 @@ let source: EventSource | null = null
 let reconnectTimer: number | null = null
 let reconnectDelay = 800
 let intentionalClose = false
+// 一轮只播报一次结局：服务端在「自己掐掉」时会先发 run.cancelled 再发 run.finished，
+// 两条都带 summary.abortReason，不拦一下就会弹出两条一模一样的气泡。
+let outcomeAnnounced = false
 let cancelTimer: number | null = null
 let localSeq = 0
 
@@ -217,6 +223,7 @@ const stats = computed<RunStats>(() => {
   remoteKept: finished.remoteKept ?? 0,
       filesChecked: finished.filesChecked ?? 0,
       remoteReused: finished.remoteReused ?? 0,
+  abortReason: finished.abortReason ?? '',
     }
   }
 
@@ -244,6 +251,7 @@ const stats = computed<RunStats>(() => {
   remoteKept: live.remoteKept,
     filesChecked: live.filesChecked,
     remoteReused: live.remoteReused,
+  abortReason: live.abortReason,
   }
 })
 
@@ -313,6 +321,7 @@ function liveReset(): void {
   live.remoteKept = 0
   live.filesChecked = 0
   live.settled = 0
+  live.abortReason = ''
   lastReveal.value = null
   lastRevealIndex = -1
 }
@@ -536,6 +545,7 @@ function onSignal(event: RunEvent): void {
       if (runId.value !== null && runId.value !== event.runId) return
       if (runId.value === null && phase.value !== 'preparing') return
       runId.value = event.runId
+      outcomeAnnounced = false
       applyStarted(event.files)
       summary.value = null
       phase.value = 'running'
@@ -571,6 +581,7 @@ function onSignal(event: RunEvent): void {
     }
     case 'run.finished': {
       if (!matches(event.runId)) return
+      if (outcomeAnnounced) { runId.value = null; phase.value = 'cancelled'; return }
       clearCancelTimer()
       summary.value = event.summary
       phase.value = event.summary.cancelled ? 'cancelled' : 'done'
@@ -579,6 +590,7 @@ function onSignal(event: RunEvent): void {
       if (event.summary.cancelled) {
         // 图床成片失败时这一轮是我们自己掐掉的，得把原因摆出来，
         // 否则用户只看到「已取消」，以为是自己点错了。
+        outcomeAnnounced = true
         if (event.summary.abortReason) danger(event.summary.abortReason)
         else warning(t('toast.runCancelled'))
       } else if (event.summary.failedImages > 0) {
@@ -595,6 +607,8 @@ function onSignal(event: RunEvent): void {
       phase.value = 'cancelled'
       markUnsettledCancelled()
       runId.value = null
+      if (outcomeAnnounced) return
+      outcomeAnnounced = true
       if (event.summary?.abortReason) danger(event.summary.abortReason)
       else warning(t('toast.runCancelled'))
       return

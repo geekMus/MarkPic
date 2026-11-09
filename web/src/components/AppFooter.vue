@@ -159,7 +159,11 @@ const parts = computed<Part[]>(() => {
       })
     }
   }
-  if (props.phase === 'cancelled') list.push({ text: t('footer.cancelled'), tone: 'warn' })
+  if (props.phase === 'cancelled') {
+    // 图床连不上被提前掐断，和用户按了取消不是一件事：前者该让人去看图床。
+    const aborted = stats.abortReason !== ''
+    list.push({ text: t(aborted ? 'footer.aborted' : 'footer.cancelled'), tone: 'warn' })
+  }
   return list
 })
 

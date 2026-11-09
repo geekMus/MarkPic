@@ -137,3 +137,22 @@ func TestDownloadWordingSaysReused(t *testing.T) {
 		t.Fatalf("部分沿用时两个数都要在：%q", partial)
 	}
 }
+
+func TestAbortedLineSaysAbortedNotCancelled(t *testing.T) {
+	p := newPrinter(true)
+
+	// 图床连不上被提前掐断：和用户按 Ctrl+C 不是一件事。
+	aborted := p.summaryLine(&conv.Summary{
+		Files: 1, Failed: 12, Cancelled: true,
+		AbortReason: "连续 12 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上",
+	})
+	if strings.Contains(aborted, "已取消") || !strings.Contains(aborted, "已中止") {
+		t.Fatalf("被掐断的那一轮该写「已中止」，实际：%s", aborted)
+	}
+
+	// 真的按了取消：仍写「已取消」。
+	plain := p.summaryLine(&conv.Summary{Files: 1, Cancelled: true})
+	if !strings.Contains(plain, "已取消") {
+		t.Fatalf("用户取消该写「已取消」，实际：%s", plain)
+	}
+}

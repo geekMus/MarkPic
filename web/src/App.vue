@@ -243,6 +243,7 @@ onBeforeUnmount(() => {
           :total="totalCount"
           :manual-open="manualOpen"
           :remote-mode="settings.remote"
+          :aborted="stats.abortReason !== ''"
           @pick-files="pick('files')"
           @pick-folder="pick('folder')"
           @submit-paths="enqueue"

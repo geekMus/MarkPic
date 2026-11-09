@@ -17,6 +17,8 @@ const props = defineProps<{
    * 一律叫「上传中」会让只检测/只下载的人以为程序在做别的事。
    */
   remoteMode?: 'ignore' | 'check' | 'download'
+  /** 这一轮是不是被提前掐断的（图床连不上）。只影响「取消」那行的说法。 */
+  aborted?: boolean
 }>()
 
 const emit = defineEmits<{ remove: [id: string]; reveal: [path: string] }>()
@@ -85,6 +87,11 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const
     if ((result.localMissing ?? 0) > 0) {
       return { tone: 'warning', labelKey: meta.labelKey }
     }
+    // 图床连不上被掐断时，这些行其实一张都没轮到 —— 写「已取消」会让人以为
+    // 是自己点错了。只有真按下取消时才说「已取消」。
+    if (result.status === 'cancelled' && props.aborted) {
+      return { tone: 'warning', labelKey: 'row.status.aborted' }
+    }
     return meta
   }
   if (props.row.phase === 'running') return { tone: 'accent', labelKey: runningLabelKey.value }
@@ -109,6 +116,7 @@ const reason = computed(() => {
     if (props.row.missing) return t('row.reason.noFiles')
     return ''
   }
+  if (result.status === 'cancelled' && props.aborted) return t('row.reason.aborted')
   if (result.error) return result.error
   if (result.failed > 0) {
     // 「没下载回来」和「本地图片读不出来」是两回事：都写成「未处理」的话，

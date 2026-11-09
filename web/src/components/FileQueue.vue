@@ -16,6 +16,8 @@ const props = defineProps<{
   manualOpen: boolean
   /** 这一轮在做什么（上传 / 只检测 / 下载回本地），只用来给行内文案挑词。 */
   remoteMode?: 'ignore' | 'check' | 'download'
+  /** 这一轮是不是被提前掐断的（图床连不上）。 */
+  aborted?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -410,6 +412,7 @@ function onScroll(): void {
             :row="row"
             :busy="busy"
             :remote-mode="remoteMode"
+            :aborted="aborted"
             @remove="emit('remove', $event)")
             @reveal="emit('reveal', $event)"
           />
