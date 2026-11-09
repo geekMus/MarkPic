@@ -314,6 +314,12 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(
 			i18n.T(lang, i18n.KeyConvRemoteTooBusy), err, remoteimg.RateLimitRetries)}
 	}
+	// 对方中途把连接关了：传输层只会给一个光秃秃的 EOF，谁看了也不知道该怎么办。
+	// 说清「重试也没成、多半是一时的」，人才知道过会儿再来，而不是跑去查自己的网络。
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return remoteFile{status: StatusFailed, msg: fmt.Sprintf(
+			i18n.T(lang, i18n.KeyConvRemoteClosed), err, remoteimg.DownloadAttempts)}
+	}
 	// 404/410 是「这张图没了」，不是「这次没下成」：跟检测模式一个说法，
 	// 别让同一件事在两个模式下有两个名字。5xx 重试完还是 5xx 才算失败。
 	if code, ok := remoteimg.StatusCode(err); ok {

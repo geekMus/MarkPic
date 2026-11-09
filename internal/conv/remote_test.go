@@ -1661,3 +1661,28 @@ func TestRemoteForbiddenSaysServerAnswered(t *testing.T) {
 		t.Fatalf("要把状态码说出来，实际 %q", msg)
 	}
 }
+
+// 对方中途把连接关了时，别只丢一个光秃秃的 EOF 给用户：说清重试也没成、多半是一时的。
+func TestRemoteDownloadEOFExplainsItself(t *testing.T) {
+	dir := t.TempDir()
+	pngHead := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 'I', 'H', 'D', 'R'}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", "100000")
+		_, _ = w.Write(pngHead[:8])
+	}))
+	defer srv.Close()
+
+	src := "# 标题\n\n![图](" + srv.URL + "/x.png)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	msg := results[0].Items[0].Error
+	if !strings.Contains(msg, "对方把连接关了") {
+		t.Fatalf("要说是对方断了连接，实际 %q", msg)
+	}
+}

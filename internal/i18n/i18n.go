@@ -78,6 +78,7 @@ const (
 	KeyConvRemoteTooLarge     Key = "conv.remoteTooLarge"
 	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
 	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
+	KeyConvRemoteClosed       Key = "conv.remoteClosed"
 	KeyConvRemoteNamingFailed Key = "conv.remoteNamingFailed"
 	KeyConvRemoteRedirectLoop Key = "conv.remoteRedirectLoop"
 	KeyConvRemotePartial      Key = "conv.remotePartial"
@@ -335,6 +336,12 @@ var catalog = map[Key]entry{
 	KeyConvRemoteDownloadFail: {
 		"下载失败：%v",
 		"Download failed: %v",
+	},
+	// KeyConvRemoteClosed 给「对方把连接关了」用。传输层原话是一个光秃秃的 EOF，
+	// 谁看了也不知道该怎么办；说清是对方中途断开、重试也没成，人才知道是等一下再来。
+	KeyConvRemoteClosed: {
+		"下载到一半对方把连接关了（%v），重试 %d 次也没成——多半是对方站点一时的毛病，过会儿再跑一次就行",
+		"The server closed the connection mid-download (%v), and %d retries did not help — usually a passing problem on their side, so try again in a bit",
 	},
 	KeyConvRemoteRedirectLoop: {
 		"这个地址在反复跳转，跳了 8 次也没落到一张图上（图床把自己重定向到自己，或者 http 与 https 互相弹）",

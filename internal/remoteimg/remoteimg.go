@@ -881,6 +881,9 @@ func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, max
 // 检测错了只是报告上多一条红字，下载失败是真丢东西，所以多给两次机会。
 const downloadAttempts = 3
 
+// DownloadAttempts 是对外公布的次数，用在「重试了 N 次也没成」这类说明里。
+const DownloadAttempts = downloadAttempts
+
 // downloadRetry 在瞬时故障上重试，每次重试前把写入目标退回开头。
 //
 // 限流（429/503）单独算预算，并且走全体共享的冷却闸门：下载这边同样会被图床限流，
