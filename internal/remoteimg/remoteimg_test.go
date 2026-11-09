@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -625,5 +626,65 @@ func TestRedirectToImageStillWorks(t *testing.T) {
 	}
 	if !bytes.Equal(buf.Bytes(), tinyPNG) {
 		t.Fatalf("下载到的内容不对，%d 字节", buf.Len())
+	}
+}
+
+// 我们从不发 Range，所以 206 一定是对方或中间代理擅自截了一段。
+// 这种响应体写下去就是半张图，看起来却完全正常 —— 必须当失败，而且不该重试
+// （对方每次都会给同样的一段）。
+func TestDownloadRejectsPartialContent(t *testing.T) {
+	half := tinyPNG[:len(tinyPNG)/2]
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Header.Get("Range") != "" {
+			t.Errorf("下载请求不该带 Range: %q", r.Header.Get("Range"))
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", strconv.Itoa(len(half)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(half)
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	var buf bytes.Buffer
+	_, err := c.DownloadTo(context.Background(), srv.URL+"/pic.png", &buf, 0)
+	if !errors.Is(err, ErrPartial) {
+		t.Fatalf("206 应该报 ErrPartial，实际 %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("半张图不该写进目标，实际写了 %d 字节", buf.Len())
+	}
+	if requests != 1 {
+		t.Fatalf("206 是确定结论，不该重试，实际请求 %d 次", requests)
+	}
+}
+
+// 检测也得认 206：只看「2xx + 类型是图片」会把半张图报成有效地址。
+func TestProbeRejectsPartialContent(t *testing.T) {
+	half := tinyPNG[:len(tinyPNG)/2]
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", strconv.Itoa(len(half)))
+		w.WriteHeader(http.StatusPartialContent)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(half)
+		}
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	res, err := c.Probe(context.Background(), srv.URL+"/pic.png")
+	if !errors.Is(err, ErrPartial) {
+		t.Fatalf("检测到 206 应该报 ErrPartial，实际 res=%+v err=%v", res, err)
+	}
+	// 注意：这里不断言 res.OK()。Result 只是把响应原样带出来（状态码 206、
+	// 类型 image/png），上层靠 error 判断成败；probeGet 自己发 Range 时拿到 206
+	// 反而是正常答复，所以 OK() 不能一概否定 206。
+	if requests != 1 {
+		t.Fatalf("206 是确定结论，不该重试，实际请求 %d 次", requests)
 	}
 }

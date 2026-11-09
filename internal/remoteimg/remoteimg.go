@@ -199,9 +199,9 @@ func worthRetrying(res Result, err error) bool {
 		if errors.As(err, &werr) {
 			return false
 		}
-		// 「内容不是图片」「正文是空的」「超过大小上限」都是拿到完整答复之后得出的
-		// 结论，再问一遍对方还是那句话，只会白等。
-		if errors.Is(err, ErrNotImage) || errors.Is(err, ErrEmpty) || errors.Is(err, ErrTooLarge) {
+		// 「内容不是图片」「正文是空的」「超过大小上限」「只给了一段」都是拿到答复
+		// 之后得出的结论，再问一遍对方还是那句话，只会白等。
+		if errors.Is(err, ErrNotImage) || errors.Is(err, ErrEmpty) || errors.Is(err, ErrTooLarge) || errors.Is(err, ErrPartial) {
 			return false
 		}
 		// 循环跳转不会自己好，再走一圈还是那一圈。
@@ -269,6 +269,13 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	// 重定向到自己、http 与 https 互相弹）。再 GET 一遍也是同样一圈。
 	if isRedirect(res.Status) {
 		return res, ErrRedirectLoop
+	}
+	// HEAD 不带 Range，回 206 就是对方只打算给一段：整张图拿不全。
+	// 必须在这里判死 —— OK() 只看「2xx + 类型是图片」，会把 206 算成有效，
+	// 检测模式于是报告「地址有效」，用户下载时才发现只有半张。
+	// （下面 probeGet 自己发了 Range，206 是它要的正常答复，不走这条。）
+	if res.Status == http.StatusPartialContent {
+		return res, ErrPartial
 	}
 	// HEAD 没带正文，嗅探不了类型。所以「状态码成功但类型不是图片（或压根没给）」
 	// 也得用 GET 看一眼前 512 字节 —— 否则 application/octet-stream 的图床
@@ -519,6 +526,13 @@ func (s *stickyWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// ErrPartial 表示对方只给了一段内容（206），而我们并没有要 Range。
+//
+// 下载请求不带 Range，正常的图床只会回 200 + 整张图。回 206 说明要么图床配置坏了、
+// 要么中间有个代理把响应截了一段 —— 拿到的那半张图写进文档就是个永远显示不出来的
+// 坏文件，而且没有任何提示。所以宁可失败，也不能当成功。
+var ErrPartial = errors.New("server returned partial content")
+
 // downloadAt 做一次下载，同时告诉调用方写进去了多少字节（重试要靠它退回开头）。
 func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, int64, error) {
 	if err := checkScheme(rawURL); err != nil {
@@ -553,6 +567,13 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	}
 	if res.Size > maxBytes {
 		return res, 0, ErrTooLarge
+	}
+	// 我们没发 Range，所以 206 一定是对方或中间的代理擅自截了一段。
+	// 这种响应体写下去就是半张图（上面的 Content-Length 也只是这一段的长），
+	// 看起来却完全正常 —— 必须当失败处理。
+	if res.Status == http.StatusPartialContent {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		return res, 0, ErrPartial
 	}
 
 	// 边读边嗅探：先看开头 512 字节是不是图片，再决定要不要继续往下写。

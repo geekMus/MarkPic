@@ -2459,3 +2459,52 @@ HTML 错误页（于是去查图床配置），说「HTTP 302」听起来只差�
 `download` → 「共 5 个文件 · 下载 5 张远程图 · 没下载回来 15 张」+ 标题变成「没下载回来的远程地址」。
 界面（端口 17993，Playwright 复核）：`download` 页脚「5 个文件 · 20 张图 · 省下 1 张下载 · 下载 5 · 没下载回来 15」；
 `check` 页脚「5 个文件 · 20 张图 · 检测 20 个远程地址 · 其中失效 15」，行状态「已检测」。
+
+## 半张图（HTTP 206）被当成了下载成功
+
+这是我们自己在巡检时撞上的：服务器回 `206 Partial Content` + `Content-Length: 33`
+（半张 67 字节的 PNG），改之前的结果是
+
+```
+status=ok  localized=1   images/pic.png 33 字节   ![x](images/pic.png)
+```
+
+也就是说：用户拿到一篇「图片全坏」的文档，工具从头到尾没有一句提示。
+这个 bug 特别难自己发现 —— 状态码是 2xx、`Content-Type` 真是 `image/png`、
+字节数也大于 0，所有「看起来正常」的检查全都通过了。
+
+我们下载时**从不发 `Range`**，所以 206 只可能来自两处：图床配置坏了，或者中间有个
+代理把响应截了一段。无论哪种，拿到的那一份都不是整张图。
+
+改法（`internal/remoteimg/remoteimg.go`）：
+
+- 新增 `var ErrPartial = errors.New("server returned partial content")`；
+- `downloadAt` 在「超过大小上限」之后判 `res.Status == http.StatusPartialContent` →
+  `ErrPartial`（同时把响应体读掉 4 KB 好让连接能复用）；
+- `worthRetrying` 的「确定结论」分支加上 `ErrPartial`：对方每次都会给同样的一段，
+  重试只是白等 400 ms + 800 ms；
+- `probeAt` 里 HEAD 拿到 206 也直接 `ErrPartial` —— 检测模式必须认这个，
+  否则 `Result.OK()` 只看「2xx + 类型是图片」，会把半张图报成「地址有效」，
+  用户等下载时才发现（这里**不能**把 206 塞进 `Result.OK()`：`probeGet` 自己发了
+  `Range: bytes=0-511`，对它来说 206 恰恰是正常答复）；
+- `internal/conv/remote.go` 的 `remoteOutcome` / `remoteOutcomeDownload` 都加一支，
+  文案用新键 `KeyConvRemotePartial`：
+  「对方只给了一段内容（HTTP 206），不是整张图——多半是图床或中间代理把它截断了」。
+
+回归测试两条，都验证过是承重的（把 206 分支去掉就红）：
+
+- `TestDownloadRejectsPartialContent`：断言 `errors.Is(err, ErrPartial)`、目标里
+  **一个字节都没写**、请求只发了一次，并顺手断言下载请求不带 `Range` 头；
+- `TestProbeRejectsPartialContent`：断言检测侧同样报 `ErrPartial` 且不重试。
+
+真机（`%TEMP%\cmp-partialsrv.exe` 在 36702，`/partial.png` 回 206+33 字节、`/ok.png` 回正常图）：
+
+```
+check     → 远程图 2 张，失效 1 张；第 3 行「对方只给了一段内容（HTTP 206）…」；exit 1
+download  → 下载 1 张远程图，1 张地址已失效；images/ 里只有 ok.png（67 字节）；exit 1
+            输出里那处保持原 URL，没有半截文件
+```
+
+顺带说一句：这个 bug 和之前那个「0 字节算成功」是同一类 —— **判断一张图能不能用，
+不能只看状态码**。现在的判据是四条：状态码 2xx 且不是 206、正文不是空的、
+内容真的是图片、大小不超过 64 MB。
