@@ -118,7 +118,17 @@ const reason = computed(() => {
     return ''
   }
   if (result.status === 'cancelled' && props.aborted) return t('row.reason.aborted')
-  if (result.error) return result.error
+  if (result.error) {
+    // 「所有本地图片都处理失败」这种总括句不解释原因：图床没开的时候，行上只有
+    // 「失败」两个字，真正的原因（连不上 PicGo、服务没开）藏在逐图明细里，得展开
+    // 才看得见。一处都没成的时候，把第一张的真原因顶到行上来。
+    const nothingDone = (result.uploaded ?? 0) === 0 && (result.localized ?? 0) === 0
+    if (nothingDone) {
+      const first = (result.items ?? []).find((item) => item.status === 'failed' && item.error)
+      if (first?.error) return first.error
+    }
+    return result.error
+  }
   if (result.failed > 0) {
     // 「没下载回来」和「本地图片读不出来」是两回事：都写成「未处理」的话，
     // 用户不知道是去改文档里的地址，还是去看磁盘。
@@ -448,7 +458,7 @@ function replaced(status: ImageStatus): boolean {
       </span>
     </div>
 
-    <p v-if="reason" class="item__reason">{{ reason }}</p>
+    <p v-if="reason" class="item__reason" :title="reason">{{ reason }}</p>
 
     <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
       <span :style="indeterminate ? undefined : { width: percent + '%' }" />
