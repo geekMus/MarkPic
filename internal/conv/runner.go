@@ -3,6 +3,7 @@ package conv
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +31,14 @@ import (
 type Emit func(Event)
 
 type cacheEntry struct {
+	done chan struct{}
+	url  string
+	err  error
+}
+
+// contentEntry 是「同一份内容」的领头/跟随登记：领头的那个去上传，
+// 剩下的等它的结果，谁也不多发一遍。
+type contentEntry struct {
 	done chan struct{}
 	url  string
 	err  error
@@ -72,6 +81,14 @@ type Runner struct {
 	// uploads 是跨运行的上传结果缓存：同一张图上次已经传过就不再传一遍。
 	// 为 nil 或路径为空时等于关掉。
 	uploads *uploadcache.Cache
+
+	// contents 让**内容**一模一样的图也只传一次。路径去重接不住这种情况：
+	// 网页导出、截图工具常把同一张图存成 image-1.png、image-2.png 两个名字，
+	// 字节完全相同、路径不同 —— 按路径判定就是两次上传，白花一遍上行带宽
+	// （实测 8 份 1.5 MB 的同一张图，8 次 POST、12 MB 全发出去）。
+	// 键是大小 + sha256：大小不同的图连哈希都不用算。
+	contentMu sync.Mutex
+	contents  map[int64]map[string]*contentEntry
 
 	// scanMu/scanDocs 缓存预扫时解析出来的文档：正式处理每个文件时只要字节没变
 	// 就直接复用，省掉第二次解析（一篇文档扫两遍是白花的钱）。
@@ -242,15 +259,16 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 	remote := remoteimg.New(remoteimg.DefaultTimeout)
 	remote.SetConcurrency(conc)
 	return &Runner{
-		cfg:     cfg,
-		lang:    lang,
-		client:  picgo.New(cfg.Endpoint, cfg.Retries, 90*time.Second, lang),
-		runID:   runID,
-		emit:    emit,
-		sem:     make(chan struct{}, conc),
-		cache:   make(map[string]*cacheEntry),
-		usedOut: make(map[string]bool),
-		outPlan: make(map[string]string),
+		cfg:      cfg,
+		lang:     lang,
+		client:   picgo.New(cfg.Endpoint, cfg.Retries, 90*time.Second, lang),
+		runID:    runID,
+		emit:     emit,
+		sem:      make(chan struct{}, conc),
+		cache:    make(map[string]*cacheEntry),
+		usedOut:  make(map[string]bool),
+		contents: make(map[int64]map[string]*contentEntry),
+		outPlan:  make(map[string]string),
 
 		stamps:   make(map[string]stamp),
 		scanDocs: make(map[string]*mdscan.Document),
@@ -972,8 +990,44 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 		r.closeEntry(entry, "", ctx.Err())
 		return "", StatusCancelled, ctx.Err()
 	}
+
+	// 抢到并发额度之后再登记「这份内容有没有别人正在传」：大小 + sha256 一样的
+	// 图只发一份。登记排在额度之后，是为了让跟随者不必也占着额度傻等。
+	ce, leader, okContent := r.claimContent(absPath)
+	if okContent && !leader {
+		<-r.sem
+		select {
+		case <-ce.done:
+			if ce.err == nil && ce.url != "" {
+				r.closeEntry(entry, ce.url, nil)
+				// 内容相同、路径不同：这一张没有产生上行流量，按「这一轮去重」记账。
+				return ce.url, StatusReused, nil
+			}
+			// 领头那张没传成：把它的失败当成这一张的失败，不再重复敲一次门。
+			r.closeEntry(entry, "", ce.err)
+			if ctx.Err() != nil {
+				return "", StatusCancelled, ce.err
+			}
+			// 跟随者也得记一次失败：它这一处同样没换成地址。只让领头记账的话，
+			// 一批内容相同的图会把「连续失败」压成 1 次，图床整个挂掉时该提前
+			// 收工的那条判断就永远不会触发（实测 20 张全失败却没有任何终止原因）。
+			if picgo.IsRateLimited(ce.err) {
+				r.noteRateLimited()
+			} else {
+				r.noteUploadFailure()
+			}
+			return "", StatusFailed, ce.err
+		case <-ctx.Done():
+			r.closeEntry(entry, "", ctx.Err())
+			return "", StatusCancelled, ctx.Err()
+		}
+	}
+
 	url, err := r.client.Upload(ctx, absPath)
 	<-r.sem
+	if okContent && leader {
+		r.settleContent(ce, url, err)
+	}
 	r.closeEntry(entry, url, err)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -998,6 +1052,64 @@ func (r *Runner) upload(ctx context.Context, absPath string) (string, string, er
 func (r *Runner) closeEntry(e *cacheEntry, url string, err error) {
 	e.url, e.err = url, err
 	close(e.done)
+}
+
+// claimContent 在「同一份内容」的登记表上占位。leader 为真表示这一份由当前协程
+// 负责上传；否则拿到的是别人的登记，等它 done 即可。
+//
+// ok 为假表示这张图太小、读不出来，或者它的大小还是第一次见（大小不同的图不可能
+// 内容相同，连哈希都不用算）——那就照常自己传。
+func (r *Runner) claimContent(absPath string) (ce *contentEntry, leader bool, ok bool) {
+	size, hash, hashed := r.contentKey(absPath)
+	if !hashed {
+		return nil, false, false
+	}
+	r.contentMu.Lock()
+	defer r.contentMu.Unlock()
+	if r.contents == nil {
+		r.contents = make(map[int64]map[string]*contentEntry)
+	}
+	bucket, seen := r.contents[size]
+	if !seen {
+		bucket = make(map[string]*contentEntry)
+		r.contents[size] = bucket
+	}
+	if existing, hit := bucket[hash]; hit {
+		return existing, false, true
+	}
+	ce = &contentEntry{done: make(chan struct{})}
+	bucket[hash] = ce
+	return ce, true, true
+}
+
+func (r *Runner) settleContent(ce *contentEntry, url string, err error) {
+	if ce == nil {
+		return
+	}
+	ce.url, ce.err = url, err
+	close(ce.done)
+}
+
+// contentKey 给要上传的图算大小 + sha256。
+//
+// 这里每张图都会多读一遍（哈希），换的是「内容相同、路径不同」只传一次：
+// 读完到发出去之间还有一整趟 HTTPS 上传，本地这一次读基本被页缓存吃掉，
+// 而重复上传要花的是真实的上行带宽与时间。
+func (r *Runner) contentKey(absPath string) (size int64, hash string, ok bool) {
+	st, err := os.Stat(absPath)
+	if err != nil || st.IsDir() || st.Size() <= 0 {
+		return 0, "", false
+	}
+	f, ferr := os.Open(absPath)
+	if ferr != nil {
+		return 0, "", false
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, cerr := io.Copy(h, f); cerr != nil {
+		return 0, "", false
+	}
+	return st.Size(), fmt.Sprintf("%x", h.Sum(nil)), true
 }
 
 // warnIfOverwritesSource 在「输出位置其实就是源文件」时补一条提示。

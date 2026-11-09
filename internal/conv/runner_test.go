@@ -1,6 +1,7 @@
 package conv
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -1158,8 +1159,10 @@ func okUploadBody() []byte {
 // 用户看到的现象就是「跑完了，图还是裂的」。
 func TestSrcsetImagesAreAllConverted(t *testing.T) {
 	dir := t.TempDir()
+	// 三份内容故意写得不一样：内容一样的话，图床那边按内容去重会合并成同一个地址，
+	// 这条用例想验证的是「srcset 里每个候选都换成本地对应的那张」。
 	for _, name := range []string{"one.png", "wide.png", "narrow.png"} {
-		writeFile(t, filepath.Join(dir, "img", name), "x")
+		writeFile(t, filepath.Join(dir, "img", name), "bytes-of-"+name)
 	}
 	doc := filepath.Join(dir, "doc.md")
 	writeFile(t, doc, strings.Join([]string{
@@ -1230,4 +1233,78 @@ func TestTargetIsDirectoryExplainsItself(t *testing.T) {
 	if st, err := os.Stat(filepath.Join(dir, "a.converted.md")); err != nil || !st.IsDir() {
 		t.Fatalf("用户建的目录被动了：%v %v", st, err)
 	}
+}
+
+func TestUploadSendsIdenticalContentOnce(t *testing.T) {
+	// 同一张图被导出成好几个名字（网页导出、截图工具都爱这么干）：
+	// 字节完全相同、路径不同，按路径去重接不住，只能靠内容。
+	body := bytes.Repeat([]byte("png-ish bytes "), 8) // 112 字节
+	twin := append(append([]byte{}, body...), 'A')    // 同大小、内容不同
+	other := append(append([]byte{}, body...), 'B')
+
+	run := func(t *testing.T, concurrency int) ([]FileResult, Summary, map[string]int) {
+		t.Helper()
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, "one.png"), string(body))
+		writeFile(t, filepath.Join(dir, "two.png"), string(body))
+		writeFile(t, filepath.Join(dir, "twin.png"), string(twin))
+		writeFile(t, filepath.Join(dir, "other.png"), string(other))
+		writeFile(t, filepath.Join(dir, "doc.md"),
+			"![1](one.png)\n\n![2](two.png)\n\n![3](twin.png)\n\n![4](other.png)\n")
+
+		srv, hitCount := fakePicGo(t, nil)
+		cfg := baseCfg(srv.URL)
+		cfg.Concurrency = concurrency
+		results, sum := NewRunner(cfg, i18n.ZH, "run-content", nil).RunCollect(context.Background(),
+			[]string{filepath.Join(dir, "doc.md")})
+		return results, sum, hitCount()
+	}
+
+	t.Run("顺序处理", func(t *testing.T) {
+		results, sum, hits := run(t, 1)
+		total := 0
+		for _, n := range hits {
+			total += n
+		}
+		// one.png 与 two.png 内容相同 → 只传一次；twin / other 虽然大小一样但字节不同，
+		// 各传一次。合计 3 次上传（不是 4 次）。
+		if total != 3 {
+			t.Fatalf("图床收到 %d 次上传，want 3：%v", total, hits)
+		}
+		if hits["two.png"] != 0 {
+			t.Errorf("内容相同的 two.png 不该再传：%v", hits)
+		}
+		// Uploaded 数的是「这一处引用替换成功」，不是「发了几个请求」：四处引用
+		// 都换成了地址，所以是 4；请求只发了 3 个，看上面的 hits。
+		if sum.Uploaded != 4 {
+			t.Errorf("uploaded = %d, want 4：%+v", sum.Uploaded, sum)
+		}
+		if results[0].Reused != 1 {
+			t.Errorf("这一篇里按内容复用 1 处，实际 %d：%+v", results[0].Reused, results[0])
+		}
+		items := results[0].Items
+		if len(items) != 4 {
+			t.Fatalf("items = %d", len(items))
+		}
+		if items[0].URL != items[1].URL {
+			t.Errorf("内容相同的两张图该拿到同一个地址：%q vs %q", items[0].URL, items[1].URL)
+		}
+		if items[2].URL == items[0].URL || items[3].URL == items[0].URL {
+			t.Errorf("同大小但内容不同的图不该被合并：%+v", items)
+		}
+	})
+
+	t.Run("并发处理", func(t *testing.T) {
+		_, sum, hits := run(t, 8)
+		total := 0
+		for _, n := range hits {
+			total += n
+		}
+		if total != 3 {
+			t.Fatalf("并发下上传 %d 次，want 3：%v", total, hits)
+		}
+		if sum.Uploaded != 4 {
+			t.Errorf("uploaded = %d, want 4", sum.Uploaded)
+		}
+	})
 }
