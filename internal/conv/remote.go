@@ -186,6 +186,18 @@ func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (statu
 	}
 
 	// 领头的那一个：真的去做。
+	//
+	// 这里也要抢 r.sem：上传走的是全局并发闸门，远程下载以前只受「每个文件几个 worker」
+	// 限制 —— 50 篇文档 × 16 并发就是 800 个同时在飞的请求，图床只会回 429 或者干脆封 IP。
+	// 只让领头者抢，等结果的那些协程（上面的 rf.done 分支）不占额度，所以不会自锁。
+	select {
+	case r.sem <- struct{}{}:
+	case <-ctx.Done():
+		r.finishRemote(rf, remoteFile{status: StatusCancelled, msg: ctx.Err().Error()})
+		return StatusCancelled, "", ctx.Err().Error()
+	}
+	defer func() { <-r.sem }()
+
 	switch r.remoteMode() {
 	case settings.RemoteCheck:
 		res, err := r.remote.Probe(ctx, rawURL)

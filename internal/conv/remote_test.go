@@ -634,10 +634,14 @@ func TestRemoteCopyToOtherDirReplacesWrongSameSizeFile(t *testing.T) {
 		t.Fatalf("准备阶段不对，b/images/pic.png 应该是第二张图")
 	}
 
-	// 第二轮：b 改成引用 x/pic.png，a 也引用它。b 走「复制别人下好的那份」这条路。
-	writeFile(t, docB, "![x]("+host.URL+"/x/pic.png)\n")
+	// 第二轮：a 和 b 一起跑，b 走「复制别人下好的那份」这条路。
+	//
+	// 并发必须是 1：谁先碰到这个地址决定谁是领头者，并发跑就测不到「复制」那条路
+	// （b 可能自己当领头者，直接下成 pic-2.png，那测的是另一件事）。
+	writeFile(t, docB, "![x]("+host.URL+"/x/pic.png"+")\n")
 	docA := filepath.Join(dirA, "a.md")
-	writeFile(t, docA, "![x]("+host.URL+"/x/pic.png)\n")
+	writeFile(t, docA, "![x]("+host.URL+"/x/pic.png"+")\n")
+	cfg.Concurrency = 1
 	NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docA, docB})
 
 	got, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
