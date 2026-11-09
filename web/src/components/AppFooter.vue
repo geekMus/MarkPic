@@ -66,10 +66,17 @@ const parts = computed<Part[]>(() => {
       ? { text: t('footer.images', { count: stats.images }), tone: 'plain' }
       : { text: t('footer.noImages'), tone: 'plain' },
   )
+  // 只碰远程图的两种模式里「替换 0」永远是零，跑起来时也是句废话：
+  // 那两个模式一个字节都不上传，版面留给下载/检测那几个数。
+  const remoteMode = props.remoteMode ?? 'ignore'
+  const remoteOnly =
+    remoteMode !== 'ignore' ||
+    (settled.value &&
+      (stats.localized > 0 ||
+        stats.remoteChecked > 0 ||
+        stats.filesChecked > 0 ||
+        stats.remoteKept > 0))
   if (settled.value) {
-    // 只碰远程图的两种模式里「替换 0」是句废话，把版面让给下载/检测那几个数。
-    const remoteOnly =
-      stats.localized > 0 || stats.remoteChecked > 0 || stats.filesChecked > 0 || stats.remoteKept > 0
     if (stats.uploaded > 0 || !remoteOnly) {
       list.push({ text: t('footer.uploaded', { count: stats.uploaded }), tone: 'plain' })
     }
