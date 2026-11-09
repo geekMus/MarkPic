@@ -784,6 +784,75 @@ func TestRemoteCopyDoesNotClobberAnotherDocsImage(t *testing.T) {
 	}
 }
 
+// 循环跳转在报告里必须说人话：报「返回的不是图片（text/html）」会让人以为
+// 图床给了个错误页，报「HTTP 302」听起来只差一步，实际是地址自己在打转。
+func TestRemoteRedirectLoopSaysWhatItIs(t *testing.T) {
+	dir := t.TempDir()
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/loop.png", http.StatusFound)
+	}))
+	defer host.Close()
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![打转]("+host.URL+"/loop.png)\n")
+
+	// 检测模式
+	check := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteCheck), i18n.ZH, "run1", nil)
+	results, _ := check.RunCollect(context.Background(), []string{doc})
+	if results[0].Dead != 1 {
+		t.Fatalf("循环跳转应该算失效: %+v", results[0])
+	}
+	msg := results[0].Items[0].Error
+	if !strings.Contains(msg, "反复跳转") {
+		t.Fatalf("应该说清楚是在反复跳转，实际是: %s", msg)
+	}
+	if strings.Contains(msg, "不是图片") || strings.Contains(msg, "302") {
+		t.Fatalf("不该把它说成类型问题或者只差一步: %s", msg)
+	}
+
+	// 下载模式：同样是这个结论，不是「下载失败：HTTP 302」
+	dl := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteDownload), i18n.ZH, "run2", nil)
+	res2, _ := dl.RunCollect(context.Background(), []string{doc})
+	if res2[0].Dead != 1 || res2[0].Localized != 0 {
+		t.Fatalf("下载模式也该算失效、不该落盘: %+v", res2[0])
+	}
+	if m := res2[0].Items[0].Error; !strings.Contains(m, "反复跳转") {
+		t.Fatalf("下载模式也该说「反复跳转」，实际是: %s", m)
+	}
+}
+
+// 下载模式里有几张地址已经失效时，这一篇不能报「完成」。
+//
+// 失效的远程图没有被本地化，链接还是原来那个断掉的地址 —— 文件写出来了，
+// 但不是全须全尾。报「完成」会让人以为这一篇已经收拾干净了。
+func TestRemoteDownloadWithDeadLinksIsPartial(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![好]("+host.URL+"/ok.png)\n\n![坏]("+host.URL+"/broken.png)\n")
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Localized != 1 || res.Dead != 1 {
+		t.Fatalf("应该下载 1 张、失效 1 张: %+v", res)
+	}
+	if res.Status != FilePartial {
+		t.Fatalf("有失效的地址就不该报完成，实际状态 %q", res.Status)
+	}
+	if sum.Partial != 1 || sum.OK != 0 {
+		t.Fatalf("汇总也该算部分: ok=%d partial=%d", sum.OK, sum.Partial)
+	}
+	// 坏的那处保持原样，好的那处改成本地路径。
+	out, _ := os.ReadFile(res.OutputPath)
+	if !strings.Contains(string(out), "(images/ok.png)") || !strings.Contains(string(out), host.URL+"/broken.png") {
+		t.Fatalf("输出不对:\n%s", out)
+	}
+}
+
 // 下载回来的图沿用远程地址的文件名，那里面完全可能有空格（`/4%20x.png` → `4 x.png`）。
 // CommonMark 的地址遇到空格就结束：不包尖括号的话 `![a](images/4 x.png)` 在渲染器眼里是
 // 「地址 images/4 + 一个不合法的标题」，图直接不显示 —— 我们自己写出去的链接得能用。

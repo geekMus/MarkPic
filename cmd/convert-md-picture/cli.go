@@ -59,9 +59,10 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	if sum.Failed > 0 || sum.FailedImages > 0 {
 		return 1
 	}
-	// 只检测模式里「失效的远程地址」就是这一轮要找的东西：一个永远退 0 的检查器
-	// 在脚本里没有用（`convert-md-picture --remote check docs/ || echo 有死链`）。
-	if cfg.Remote == settings.RemoteCheck && sum.RemoteDead > 0 {
+	// 「失效的远程地址」在两种模式里都是坏消息：只检测时它就是这一轮要找的东西
+	// （一个永远退 0 的检查器在脚本里没有用），下载时它意味着文档里还留着断链。
+	// `convert-md-picture --remote check docs/ || echo 有死链` 该能察觉。
+	if cfg.Remote != settings.RemoteIgnore && sum.RemoteDead > 0 {
 		return 1
 	}
 	// 一个文件都没处理（路径全都不存在、通配符没匹配到、目录里没有 Markdown）：
@@ -166,6 +167,14 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		// 「部分」有两种来源：上传/下载失败的，以及检测出来失效的远程图。
 		if r.Uploaded == 0 && r.Localized == 0 {
 			return fmt.Sprintf("  [部分]  %s  %s", name, checkDesc(r))
+		}
+		// 两种损失要分开说：Failed 是这次没能处理（还能再试），Dead 是地址本来
+		// 就坏了（重跑也没用）。混成一句「0 张失败」会让人以为已经收拾干净了。
+		switch {
+		case r.Failed > 0 && r.Dead > 0:
+			return fmt.Sprintf("  [部分]  %s  %s，%d 张失败、%d 张地址已失效  → %s", name, changedDesc(r), r.Failed, r.Dead, shorten(r.OutputPath))
+		case r.Dead > 0:
+			return fmt.Sprintf("  [部分]  %s  %s，%d 张地址已失效  → %s", name, changedDesc(r), r.Dead, shorten(r.OutputPath))
 		}
 		return fmt.Sprintf("  [部分]  %s  %s，%d 张失败  → %s", name, changedDesc(r), r.Failed, shorten(r.OutputPath))
 	case conv.FileNoImages:

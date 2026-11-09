@@ -571,3 +571,59 @@ func TestNotImageCarriesTheActualType(t *testing.T) {
 		t.Fatalf("Kind 应该带上实际类型，拿到 %q", notImage.Kind)
 	}
 }
+
+// 图床把自己重定向到自己（或者 http 与 https 互相弹）时，不能报成
+// 「返回的不是图片」或者「HTTP 302」—— 前者让人以为图床给了 HTML，后者听起来
+// 只差一步。这两种说法都会把人引到错误的方向上。
+func TestRedirectLoopIsItsOwnError(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.Redirect(w, r, "/loop.png", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	_, err := c.Probe(context.Background(), srv.URL+"/loop.png")
+	if !errors.Is(err, ErrRedirectLoop) {
+		t.Fatalf("循环跳转应该报 ErrRedirectLoop，拿到 %v", err)
+	}
+	// 跳 8 次就放弃，别把「跳转上限」当成无限重试。
+	if n := atomic.LoadInt32(&hits); n > 12 {
+		t.Fatalf("不该反复跳，实际请求 %d 次", n)
+	}
+
+	var buf bytes.Buffer
+	if _, derr := c.DownloadTo(context.Background(), srv.URL+"/loop.png", &buf, 0); !errors.Is(derr, ErrRedirectLoop) {
+		t.Fatalf("下载这条路也该报 ErrRedirectLoop，拿到 %v", derr)
+	}
+}
+
+// 跳两次就落到图上的地址是正常的，别把「跳转」本身当成问题。
+func TestRedirectToImageStillWorks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/moved.png" {
+			http.Redirect(w, r, "/ok.png", http.StatusFound)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	res, err := c.Probe(context.Background(), srv.URL+"/moved.png")
+	if err != nil {
+		t.Fatalf("跟随跳转后是图片，不该报错: %v", err)
+	}
+	if !res.OK() {
+		t.Fatalf("跟随跳转后应该算有效: %+v", res)
+	}
+	var buf bytes.Buffer
+	if _, derr := c.DownloadTo(context.Background(), srv.URL+"/moved.png", &buf, 0); derr != nil {
+		t.Fatalf("下载也应该跟过去: %v", derr)
+	}
+	if !bytes.Equal(buf.Bytes(), tinyPNG) {
+		t.Fatalf("下载到的内容不对，%d 字节", buf.Len())
+	}
+}

@@ -75,6 +75,7 @@ const (
 	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
 	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
 	KeyConvRemoteNamingFailed Key = "conv.remoteNamingFailed"
+	KeyConvRemoteRedirectLoop Key = "conv.remoteRedirectLoop"
 
 	KeyUpdateBadURL           Key = "update.badURL"
 	KeyUpdateConnectFailed    Key = "update.connectFailed"
@@ -308,6 +309,10 @@ var catalog = map[Key]entry{
 	KeyConvRemoteDownloadFail: {
 		"下载失败：%v",
 		"Download failed: %v",
+	},
+	KeyConvRemoteRedirectLoop: {
+		"这个地址在反复跳转，跳了 8 次也没落到一张图上（图床把自己重定向到自己，或者 http 与 https 互相弹）",
+		"That address keeps redirecting: eight hops later it still is not an image (the host redirects to itself, or bounces between http and https)",
 	},
 	KeyConvRemoteNamingFailed: {
 		"没能给这张远程图片起个本地文件名：%v",

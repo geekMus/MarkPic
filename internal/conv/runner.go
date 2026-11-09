@@ -765,7 +765,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 
 	res.OutputPath = target
-	if res.Failed == 0 {
+	// Dead 是「远程地址本来就打不开」：那种图没能本地化，链接还是原来那个
+	// 断掉的地址。文件写出来了，但不是全须全尾 —— 说「完成」会让人以为
+	// 这一篇已经收拾干净了，下次再看才发现还有几张是坏的。
+	if res.Failed == 0 && res.Dead == 0 {
 		res.Status = FileOK
 	} else {
 		res.Status = FilePartial

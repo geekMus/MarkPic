@@ -204,6 +204,10 @@ func worthRetrying(res Result, err error) bool {
 		if errors.Is(err, ErrNotImage) || errors.Is(err, ErrEmpty) || errors.Is(err, ErrTooLarge) {
 			return false
 		}
+		// 循环跳转不会自己好，再走一圈还是那一圈。
+		if errors.Is(err, ErrRedirectLoop) {
+			return false
+		}
 		// 域名解析不出来是「确定没有这个站」，再问一遍也是一样的结果。
 		// 这一条很要紧：一篇文章里几十条死链时，每条都白等 400ms 会让检查器慢到没人用
 		// （实测 200 条死链从 15.2 秒降到 1.4 秒）。
@@ -261,6 +265,11 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 		// 连不上（DNS/超时/重置）：GET 也是同样的结局，不值得再等一次。
 		return res, err
 	}
+	// 跳了 8 次还在跳：这不是「内容不是图片」，是地址本身有问题（图床把自己
+	// 重定向到自己、http 与 https 互相弹）。再 GET 一遍也是同样一圈。
+	if isRedirect(res.Status) {
+		return res, ErrRedirectLoop
+	}
 	// HEAD 没带正文，嗅探不了类型。所以「状态码成功但类型不是图片（或压根没给）」
 	// 也得用 GET 看一眼前 512 字节 —— 否则 application/octet-stream 的图床
 	// 会被整片误判成坏的。
@@ -268,6 +277,19 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 		return res, nil
 	}
 	return c.probeGet(ctx, rawURL)
+}
+
+// ErrRedirectLoop 表示这个地址跳来跳去，跳满了上限也没落到一张图上。
+//
+// 它必须和「不是图片」「HTTP 302」区分开：前者会让人以为图床返回了 HTML，
+// 后者听起来像是「只差一步」。真实原因通常是图床把自己重定向到自己，
+// 或者 http/https 之间来回弹 —— 用户要改的是那个地址，不是重试。
+var ErrRedirectLoop = errors.New("too many redirects")
+
+// isRedirect 判断状态码是不是「还有下文」的 3xx。
+// 走到这里说明 CheckRedirect 已经放弃了（跳了 8 次还没到地方）。
+func isRedirect(status int) bool {
+	return status >= 300 && status <= 399
 }
 
 // isDefinitelyGone 判断这个状态码是不是「确定的没了」。
@@ -459,6 +481,19 @@ type statusError struct{ Status int }
 
 func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d", e.Status) }
 
+// StatusCode 取出失败响应里的 HTTP 状态码（没有就是 0, false）。
+//
+// 上层要区分「地址没了」（404/410）和「对方这会儿不行」（5xx）：前者重跑一万次
+// 也是这个结果，后者值得下次再试。把这两种都叫「下载失败」会让人以为再点一次
+// 就能好。
+func StatusCode(err error) (int, bool) {
+	var serr *statusError
+	if errors.As(err, &serr) {
+		return serr.Status, true
+	}
+	return 0, false
+}
+
 // writeError 标记「错在往本地写」，不是对方的问题：重试没有意义。
 type writeError struct{ err error }
 
@@ -510,6 +545,10 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	}
 	if res.Status < 200 || res.Status > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
+		if isRedirect(res.Status) {
+			// 报「HTTP 302」会让人以为只差一步，其实这一圈永远走不完。
+			return res, 0, ErrRedirectLoop
+		}
 		return res, 0, &statusError{Status: res.Status}
 	}
 	if res.Size > maxBytes {

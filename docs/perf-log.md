@@ -2365,3 +2365,37 @@ hash `CAE90068` / `D9E5D4FC`）：
 `pic.png` 保持原样、新图落在 \pic-2.png\。另加
 \TestRemoteCopyDoesNotClobberAnotherDocsImage\ 覆盖上面那个真实场景
 （跨目录、并发 1、a.md 排前面保证 b 走复制路径）。
+
+## 边界情况的一轮巡检：重定向打转、把坏图说成完成
+
+拿一台自己写的图床（`%TEMP%\cmp-edgesrv.exe`，10 种刻意做坏/做怪的响应）把远程图
+两条路都过了一遍。大部分行为是对的（跟随跳转、gzip、分块传输、HEAD 405 退化、
+没有 Content-Type 靠嗅探、`application/octet-stream` 里其实是 PNG、`Cache-Control:
+no-store`），但有两个说法是错的：
+
+| 服务器回什么 | 改之前 | 改之后 |
+| --- | --- | --- |
+| 302 跳到自己（跳满 8 次） | 检测：「返回的不是图片（text/html）」<br>下载：「下载失败：HTTP 302」 | 两边都：「这个地址在反复跳转，跳了 8 次也没落到一张图上」 |
+| 200 但只有一部分图能下（8 好 2 死） | 文件状态「完成」、命令行「0 张失败」 | 「部分」+「2 张地址已失效」，退出码 1 |
+
+第一条的毛病在于两种说法都把人引到错的地方：说「不是图片」会让人以为图床给了个
+HTML 错误页（于是去查图床配置），说「HTTP 302」听起来只差一步（于是反复重试）。
+真实原因是那个地址本身在打转 —— 图床把自己重定向到自己，或者 http 与 https 互相弹。
+现在 `remoteimg` 多了一个 `ErrRedirectLoop`，检测和下载两条路都用它，`worthRetrying`
+也明确不为它重试（再走一圈还是那一圈）。
+
+第二条更隐蔽：`res.Status` 在文件写出来之后只看 `res.Failed`，而**失效的远程地址
+走的是 `Dead` 不是 `Failed`**（它们不是「这次没下成」，是「地址本来就坏了」）。
+于是一篇 10 张图里 2 张死链的文档会被报成「完成」，命令行那行更离谱：
+「下载 8 张远程图，**0 张失败**」。现在 `Dead > 0` 也算 `FilePartial`，命令行分开说
+「N 张失败、N 张地址已失效」，并且下载模式发现死链也返回退出码 1。
+
+顺带统一了一处说法：下载模式碰到 404/410 原来报「下载失败：HTTP 404」（听起来像
+临时故障，值得再点一次），现在跟检测模式一样报「远程图片已经打不开了（HTTP 404）」。
+新增 `remoteimg.StatusCode(err)` 让上层能分辨「地址没了」和「对方这会儿不行」。
+
+回归：`internal/remoteimg/remoteimg_test.go` 的 `TestRedirectLoopIsItsOwnError`、
+`TestRedirectToImageStillWorks`（跳两次落到图上的地址不受影响），
+`internal/conv/remote_test.go` 的 `TestRemoteRedirectLoopSaysWhatItIs`
+（中英两套文案都验，且不允许出现「不是图片」「302」）、
+`TestRemoteDownloadWithDeadLinksIsPartial`。

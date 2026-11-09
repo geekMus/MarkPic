@@ -235,6 +235,10 @@ func remoteOutcome(res remoteimg.Result, err error, lang i18n.Lang) remoteFile {
 		if errors.Is(err, context.Canceled) {
 			return remoteFile{status: StatusCancelled}
 		}
+		// 循环跳转不是「连不上」，也不是「不是图片」：地址本身要改，重试没用。
+		if errors.Is(err, remoteimg.ErrRedirectLoop) {
+			return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteRedirectLoop)}
+		}
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteUnreachable), err)}
 	case res.OK():
 		return remoteFile{status: StatusRemoteOK}
@@ -275,6 +279,14 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 	}
 	if errors.Is(err, remoteimg.ErrEmpty) {
 		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteEmpty)}
+	}
+	if errors.Is(err, remoteimg.ErrRedirectLoop) {
+		return remoteFile{status: StatusRemoteBad, msg: i18n.T(lang, i18n.KeyConvRemoteRedirectLoop)}
+	}
+	// 404/410 是「这张图没了」，不是「这次没下成」：跟检测模式一个说法，
+	// 别让同一件事在两个模式下有两个名字。5xx 重试完还是 5xx 才算失败。
+	if code, ok := remoteimg.StatusCode(err); ok && (code == 404 || code == 410) {
+		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDead), code)}
 	}
 	return remoteFile{status: StatusFailed, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDownloadFail), err)}
 }
