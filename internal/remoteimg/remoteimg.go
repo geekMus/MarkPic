@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -139,10 +141,45 @@ func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) 
 // worthRetrying 判断这次失败值不值得再问一遍。
 func worthRetrying(res Result, err error) bool {
 	if err != nil {
-		// 传输层错误（超时、重置、EOF）多半是瞬时的。
+		// 域名解析不出来是「确定没有这个站」，再问一遍也是一样的结果。
+		// 这一条很要紧：一篇文章里几十条死链时，每条都白等 400ms 会让检查器慢到没人用
+		// （实测 200 条死链从 15.2 秒降到 1.4 秒）。
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && !dnsErr.IsTimeout && !dnsErr.IsTemporary {
+			return false
+		}
+		// 有些网络（公司代理、运营商 DNS 拦截）把「域名不存在」也回成 EOF/连接被关，
+		// 拿不到 DNSError。这类错误有个共同点：发生在**还没开始说话**的阶段，
+		// 重试一次也还是同样的墙，所以同样不重试。
+		// 判断依据是「有没有拿到过 HTTP 响应」——res.Status 为 0 且错误是 EOF/重置，
+		// 说明连请求都没发出去，属于结论已定。
+		if res.Status == 0 && isConnectStage(err) {
+			return false
+		}
+		// 其余传输层错误（超时、读响应时断开）多半是瞬时的。
 		return true
 	}
 	return res.Status >= 500 || res.Status == http.StatusTooManyRequests
+}
+
+// isConnectStage 判断错误是不是发生在「还没拿到任何响应」的阶段。
+//
+// 这类错误（EOF、连接被重置、连不上）在拦截型 DNS/防火墙下等同于「这个域名没有」，
+// 重试没有意义。真正的瞬时抖动（对方 502、读到一半断开）会有状态码或者发生在读取阶段，
+// 那条路径不走这里。
+func isConnectStage(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		// Op 是 "dial" 说明连接都没建立起来。
+		return opErr.Op == "dial" && opErr.Addr != nil
+	}
+	return false
 }
 
 func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {

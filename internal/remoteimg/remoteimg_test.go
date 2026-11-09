@@ -5,10 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -362,5 +365,55 @@ func TestProbeDoesNotRetryDefiniteMisses(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("404 不该重试，实际请求 %d 次", count)
+	}
+}
+
+// 域名解析不出来是确定结论，不该再等一次重试。
+// 一篇文档里几十条死链时，这条决定了检查器还能不能用。
+//
+// 用自己造的 Transport 直接数「拨号了几次」，不靠墙钟计时：
+// 本机的 DNS 失败本身就要几百毫秒，用耗时判断会随机器抖动而假失败。
+func TestProbeDoesNotRetryUnresolvableHost(t *testing.T) {
+	var dials int32
+	c := New(2 * time.Second)
+	c.http.Transport = &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			atomic.AddInt32(&dials, 1)
+			// 和拦截型 DNS 一样的表现：连接阶段就 EOF，拿不到 DNSError。
+			return nil, io.EOF
+		},
+	}
+
+	if _, err := c.Probe(context.Background(), "https://nothing-here.invalid/x.png"); err == nil {
+		t.Fatal("连不上应该报错")
+	}
+	if n := atomic.LoadInt32(&dials); n != 1 {
+		t.Fatalf("连接阶段的失败不该重试，但拨号了 %d 次", n)
+	}
+}
+
+// 对方 502 这种「说了话才失败」的仍然要重试一次。
+func TestProbeStillRetriesServerErrors(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := New(2 * time.Second)
+	res, err := c.Probe(context.Background(), srv.URL+"/x.png")
+	if err != nil {
+		t.Fatalf("重试之后应该成功：%v", err)
+	}
+	if !res.OK() {
+		t.Fatalf("重试之后应该判定为可用：%+v", res)
+	}
+	if n := atomic.LoadInt32(&hits); n != 2 {
+		t.Fatalf("502 应该重试一次，实际请求 %d 次", n)
 	}
 }
