@@ -706,6 +706,12 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			text = "(" + wrapURL(text) + ")"
 		case ref.Kind == mdscan.KindHTML && ref.Quote == '<':
 			text = "<" + text + ">"
+		case ref.Kind == mdscan.KindMarkdown:
+			// 下载回来的图沿用远程地址的文件名，那里面完全可能有空格
+			// （`/img/4%20x.png` → `images/4 x.png`）。CommonMark 的地址遇到空格就结束，
+			// 不包尖括号的话 `![a](images/4 x.png)` 在渲染器眼里是「地址 images/4
+			// + 一个不合法的标题」，图片直接不显示 —— 我们自己写出去的链接得是能用的。
+			text = wrapURL(text)
 		}
 		repls = append(repls, mdscan.Repl{Start: ref.URLStart, End: ref.URLEnd, Text: text})
 	}

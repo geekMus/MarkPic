@@ -652,3 +652,29 @@ func TestRemoteCopyToOtherDirReplacesWrongSameSizeFile(t *testing.T) {
 		t.Fatal("b 目录里还是那张旧图：同名同大小时被当成了「已经搬过」")
 	}
 }
+
+// 下载回来的图沿用远程地址的文件名，那里面完全可能有空格（`/4%20x.png` → `4 x.png`）。
+// CommonMark 的地址遇到空格就结束：不包尖括号的话 `![a](images/4 x.png)` 在渲染器眼里是
+// 「地址 images/4 + 一个不合法的标题」，图直接不显示 —— 我们自己写出去的链接得能用。
+func TestRemoteDownloadWrapsSpacedLinkInAngleBrackets(t *testing.T) {
+	dir := t.TempDir()
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer host.Close()
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![空格]("+host.URL+"/4%20x.png)\n")
+	NewRunner(cfg, i18n.ZH, "run", nil).RunCollect(context.Background(), []string{doc})
+
+	out, _ := os.ReadFile(filepath.Join(dir, "a.converted.md"))
+	got := string(out)
+	if !strings.Contains(got, "![空格](<images/4 x.png>)") {
+		t.Fatalf("带空格的链接要包尖括号，实际是: %s", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "images", "4 x.png")); err != nil {
+		t.Fatalf("图没落盘: %v", err)
+	}
+}
