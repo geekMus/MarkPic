@@ -62,6 +62,7 @@ const (
 	KeyConvEndpointBusy       Key = "conv.endpointBusy"
 	KeyConvWriteReadOnly      Key = "conv.writeReadOnly"
 	KeyConvWriteLocked        Key = "conv.writeLocked"
+	KeyConvTargetIsDir        Key = "conv.targetIsDir"
 	KeyConvReadLocked         Key = "conv.readLocked"
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
@@ -266,6 +267,10 @@ var catalog = map[Key]entry{
 	KeyConvWriteLocked: {
 		"写不进去：文件正被别的程序占用，或者没有权限：%s（关掉占用它的程序再试）",
 		"Could not write: the file is in use by another program, or you lack permission: %s (close whatever is using it and try again)",
+	},
+	KeyConvTargetIsDir: {
+		"输出位置被一个同名目录占着：%s（挪走那个目录，或换个输出位置）",
+		"The output path is taken by a folder of the same name: %s (move that folder away or write somewhere else)",
 	},
 	KeyConvReadLocked: {
 		"读不出来：文件正被别的程序占用，或者没有读取权限：%s（关掉占用它的程序再试）",

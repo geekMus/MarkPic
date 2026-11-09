@@ -774,6 +774,8 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteReadOnly, target)
 		case errors.Is(werr, errTargetLocked):
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteLocked, target)
+		case errors.Is(werr, errTargetIsDir):
+			res.Error = i18n.T(r.lang, i18n.KeyConvTargetIsDir, target)
 		default:
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteFailed, werr)
 		}
@@ -1018,6 +1020,11 @@ func backupFile(path string) error {
 // 目标已存在时必须走临时文件 + 改名：中途失败不能把原文件写坏——原地替换
 // 模式下那个「原文件」就是用户的源文档，这一步不能省。
 func writeOutput(path string, data []byte) error {
+	// 目标位置上蹲着一个同名**目录**时，系统给的话是「open …: is a directory」，
+	// 用户看不懂也不知道该动哪个东西（他甚至可能是自己建的目录）。
+	if st, serr := os.Stat(path); serr == nil && st.IsDir() {
+		return fmt.Errorf("%w: %s", errTargetIsDir, path)
+	}
 	err := createExclusive(path, data)
 	switch {
 	case err == nil:
@@ -1116,6 +1123,10 @@ var errTargetReadOnly = errors.New("target file is read-only")
 
 // errTargetLocked 表示目标文件被别的程序占着（或没有权限），写不进去。
 var errTargetLocked = errors.New("target file is locked")
+
+// errTargetIsDir 表示目标路径上蹲着一个同名目录。
+// 调用方用它换成一句人话（见 processFile）。
+var errTargetIsDir = errors.New("target path is a directory")
 
 // wrapURL 在地址里含有空格或括号时把它包进尖括号，
 // 否则 ![a](x y.png) 这种写法会被解析成「地址 + 标题」。

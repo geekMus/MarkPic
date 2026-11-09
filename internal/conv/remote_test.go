@@ -1075,3 +1075,94 @@ func TestRemoteDownloadCountsUniqueFiles(t *testing.T) {
 		t.Fatalf("三处该指向同一个文件，实际 %v", links)
 	}
 }
+
+// 目标文件名被一个**目录**占着时（用户自己建了 images/ok.png/ 这种目录），
+// 往上面改名只会得到 `Access is denied` —— 用户看到一句 Go 原话，还以为是我们的 bug。
+// 目录不可能是一张图，直接换下一个候选名。
+func TestRemoteDownloadSkipsDirectoryInTheWay(t *testing.T) {
+	for _, reuse := range []bool{true, false} {
+		name := "缓存开着"
+		if !reuse {
+			name = "缓存关着"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			host, _ := fakeImageHost(t)
+			doc := filepath.Join(dir, "doc.md")
+			writeFile(t, doc, "![x]("+host.URL+"/ok.png)\n")
+
+			// 占住 images/ok.png 这个名字。
+			if err := os.MkdirAll(filepath.Join(dir, "images", "ok.png"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+			cfg.ReuseUploads = reuse
+			r := NewRunner(cfg, i18n.ZH, "run", nil)
+			results, sum := r.RunCollect(context.Background(), []string{doc})
+
+			res := results[0]
+			if res.Status != FileOK {
+				t.Fatalf("状态应该是 ok，实际 %q（错误：%s，明细：%+v）", res.Status, res.Error, res.Items)
+			}
+			if sum.Localized != 1 {
+				t.Fatalf("应该下载 1 张，实际 %d", sum.Localized)
+			}
+			for _, it := range res.Items {
+				if strings.Contains(it.Error, "Access is denied") || strings.Contains(it.Error, "rename ") {
+					t.Fatalf("不该把系统原话抛给用户：%s", it.Error)
+				}
+			}
+			out, err := os.ReadFile(res.OutputPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(out), "images/ok-2.png") {
+				t.Fatalf("该改用 ok-2.png：\n%s", string(out))
+			}
+			body, err := os.ReadFile(filepath.Join(dir, "images", "ok-2.png"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(body, pngBytes) {
+				t.Fatal("ok-2.png 的内容不对")
+			}
+			// 那个目录必须原样留着：那是用户自己的东西。
+			if st, err := os.Stat(filepath.Join(dir, "images", "ok.png")); err != nil || !st.IsDir() {
+				t.Fatalf("用户建的目录被动了：%v %v", st, err)
+			}
+		})
+	}
+}
+
+// 挡路的那个文件不一定就是 --remote-dir 指的位置本身：`blocker/images` 里
+// blocker 是文件时，系统报的是 blocker 这个中间层的错，而文案若只说 images，
+// 用户会去找一个根本不存在的目录。
+func TestRemoteDirNamesTheRealBlocker(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	blocker := filepath.Join(dir, "blocker")
+	writeFile(t, blocker, "not a directory")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![p]("+host.URL+"/ok.png)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:1", settings.RemoteDownload)
+	cfg.RemoteDir = "blocker/images"
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	if results[0].Failed != 1 {
+		t.Fatalf("应该报一处失败: %+v", results[0])
+	}
+	msg := results[0].Items[0].Error
+	if !strings.Contains(msg, blocker) {
+		t.Fatalf("文案该指名真正挡路的那个文件 %q，实际 %q", blocker, msg)
+	}
+	// 别把「images」这个并不存在的目录说成是罪魁。
+	if strings.Contains(msg, filepath.Join("blocker", "images")) {
+		t.Fatalf("不该把不存在的目录说成挡路的那个: %q", msg)
+	}
+	if strings.Contains(msg, "mkdir ") || strings.Contains(msg, "cannot find the path") {
+		t.Fatalf("不该把系统原话抛给用户: %q", msg)
+	}
+}

@@ -334,8 +334,12 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		// 最常见的原因不是权限，而是那儿已经有一个同名文件（「mkdir …: The system
 		// cannot find the path specified」这种系统原话谁也看不懂）。
-		if st, serr := os.Stat(dir); serr == nil && !st.IsDir() {
-			return "", 0, "", errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, dir))
+		//
+		// 挡路的那个文件不一定就是 dir 本身：`--remote-dir blocker/images` 里
+		// blocker 是个文件时，系统报的是 blocker 这个**中间层**的错，只说 dir
+		// 会让人去找一个不存在的目录。所以要往上找到真正挡路的那个。
+		if blocker, ok := firstFileInPath(dir); ok {
+			return "", 0, "", errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, blocker))
 		}
 		return "", 0, "", err
 	}
@@ -424,6 +428,9 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 		return r.relFor(docDir, dst), nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		if blocker, ok := firstFileInPath(dir); ok {
+			return "", errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, blocker))
+		}
 		return "", err
 	}
 	if err := copyFile(srcAbs, dst); err != nil {
@@ -487,6 +494,12 @@ func (r *Runner) pickName(dir, rawURL, base, fresh string) string {
 		// 上一次运行留下的同名文件也算「被占了」：两个不同地址都叫 pic.png 时，
 		// 第二张若沿用同一个名字，会把先跑那篇文档里的图悄悄换掉。
 		//
+		// 名字被一个**目录**占着时，这个名字再怎么「属于我们」也用不了：
+		// 往目录上改名只会得到 `Access is denied`，用户看到的是一句 Go 原话。
+		// 目录不可能是一张图，直接换下一个候选名。
+		if st, serr := os.Stat(abs); serr == nil && st.IsDir() {
+			continue
+		}
 		// 但如果是**我们自己的**文件（缓存里记着这个地址就落在这个名字上），
 		// 那就必须沿用这个名字 —— 哪怕它已经损坏或被截断了：那正是要修的东西。
 		// 换个名字的后果是把坏文件留成永久垃圾（谁也不会再去删它），
@@ -599,6 +612,25 @@ func sameFile(a, b string) (bool, error) {
 		return false, err
 	}
 	return bytes.Equal(da, db), nil
+}
+
+// firstFileInPath 从 dir 往上找第一个「存在但不是目录」的那一层，返回它。
+//
+// 用来把「mkdir …: The system cannot find the path specified」换成能照着做的说法：
+// `--remote-dir blocker/images` 里 blocker 是个文件时，系统只报中间层的错，
+// 说 dir 会让人去找一个根本不存在的目录。
+func firstFileInPath(dir string) (string, bool) {
+	cur := filepath.Clean(dir)
+	for {
+		if st, err := os.Stat(cur); err == nil && !st.IsDir() {
+			return cur, true
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur || parent == "" {
+			return "", false
+		}
+		cur = parent
+	}
 }
 
 // localBaseName 从地址里取「文件名那一截」，并清理成 Windows 上能用的名字。

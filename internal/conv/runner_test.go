@@ -1196,3 +1196,37 @@ func TestSrcsetImagesAreAllConverted(t *testing.T) {
 		t.Fatalf("逐文件计数不对：%+v", results)
 	}
 }
+
+// 输出位置被一个同名**目录**占着时（用户可能自己建了 doc.converted.md 这个目录，
+// 也可能某个同步盘留下了怪东西），系统给的话是「open …: is a directory」——
+// 既没说清是哪个东西挡着，也没说该怎么办。
+func TestTargetIsDirectoryExplainsItself(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "img", "a.png"), "a")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "# t\n\n![x](img/a.png)\n")
+
+	// 占住输出路径。
+	if err := os.MkdirAll(filepath.Join(dir, "a.converted.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, _ := fakePicGo(t, nil)
+	r := NewRunner(baseCfg(srv.URL), i18n.ZH, "run1", func(Event) {})
+	files, sum := r.RunCollect(context.Background(), []string{doc})
+
+	if sum.Failed != 1 {
+		t.Fatalf("预期 1 个文件失败，实际 %d", sum.Failed)
+	}
+	got := files[0].Error
+	if !strings.Contains(got, "同名目录") {
+		t.Fatalf("错误文案应说明是被同名目录占着，实际是 %q", got)
+	}
+	if strings.Contains(got, "is a directory") || strings.Contains(got, "open ") {
+		t.Fatalf("不该把系统原话抛给用户：%q", got)
+	}
+	// 那个目录是用户的东西，不能动。
+	if st, err := os.Stat(filepath.Join(dir, "a.converted.md")); err != nil || !st.IsDir() {
+		t.Fatalf("用户建的目录被动了：%v %v", st, err)
+	}
+}

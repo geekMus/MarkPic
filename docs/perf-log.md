@@ -2590,3 +2590,24 @@ func Key(rawURL string) string {
 真机（同一地址引用 3 次）：CLI 与页脚都写「1 张（3 处引用）」，
 `/api/run/current` 的 `localized:3, localizedUnique:1`，三条明细的 `url` 都是 `images/pic.png`。
 
+## 名字被占住时，别再甩一句系统原话
+
+三个同类的坑，都是「用户能看懂发生了什么，但看不懂我们在说什么」：
+
+| 情形 | 改之前 | 改之后 |
+| --- | --- | --- |
+| `images/ok.png` 位置上是个**目录** | `下载失败：rename …\.cmp-remote-1234.tmp …\ok.png: Access is denied.` | 换个名字存成 `images/ok-2.png`（目录不可能是一张图） |
+| 输出路径 `doc.converted.md` 被同名**目录**占着 | `写入失败：open …\doc.converted.md: is a directory` | 「输出位置被一个同名目录占着：…（挪走那个目录，或换个输出位置）」 |
+| `--remote-dir blocker/images`，而 `blocker` 是个**文件** | `下载失败：mkdir …\blocker: The system cannot find the path specified.` | 「本地目录 …\blocker 已经被一个同名文件占了，放不进图片」 |
+
+第一条不是换说法而是真修：`pickName` 的候选循环原来只看「这个同名文件是不是别人的图」，
+目录被 `os.Stat` 返回成 `!st.IsDir()` 为假、于是被判成「不是文件、不冲突」，
+一路走到 `os.Rename` 才炸。现在候选循环里先问一句「这是个目录吗」，是就换下一个名字。
+
+第二条与第三条都是把系统原话换成能照着做的说法。第三条尤其绕：报错的是**中间层**
+（`blocker`），文案若只说 `images`，用户会去找一个根本不存在的目录。新增的
+`firstFileInPath(dir)` 从目标往上逐层 `os.Stat`，找到第一个「存在但不是目录」的那层。
+
+三条都有回归，都验证过承重（把改动临时去掉立刻红）：
+`TestRemoteDownloadSkipsDirectoryInTheWay`（缓存开/关两个子用例）、
+`TestTargetIsDirectoryExplainsItself`、`TestRemoteDirNamesTheRealBlocker`。
