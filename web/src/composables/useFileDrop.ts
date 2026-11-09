@@ -96,7 +96,16 @@ export function useFileDrop(handlers: FileDropHandlers) {
     }
   }
 
+  /** 拖的是文字、而且落点在输入框里：那是「把这段字挪个位置」，不该被我们接走 */
+  function isTextIntoEditable(event: DragEvent): boolean {
+    if (hasFiles(event.dataTransfer)) return false
+    const target = event.target
+    if (!(target instanceof Element)) return false
+    return target.closest('input, textarea, [contenteditable="true"]') !== null
+  }
+
   function onDrop(event: DragEvent): void {
+    if (isTextIntoEditable(event)) return
     // 无论认不认得这些路径，都得拦下默认行为：否则 WebView2 会把窗口导航走
     event.preventDefault()
     depth = 0
