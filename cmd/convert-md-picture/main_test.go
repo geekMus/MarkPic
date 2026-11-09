@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 )
 
@@ -29,5 +30,38 @@ func TestUsageTextFollowsSettingsLimits(t *testing.T) {
 func TestUsageTemplateHasNoStrayVerbs(t *testing.T) {
 	if n := strings.Count(usageTemplate, "%"); n != 6 {
 		t.Fatalf("帮助模板里有 %d 个百分号，期望 6 个：%s", n, usageTemplate)
+	}
+}
+
+// 没有网络图片的文档也可能有坏链接：本地图根本不在。只说「没有网络图片」，
+// 唯一的问题就藏进（会被折叠的）明细里了。
+func TestCheckDescMentionsMissingLocalImages(t *testing.T) {
+	cases := []struct {
+		name string
+		res  conv.FileResult
+		want string
+		bad  string
+	}{
+		{
+			name: "只有缺掉的本地图",
+			res:  conv.FileResult{Checked: 0, LocalMissing: 1},
+			want: "没有网络图片；1 张本地图找不到",
+		},
+		{
+			name: "碰不了的地址 + 缺图",
+			res:  conv.FileResult{Checked: 0, RemoteUnsupported: 2, LocalMissing: 3},
+			want: "2 处地址没法检测；3 张本地图找不到",
+		},
+		{
+			name: "什么都没有",
+			res:  conv.FileResult{Checked: 0},
+			want: "没有网络图片",
+		},
+	}
+	for _, c := range cases {
+		got := checkDesc(&c.res)
+		if got != c.want {
+			t.Errorf("%s：期望 %q，实际 %q", c.name, c.want, got)
+		}
 	}
 }

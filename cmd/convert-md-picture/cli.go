@@ -270,12 +270,20 @@ func deadCount(dead, deadUnique int) string {
 // checkDesc 说明检测结果。
 func checkDesc(r *conv.FileResult) string {
 	if r.Checked == 0 {
+		desc := ""
 		// 有引用但一张都检测不了时，别写「没有网络图片」——那是在说文档里没有，
 		// 而事实是文档里有、只是这个地址我们碰不了（ftp://、data: 之类）。
 		if n := unsupportedCount(r); n > 0 {
-			return fmt.Sprintf("%d 处地址没法检测", n)
+			desc = fmt.Sprintf("%d 处地址没法检测", n)
+		} else {
+			desc = "没有网络图片"
 		}
-		return "没有网络图片"
+		// 没有网络图片的文档同样可能有坏链接（本地图根本不在）。只说「没有网络图片」
+		// 会把唯一的问题藏进明细里，而明细是被折叠的。
+		if r.LocalMissing > 0 {
+			desc += fmt.Sprintf("；%d 张本地图找不到", r.LocalMissing)
+		}
+		return desc
 	}
 	// 同一张图被引用 10 次时 Checked 是 10，可实际只探了一次：两个数差着说，
 	// 才看得出「这张图被引用了很多次」和「我们敲了很多次门」不是一回事。
