@@ -4,6 +4,8 @@ import AppIcon from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
+import { collectDeadLinks, copyText, formatDeadReport } from '../composables/useDeadLinks'
+import { useToasts } from '../composables/useToasts'
 import { useI18n } from '../i18n'
 
 const props = defineProps<{
@@ -24,6 +26,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { success, danger } = useToasts()
 
 const manualText = ref('')
 const textarea = ref<HTMLTextAreaElement | null>(null)
@@ -171,6 +174,36 @@ function toggleProblems(): void {
   })
 }
 
+/**
+ * 失效清单：按地址去重，带每处引用的文件名与行号。
+ *
+ * 命令行跑完会打一份这样的清单，界面上以前只能一行一行看红字，
+ * 想照着改文档就得手抄。这里把它拼成一段 Markdown 复制出去。
+ *
+ * 页脚要显示的只是「有没有死链」，所以平时只数行上的 dead 计数（O(行数)）；
+ * 真正按地址汇总要遍历所有逐图明细（两万张图就是两万次比较），放到点击时做。
+ */
+const deadRefs = computed(() =>
+  props.rows.reduce((n, row) => n + (row.result?.dead ?? 0), 0),
+)
+
+async function copyDeadReport(): Promise<void> {
+  const links = collectDeadLinks(props.rows)
+  if (links.length === 0) return
+  const text = formatDeadReport(links, {
+    title: t('report.dead.title'),
+    summary: (refs, urls) => t('report.dead.summary', { refs, urls }),
+    refs: (places, total) => t('report.dead.refs', { refs: places, total }),
+    sep: t('report.dead.sep'),
+    more: t('report.dead.more'),
+  })
+  if (await copyText(text)) {
+    success(t('queue.copyDead.done', { urls: links.length }))
+    return
+  }
+  danger(t('queue.copyDead.failed'))
+}
+
 /** 每行的高度前缀和，offsets[i] 是第 i 行的顶部偏移。 */
 const offsets = computed(() => {
   void heightsVersion.value
@@ -293,6 +326,18 @@ function onScroll(): void {
         >
           <AppIcon name="alert" :size="16" />
           <span class="queue__filter-count num" aria-hidden="true">{{ problemCount }}</span>
+        </button>
+
+        <!-- 死链要照着改文档：把去重清单复制出去，比一行一行抄省事 -->
+        <button
+          v-if="deadRefs > 0"
+          type="button"
+          class="icon-btn"
+          :title="t('queue.copyDead', { refs: deadRefs })"
+          :aria-label="t('queue.copyDead', { refs: deadRefs })"
+          @click="copyDeadReport"
+        >
+          <AppIcon name="copy" :size="16" />
         </button>
 
         <span class="panel__divider" aria-hidden="true" />
