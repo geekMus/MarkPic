@@ -181,6 +181,7 @@ export const zh = {
   'footer.localized': '下载 {count}',
   'footer.remoteChecked': '检测 {count} 个远程地址',
   'footer.remoteDead': '其中失效 {count}',
+  'footer.remoteDeadDownloaded': '没下载回来 {count}',
   'footer.checked': '检测 {count} 个文件',
   'error.remoteDirRequired': '请填写图片要放到哪个子目录',
 

@@ -72,11 +72,16 @@ const parts = computed<Part[]>(() => {
     if (stats.localized > 0) {
       list.push({ text: t('footer.localized', { count: stats.localized }), tone: 'plain' })
     }
-    if (stats.remoteChecked > 0) {
+    if (stats.remoteChecked > 0 && stats.localized === 0) {
+      // 检测模式：remoteChecked 就是处理过的远程引用总数（含失效的）。
+      // 下载模式不能这么念 —— 那边只把「没下来的」记进 remoteChecked，
+      // 说「检测 15 个远程地址 · 其中失效 15」会让人以为一张都没下来。
       list.push({ text: t('footer.remoteChecked', { count: stats.remoteChecked }), tone: 'plain' })
       if (stats.remoteDead > 0) {
         list.push({ text: t('footer.remoteDead', { count: stats.remoteDead }), tone: 'bad' })
       }
+    } else if (stats.remoteDead > 0) {
+      list.push({ text: t('footer.remoteDeadDownloaded', { count: stats.remoteDead }), tone: 'bad' })
     } else if (stats.filesChecked > 0) {
       list.push({ text: t('footer.checked', { count: stats.filesChecked }), tone: 'plain' })
     }

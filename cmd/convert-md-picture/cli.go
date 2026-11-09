@@ -81,10 +81,29 @@ type printer struct {
 	// remote 记住这次是哪种远程模式：下载模式下「失败」指的是下载不下来，
 	// 说成「上传失败」会让用户以为是自己把图传丢了。
 	remote string
+	// 失效的远程地址按 URL 去重收在这里。一篇文档里同一个死链可能被引用几十次，
+	// 逐行罗列只会把终端刷满；用户真正要的是一份「到底哪几个地址坏了」的清单，
+	// 能照着去改文档或者找图床。
+	dead     map[string]*deadLink
+	deadRank []string
+	deadRefs int
 }
 
+// deadLink 是一个失效的远程地址：为什么坏、被引用了多少次、最早在哪几处。
+type deadLink struct {
+	reason string
+	count  int
+	where  []string
+}
+
+// maxDeadLinks 是结尾清单里最多列出几个地址（其余只报数）。
+const maxDeadLinks = 20
+
+// maxDeadWhere 是每个地址最多回指几处引用。
+const maxDeadWhere = 3
+
 func newPrinter(quiet bool) *printer {
-	return &printer{quiet: quiet, width: 20}
+	return &printer{quiet: quiet, width: 20, dead: make(map[string]*deadLink)}
 }
 
 func (p *printer) header(cfg settings.Settings) {
@@ -129,6 +148,7 @@ func (p *printer) emit(ev conv.Event) {
 		if ev.Result == nil {
 			return
 		}
+		p.noteDead(ev.Result)
 		fmt.Println(p.fileLine(ev.Result))
 		for _, line := range p.detailLines(ev.Result) {
 			fmt.Println(line)
@@ -153,6 +173,9 @@ func (p *printer) emit(ev conv.Event) {
 			// 否则用户只看到「已取消」和一堆失败，不知道到底怎么了。
 			if ev.Summary.AbortReason != "" {
 				fmt.Fprintf(os.Stderr, "  错误：%s\n", ev.Summary.AbortReason)
+			}
+			for _, line := range p.deadLines() {
+				fmt.Println(line)
 			}
 		}
 	}
@@ -298,11 +321,18 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	if s.FilesChecked > 0 {
 		parts = append(parts, fmt.Sprintf("检测 %d 个文件", s.FilesChecked))
 	}
-	if s.RemoteChecked > 0 {
+	if s.RemoteChecked > 0 && s.Localized == 0 {
+		// 检测模式：Checked 就是处理过的远程引用总数（含失效的）。
+		// 下载模式不这么算 —— 那边只把「没下来的」记进 Checked，拿它当总数会打出
+		// 「下载 5 张 · 远程图 15 张 · 其中失效 15 张」，读起来像全军覆没。
 		parts = append(parts, fmt.Sprintf("远程图 %d 张", s.RemoteChecked))
 	}
 	if s.RemoteDead > 0 {
-		parts = append(parts, fmt.Sprintf("其中失效 %d 张", s.RemoteDead))
+		if s.Localized > 0 {
+			parts = append(parts, fmt.Sprintf("没下载回来 %d 张", s.RemoteDead))
+		} else {
+			parts = append(parts, fmt.Sprintf("其中失效 %d 张", s.RemoteDead))
+		}
 	}
 	if s.FailedImages > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))
@@ -323,6 +353,82 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 		parts = append(parts, "已取消")
 	}
 	return fmt.Sprintf("%s · 用时 %.1fs", strings.Join(parts, " · "), float64(s.DurationMs)/1000)
+}
+
+// isRemoteTarget 判断一处引用原本是不是远程地址（只有它们才可能进失效清单）。
+func isRemoteTarget(target string) bool {
+	t := strings.ToLower(strings.TrimSpace(target))
+	return strings.HasPrefix(t, "http://") || strings.HasPrefix(t, "https://") || strings.HasPrefix(t, "//")
+}
+
+// noteDead 把这一篇里没弄成的远程引用记进清单（按地址去重）。
+func (p *printer) noteDead(r *conv.FileResult) {
+	for _, it := range r.Items {
+		if !isRemoteTarget(it.Target) {
+			continue
+		}
+		// 检测模式标 remoteBad，下载模式标 failed —— 两种都是「这个地址没拿到图」。
+		if it.Status != conv.StatusRemoteBad && it.Status != conv.StatusFailed {
+			continue
+		}
+		url := strings.TrimSpace(it.Target)
+		if strings.HasPrefix(url, "//") {
+			// 协议相对的地址补个 https 前缀，不然清单里这一行复制出去没法直接打开。
+			url = "https:" + url
+		}
+		entry, ok := p.dead[url]
+		if !ok {
+			reason := it.Error
+			if reason == "" {
+				reason = "打不开"
+			}
+			entry = &deadLink{reason: reason}
+			p.dead[url] = entry
+			p.deadRank = append(p.deadRank, url)
+		}
+		entry.count++
+		p.deadRefs++
+		where := fmt.Sprintf("%s:%d", r.Name, it.Line)
+		if len(entry.where) < maxDeadWhere && !containsString(entry.where, where) {
+			entry.where = append(entry.where, where)
+		}
+	}
+}
+
+// deadLines 在结尾给出去重后的清单：哪些地址坏了、为什么、在哪几处。
+// 一份长文档里同一个死链被引用几十次是常事，逐行刷屏没人看得下去。
+func (p *printer) deadLines() []string {
+	if len(p.deadRank) == 0 {
+		return nil
+	}
+	title := "失效的远程地址"
+	if p.remote == settings.RemoteDownload {
+		title = "没下载回来的远程地址"
+	}
+	out := []string{"", fmt.Sprintf("%s（%d 个，共 %d 处引用）：", title, len(p.deadRank), p.deadRefs)}
+	for i, url := range p.deadRank {
+		if i >= maxDeadLinks {
+			out = append(out, fmt.Sprintf("  ……另有 %d 个地址（明细见上面每个文件那几行）。", len(p.deadRank)-maxDeadLinks))
+			break
+		}
+		e := p.dead[url]
+		out = append(out, "  · "+url)
+		line := "      " + e.reason
+		if len(e.where) > 0 {
+			line += "（" + strings.Join(e.where, "、") + "）"
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+	return false
 }
 
 func modeLabel(output string) string {

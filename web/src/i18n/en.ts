@@ -185,6 +185,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.localized': '{count} downloaded',
   'footer.remoteChecked': '{count} remote links checked',
   'footer.remoteDead': '{count} of them broken',
+  'footer.remoteDeadDownloaded': '{count} could not be downloaded',
   'footer.checked': '{count} files checked',
   'error.remoteDirRequired': 'Please fill in the sub-folder for downloaded images',
 
