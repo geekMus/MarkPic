@@ -65,6 +65,8 @@ export interface RunStats {
   /** check 模式：检测了几个远程地址、其中几个打不开，以及有几个文件只是被检测。 */
   remoteChecked: number
   remoteDead: number
+  /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
+  remoteUnsupported: number
   filesChecked: number
   remoteReused: number
 }
@@ -130,6 +132,7 @@ const live = reactive({
   localizedUnique: 0,
   remoteChecked: 0,
   remoteDead: 0,
+  remoteUnsupported: 0,
   filesChecked: 0,
   remoteReused: 0,
   settled: 0,
@@ -179,8 +182,9 @@ const stats = computed<RunStats>(() => {
       localizedUnique: finished.localizedUnique ?? 0,
       remoteChecked: finished.remoteChecked ?? 0,
       remoteDead: finished.remoteDead ?? 0,
+      remoteUnsupported: finished.remoteUnsupported ?? 0,
       filesChecked: finished.filesChecked ?? 0,
-  remoteReused: finished.remoteReused ?? 0,
+      remoteReused: finished.remoteReused ?? 0,
     }
   }
 
@@ -198,6 +202,7 @@ const stats = computed<RunStats>(() => {
     localizedUnique: live.localizedUnique,
     remoteChecked: live.remoteChecked,
     remoteDead: live.remoteDead,
+    remoteUnsupported: live.remoteUnsupported,
     filesChecked: live.filesChecked,
     remoteReused: live.remoteReused,
   }
@@ -260,6 +265,7 @@ function liveReset(): void {
   live.localizedUnique = 0
   live.remoteChecked = 0
   live.remoteDead = 0
+  live.remoteUnsupported = 0
   live.filesChecked = 0
   live.settled = 0
   lastReveal.value = null
@@ -362,6 +368,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.localizedUnique -= row.result.localizedUnique ?? 0
     live.remoteChecked -= row.result.checked ?? 0
     live.remoteDead -= row.result.dead ?? 0
+    live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
     scoreStatus(row.result.status, -1)
   } else {
     live.images -= row.images ?? row.total
@@ -375,6 +382,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.localizedUnique += result.localizedUnique ?? 0
   live.remoteChecked += result.checked ?? 0
   live.remoteDead += result.dead ?? 0
+  live.remoteUnsupported += result.remoteUnsupported ?? 0
   scoreStatus(result.status, 1)
   if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 

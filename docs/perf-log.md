@@ -2630,3 +2630,34 @@ func Key(rawURL string) string {
 **为什么不用 `html.UnescapeString`**：实测它不看分号 —— `?a=1&copy=2` 变成 `?a=1©=2`、`?a=1&notanentity;b=2` 变成 `?a=1¬anentity;b=2`、`?a=1&amp=2` 变成 `?a=1&=2`。地址里这种「少了分号的查询串」太常见，解错的代价是把请求发到另一个地址，比不还原糟得多。
 
 回归：`TestMarkdownBackslashEscapesAreResolved`、`TestReferenceStyleResolvesBackslashEscapes`、`TestHTMLAttributeEntitiesAreDecoded`、`TestEntityDecodingNeedsTheSemicolon`（`internal/mdscan`）+ 端到端 `TestRemoteRequestsDecodeEscapesAndEntities`（`internal/conv`，直接看假图床收到的 path 与查询串）。端到端那条是真承重的：把两处解码去掉，它会报 `服务器没收到 "/esc(1).png"，收到的是 map[/esc\(1\).png:1 /q.png?w=1&:1 …]`。
+
+## `ftp://` 与 `data:` 地址从报告里消失了
+
+一篇文档里四行引用：
+
+```
+![ftp](ftp://example.com/a.png)
+
+![data](data:image/png;base64,iVBORw0KGgo=)
+
+![mailto](mailto:a@b.c)
+
+![ok](http://127.0.0.1:36710/ok.png)
+```
+
+`--remote check` 的输出是「远程图 1 张，失效 0 张」，退出码 0。另外三处一声不响地消失了 —— 用户会以为文档里就一张网络图。
+
+后端其实是对的：这三条 item 的状态是 `remote`、`error` 里写着「只支持 http/https 地址，这种没法检测或下载：ftp://…」。丢的是**展示层**，一共四处：
+
+| 位置 | 问题 |
+| --- | --- |
+| `cmd/convert-md-picture/cli.go` 的 `detailLines` | switch 只有 missing / failed / remote-bad 三支，`remote` 落到 `default: continue` |
+| 同文件的 `checkDesc` | 只写「远程图 N 张」，用的是 `Checked`，而碰不了的地址既不计 Checked 也不计 Dead |
+| 同文件的 `isRemoteTarget` | 只认 `http://`、`https://`、`//`，结尾的失效清单也漏掉它们 |
+| `web/src/components/FileRow.vue` 的 `itemDetail` | 对 `remote` 一律说「已是远程地址，跳过」——在检测/下载模式下这句话是错的 |
+
+改法：`FileResult` / `Summary` 各加一个 `RemoteUnsupported`（`remoteUnsupported`）计数，`runner.go` 的计数 switch 把 `StatusRemote && Error != ""` 从 `Skipped` 里挪出来单记；命令行逐行明细加一支（下载模式说「没法下载」、检测模式说「没法检测」），`checkDesc` 追加「另有 3 处没法检测」，汇总行加「3 处没法处理」；前端 `itemLabel` 在有 error 时改说「没法处理」，`itemDetail` 优先显示 error，行内统计和页脚各加一项。
+
+刻意**不**把它们塞进结尾的「失效的远程地址」清单：那份清单是「照着改文档」用的，而 `ftp://` 不是坏了，是我们压根没试。混进去会让人去查一个并不存在的死链。
+
+回归：`TestRemoteUnsupportedSchemeIsLeftAlone`（断言 `RemoteUnsupported==1` 且 `Skipped==0`）、`TestRemoteUnsupportedIsCountedAlongsideSupported`（一篇文章里 1 张 http + 3 处碰不了的，断言 `Checked==1`、`RemoteUnsupported==3`、汇总同口径）。两条都验证过承重：把 `res.RemoteUnsupported++` 换回 `res.Skipped++`，立刻报「碰不了的地址该记进 RemoteUnsupported，实际 0」。

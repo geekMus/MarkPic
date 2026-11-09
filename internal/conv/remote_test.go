@@ -376,6 +376,41 @@ func TestRemoteUnsupportedSchemeIsLeftAlone(t *testing.T) {
 	if res.Items[0].Error == "" {
 		t.Fatal("应该说一句为什么没处理")
 	}
+	// 碰不了的地址要单独计数：以前它们被算进 Skipped，报告里彻底看不见。
+	if res.RemoteUnsupported != 1 {
+		t.Fatalf("碰不了的地址该记进 RemoteUnsupported，实际 %d", res.RemoteUnsupported)
+	}
+	if res.Skipped != 0 {
+		t.Fatalf("碰不了的地址不该混进 Skipped，实际 %d", res.Skipped)
+	}
+}
+
+// 一篇文档里 http 与 ftp/data 混着写时，两边都要算到：不能只报能处理的那几张，
+// 也不能把「碰不了」和「失效」混成一类。
+func TestRemoteUnsupportedIsCountedAlongsideSupported(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc,
+		"![ok]("+host.URL+"/ok.png)\n\n"+
+			"![ftp](ftp://example.com/x.png)\n\n"+
+			"![data](data:image/png;base64,iVBORw0KGgo=)\n\n"+
+			"![mail](mailto:a@b.c)\n")
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteCheck), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Checked != 1 || res.Dead != 0 {
+		t.Fatalf("只有一张是 http 地址: checked=%d dead=%d", res.Checked, res.Dead)
+	}
+	if res.RemoteUnsupported != 3 {
+		t.Fatalf("另外三处该记成「没法处理」，实际 %d: %+v", res.RemoteUnsupported, res.Items)
+	}
+	if sum.RemoteUnsupported != 3 {
+		t.Fatalf("汇总也要带上，实际 %d", sum.RemoteUnsupported)
+	}
 }
 
 // 上次已经下载过、大小也一致：不重新下载。

@@ -126,6 +126,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.checked': 'Checked',
   'row.item.localKept': 'Local image kept as-is (this mode does not upload)',
   'row.status.remote': 'Remote',
+  'row.status.remoteUnsupported': "Can't handle",
   'row.status.missing': 'File missing',
   'row.status.uploadFailed': 'Upload failed',
   'row.status.pending': 'Pending',
@@ -144,6 +145,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.stat.reused': 'Reused',
   'row.stat.pending': 'Pending',
   'row.stat.skipped': 'Skipped',
+  'row.stat.remoteUnsupported': "Can't handle",
   'row.stat.failed': 'Failed',
   'row.output': 'Output',
 
@@ -188,6 +190,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.remoteDead': '{count} of them broken',
   'footer.remoteDeadDownloaded': '{count} could not be downloaded',
   'footer.checked': '{count} files checked',
+  'footer.remoteUnsupported': '{count} links cannot be handled',
   'error.remoteDirRequired': 'Please fill in the sub-folder for downloaded images',
 
   // About and updates

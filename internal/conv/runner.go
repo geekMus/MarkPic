@@ -464,6 +464,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.LocalizedUnique += res.LocalizedUnique
 		sum.RemoteChecked += res.Checked
 		sum.RemoteDead += res.Dead
+		sum.RemoteUnsupported += res.RemoteUnsupported
 		sum.FailedImages += res.Failed
 		switch res.Status {
 		case FileOK:
@@ -661,6 +662,14 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 		case StatusRemoteBad:
 			res.Checked++
 			res.Dead++
+		case StatusRemote:
+			// 碰不了的地址（ftp://、data:）单独计数：它们既不是「检测过」也不是
+			// 「失效」，混进 Skipped 里就再也没人看得见了。
+			if it.Error != "" {
+				res.RemoteUnsupported++
+			} else {
+				res.Skipped++
+			}
 		case StatusFailed, StatusMissing:
 			res.Failed++
 		case StatusCancelled:

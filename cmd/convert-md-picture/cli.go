@@ -236,9 +236,23 @@ func changedDesc(r *conv.FileResult) string {
 // checkDesc 说明检测结果。
 func checkDesc(r *conv.FileResult) string {
 	if r.Checked == 0 {
+		// 有引用但一张都检测不了时，别写「没有网络图片」——那是在说文档里没有，
+		// 而事实是文档里有、只是这个地址我们碰不了（ftp://、data: 之类）。
+		if n := unsupportedCount(r); n > 0 {
+			return fmt.Sprintf("%d 处地址没法检测", n)
+		}
 		return "没有网络图片"
 	}
-	return fmt.Sprintf("远程图 %d 张，失效 %d 张", r.Checked, r.Dead)
+	desc := fmt.Sprintf("远程图 %d 张，失效 %d 张", r.Checked, r.Dead)
+	if n := unsupportedCount(r); n > 0 {
+		desc += fmt.Sprintf("，另有 %d 处没法检测", n)
+	}
+	return desc
+}
+
+// unsupportedCount 数出「是远程地址但我们处理不了」的引用（ftp://、data: 等）。
+func unsupportedCount(r *conv.FileResult) int {
+	return r.RemoteUnsupported
 }
 
 // previewBreakdown 说明预检看到了什么：待上传多少、多少找不到、多少是网络图片。
@@ -296,6 +310,17 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 			}
 		case conv.StatusRemoteBad:
 			label = "远程失效"
+		case conv.StatusRemote:
+			// `ftp://`、`data:` 这类地址检测不了也下载不了。以前它们连一行提示都
+			// 没有 —— 文档里 4 张图只报「远程图 1 张」，另外 3 处悄无声息地消失。
+			if it.Error == "" {
+				continue
+			}
+			if p.remote == settings.RemoteDownload {
+				label = "没法下载"
+			} else {
+				label = "没法检测"
+			}
 		default:
 			continue
 		}
@@ -345,6 +370,10 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 			parts = append(parts, fmt.Sprintf("其中失效 %d 张", s.RemoteDead))
 		}
 	}
+	if s.RemoteUnsupported > 0 {
+		// ftp://、data: 这类地址既不算检测过也不算失效，不单列就没人知道它们存在。
+		parts = append(parts, fmt.Sprintf("%d 处没法处理", s.RemoteUnsupported))
+	}
 	if s.FailedImages > 0 {
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))
 	}
@@ -379,6 +408,8 @@ func (p *printer) noteDead(r *conv.FileResult) {
 			continue
 		}
 		// 检测模式标 remoteBad，下载模式标 failed —— 两种都是「这个地址没拿到图」。
+		// （ftp://、data: 那种「碰不了」的不进这张清单：它们不是失效，是压根没试，
+		// 逐行明细和汇总行里的「N 处没法处理」已经把话说清楚了。）
 		if it.Status != conv.StatusRemoteBad && it.Status != conv.StatusFailed {
 			continue
 		}

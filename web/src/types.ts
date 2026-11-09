@@ -87,6 +87,8 @@ export type FileResult = {
   dead?: number
   /** check 模式：这一篇里一共检测了几个远程地址。 */
   checked?: number
+  /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
+  remoteUnsupported?: number
   outputPath?: string
   error?: string
   warnings?: string[]
@@ -118,6 +120,8 @@ export type RunSummary = {
   /** check 模式：这一轮检测了几个远程地址、其中几个打不开。 */
   remoteChecked?: number
   remoteDead?: number
+  /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
+  remoteUnsupported?: number
   /** check 模式：这一轮有几个文件只是被检测（没写输出）。 */
   filesChecked?: number
   /** 上次已经下过、这次没再下载的远程图张数（按去重后的图片算）。 */

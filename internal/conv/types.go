@@ -57,15 +57,19 @@ type FileResult struct {
 	// 一篇文档里同一张图被引用 20 次是常事，Localized 会数成 20，可 images/ 里
 	// 只有一个文件 —— 只报 20 会让人以为另外 19 张失败了。两个数一起给，
 	// 界面上就能写成「下载 1 张（20 处引用）」。
-	LocalizedUnique int      `json:"localizedUnique"`
-	Dead            int      `json:"dead"`
-	Checked         int      `json:"checked"`
-	Failed          int      `json:"failed"`
-	Skipped         int      `json:"skipped"`
-	OutputPath      string   `json:"outputPath,omitempty"`
-	Error           string   `json:"error,omitempty"`
-	Warnings        []string `json:"warnings,omitempty"`
-	Items           []Item   `json:"items"`
+	LocalizedUnique int `json:"localizedUnique"`
+	Dead            int `json:"dead"`
+	Checked         int `json:"checked"`
+	// RemoteUnsupported 是「是远程地址，但我们碰不了」的引用数（ftp://、data:）。
+	// 它们既不算检测过、也不算失效，得单独记一笔，否则一篇里 4 处远程引用
+	// 只报「远程图 1 张」，另外 3 处等于从报告里消失了。
+	RemoteUnsupported int      `json:"remoteUnsupported"`
+	Failed            int      `json:"failed"`
+	Skipped           int      `json:"skipped"`
+	OutputPath        string   `json:"outputPath,omitempty"`
+	Error             string   `json:"error,omitempty"`
+	Warnings          []string `json:"warnings,omitempty"`
+	Items             []Item   `json:"items"`
 }
 
 // FileTask 是排队中的文件（run.started 时下发）。
@@ -95,6 +99,8 @@ type Summary struct {
 	LocalizedUnique int `json:"localizedUnique"`
 	RemoteChecked   int `json:"remoteChecked"`
 	RemoteDead      int `json:"remoteDead"`
+	// RemoteUnsupported 是碰不了的远程地址数（ftp://、data: 之类）。
+	RemoteUnsupported int `json:"remoteUnsupported"`
 	// FilesChecked 是「只做检测、没改写文档」的文件数。
 	FilesChecked int  `json:"filesChecked"`
 	Cancelled    bool `json:"cancelled"`

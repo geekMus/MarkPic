@@ -125,19 +125,35 @@ const localizedUniqueCount = computed(() => {
 /** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */
 const localKeptCount = computed(() => items.value.filter(item => item.status === 'local-kept').length)
 
+/** 碰不了的远程地址（ftp://、data:）：单独数，别混进「跳过」里当没事发生。 */
+const remoteUnsupportedCount = computed(
+  () => items.value.filter(item => item.status === 'remote' && item.error).length,
+)
+
 /** 后端把 pending 也算进 skipped（那是给命令行汇总用的），展示时要把它们剥离出来。 */
 const skippedOnly = computed(() =>
-  Math.max(0, (props.row.result?.skipped ?? 0) - pendingCount.value - localKeptCount.value),
+  Math.max(
+    0,
+    (props.row.result?.skipped ?? 0) - pendingCount.value - localKeptCount.value,
+  ),
 )
 
 /**
  * 「替换」这个数在只碰远程图的模式里是句废话（永远是 0），
- * 那种时候把版面让给「下载」和「本地保留」。
+ * 那种时候把版面让给「下载」「本地保留」「检测」。
  */
+const remoteSeenCount = computed(
+  () => items.value.filter(item => item.status === 'remote-ok' || item.status === 'remote-bad').length,
+)
+
 const showReplacedStat = computed(
   () =>
     (props.row.result?.uploaded ?? 0) > 0 ||
-    (pendingCount.value === 0 && localizedCount.value === 0 && localKeptCount.value === 0),
+    (pendingCount.value === 0 &&
+      localizedCount.value === 0 &&
+      localKeptCount.value === 0 &&
+      remoteSeenCount.value === 0 &&
+      remoteUnsupportedCount.value === 0),
 )
 
 /**
@@ -157,13 +173,19 @@ function itemLabel(item: ImageItem): string {
   if (item.status === 'failed' && /^https?:\/\//i.test(item.target)) {
     return t('row.status.downloadFailed')
   }
+  // remote 状态在保留原样的模式里是「本来就是网络图片」，在检测/下载模式里
+  // 却是「这种地址我们碰不了」（ftp://、data:）——后者带上 error，别混为一谈。
+  if (item.status === 'remote' && item.error) {
+    return t('row.status.remoteUnsupported')
+  }
   return t(IMAGE_STATUS_META[item.status].labelKey)
 }
 
 function itemDetail(item: ImageItem): string {
   if (item.status === 'failed') return item.error ?? t('row.status.uploadFailed')
   if (item.status === 'missing') return item.error ?? t('row.item.missingFile')
-  if (item.status === 'remote') return t('row.item.remoteSkipped')
+  // 有 error 就是「这个地址处理不了」，原因得说出来；没有才是「本来就是远程图」。
+  if (item.status === 'remote') return item.error ?? t('row.item.remoteSkipped')
   // 远程相关的状态：有错误就说错误，没有就显示下载后的本地相对路径
   if (item.status === 'localized') return item.url ?? ''
   if (item.status === 'remote-bad') return item.error ?? t('row.status.remoteBad')
@@ -321,6 +343,10 @@ function replaced(status: ImageStatus): boolean {
         <span v-if="pendingCount > 0" class="stat">
           <span class="stat__n num">{{ pendingCount }}</span>
           <span class="stat__k">{{ t('row.stat.pending') }}</span>
+        </span>
+        <span v-if="remoteUnsupportedCount > 0" class="stat">
+          <span class="stat__n num">{{ remoteUnsupportedCount }}</span>
+          <span class="stat__k">{{ t('row.stat.remoteUnsupported') }}</span>
         </span>
         <span v-if="skippedOnly > 0" class="stat">
           <span class="stat__n num">{{ skippedOnly }}</span>

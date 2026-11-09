@@ -124,6 +124,7 @@ export const zh = {
   'row.status.checked': '已检测',
   'row.item.localKept': '本地图片保持原样（这个模式不上传）',
   'row.status.remote': '远程链接',
+  'row.status.remoteUnsupported': '没法处理',
   'row.status.missing': '文件缺失',
   'row.status.uploadFailed': '上传失败',
   'row.status.pending': '待上传',
@@ -142,6 +143,7 @@ export const zh = {
   'row.stat.reused': '其中复用',
   'row.stat.pending': '待上传',
   'row.stat.skipped': '跳过',
+  'row.stat.remoteUnsupported': '没法处理',
   'row.stat.failed': '失败',
   'row.output': '输出',
 
@@ -184,6 +186,7 @@ export const zh = {
   'footer.remoteDead': '其中失效 {count}',
   'footer.remoteDeadDownloaded': '没下载回来 {count}',
   'footer.checked': '检测 {count} 个文件',
+  'footer.remoteUnsupported': '{count} 处地址没法处理',
   'error.remoteDirRequired': '请填写图片要放到哪个子目录',
 
   // 关于与更新

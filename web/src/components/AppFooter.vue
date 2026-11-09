@@ -95,6 +95,13 @@ const parts = computed<Part[]>(() => {
     } else if (stats.filesChecked > 0) {
       list.push({ text: t('footer.checked', { count: stats.filesChecked }), tone: 'plain' })
     }
+    if (stats.remoteUnsupported > 0) {
+      // ftp://、data: 这类地址既不算检测过、也不算失效，不单列就没人知道它们存在。
+      list.push({
+        text: t('footer.remoteUnsupported', { count: stats.remoteUnsupported }),
+        tone: 'warn',
+      })
+    }
   }
   if (props.phase === 'cancelled') list.push({ text: t('footer.cancelled'), tone: 'warn' })
   return list
