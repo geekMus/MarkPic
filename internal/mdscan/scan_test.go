@@ -1,9 +1,13 @@
 package mdscan
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
 func targets(src string) []string {
@@ -368,4 +372,50 @@ func TestScanRepeatedlyIsStable(t *testing.T) {
 			}
 		}
 	}
+}
+
+// 一行里连着好几个松散写法时，每处只认自己那对括号 —— 以前的贪心解析会一路
+// 扫到行尾最后一个 ')'，把后面的引用全吞进第一处的地址里。
+func TestLooseRefsShareOneLine(t *testing.T) {
+	src := "见 ![a](my pic.png) 和 ![b](other pic (2).png) 以及 ![c](<z.png>)"
+	d := Scan([]byte(src))
+	want := []string{"my pic.png", "other pic (2).png", "z.png"}
+	if len(d.Refs) != len(want) {
+		t.Fatalf("refs = %v, want %v", targets(src), want)
+	}
+	for i, w := range want {
+		if d.Refs[i].Target != w {
+			t.Errorf("第 %d 处 Target = %q, want %q", i, d.Refs[i].Target, w)
+		}
+	}
+	if !d.Refs[0].Loose || !d.Refs[1].Loose {
+		t.Errorf("前两处应当是松散写法，Loose = %v/%v", d.Refs[0].Loose, d.Refs[1].Loose)
+	}
+	if d.Refs[2].Loose {
+		t.Errorf("尖括号写法不该标成松散")
+	}
+}
+
+// 病态输入：一行里两万处松散写法、整行四十多万字节。改成「第一个顶层 ')'」
+// 之前，每处都要扫到行尾，解析这一行要八秒多（O(n²)）；改完是毫秒级。
+func TestLooseRefsOnAHugeLineAreLinear(t *testing.T) {
+	const n = 20000
+	var b strings.Builder
+	b.Grow(n * 24)
+	for i := 0; i < n; i++ {
+		b.WriteString("![图](imgs/a b")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString(".png)")
+	}
+	src := b.String()
+	begin := time.Now()
+	d := ScanLang([]byte(src), i18n.ZH)
+	elapsed := time.Since(begin)
+	if len(d.Refs) != n {
+		t.Fatalf("refs = %d, want %d", len(d.Refs), n)
+	}
+	if elapsed > 3*time.Second {
+		t.Fatalf("解析 %d 字节的一行用了 %v，像是又退化成平方复杂度了", len(src), elapsed)
+	}
+	t.Logf("一行 %d 字节、%d 处引用：%v", len(src), n, elapsed)
 }

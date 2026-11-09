@@ -254,7 +254,7 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 	end := 0
 	if j >= len(src) || src[j] != ')' {
 		// 严格解析失败。地址里带空格又没写尖括号时（CommonMark 不允许，但不少
-		// 编辑器、以及手写的 Windows 路径都这么写），贪心取到本行最后一个 ')'，
+		// 编辑器、以及手写的 Windows 路径都这么写），取到本行第一个能收尾的 ')'，
 		// 记成 Loose 交给调用方按「文件是否真的存在」兜底。
 		closeAt := looseDestEnd(src, urlStart)
 		if closeAt <= urlStart {
@@ -285,32 +285,51 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 	}, end, true
 }
 
-// looseDestEnd 从 start 起贪心扫描，返回本行最后一个顶层 ')' 的位置
-// （也就是不规范写法里地址文本的结束位置）。找不到返回 start。
+// maxLooseDest 限制松散写法里地址最多扫多远。地址本身不该很长（Windows 上单个
+// 文件名上限 255 字符），限制在这里是为了让病态输入（一整行几十万字节、没有换行）
+// 的开销有上界，也免得把一整行后半截都当成地址。
+const maxLooseDest = 4096
+
+// looseDestEnd 从 start 起扫描，返回松散写法里地址的结束位置：括号要配平
+// （跳过转义），第一个处于顶层的 ')' 就是地址的结尾。找不到返回 -1。
+//
+// 以前这里取的是「本行最后一个顶层 ')'」（贪心），有两处吃亏：
+//   - 一行里连着好几个引用时会把后面的引用吞进来：`![a](x.png) 和 ![b](b.png)`
+//     的地址会被算成 `x.png) 和 ![b](b.png`；
+//   - 一行很长时每处引用都要扫到行尾，4000 处引用要 0.33 秒（O(n²)）。
+//
+// 紧跟 ')' 的是引号时不收尾：那是标题里的括号（`![图](my pic.png "说明(1)")`），
+// 不是地址的结尾。
 func looseDestEnd(src []byte, start int) int {
 	depth := 0
-	end := start
-	for k := start; k < len(src); k++ {
+	limit := start + maxLooseDest
+	if limit > len(src) {
+		limit = len(src)
+	}
+	for k := start; k < limit; k++ {
 		c := src[k]
 		if c == '\\' && k+1 < len(src) {
 			k++
 			continue
 		}
 		if c == '\n' {
-			break
+			return -1
 		}
 		switch c {
 		case '(':
 			depth++
 		case ')':
-			if depth == 0 {
-				end = k
+			if depth > 0 {
+				depth--
 				continue
 			}
-			depth--
+			if k+1 < len(src) && (src[k+1] == '"' || src[k+1] == '\'') {
+				continue
+			}
+			return k
 		}
 	}
-	return end
+	return -1
 }
 
 // looseTitleStart 判断贪心地址的尾部是不是一个标题（"…"、'…' 或 (…)），
