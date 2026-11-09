@@ -86,7 +86,16 @@ const parts = computed<Part[]>(() => {
       // 检测模式：remoteChecked 就是处理过的远程引用总数（含失效的）。
       // 下载模式不能这么念 —— 那边只把「没下来的」记进 remoteChecked，
       // 说「检测 15 个远程地址 · 其中失效 15」会让人以为一张都没下来。
-      list.push({ text: t('footer.remoteChecked', { count: stats.remoteChecked }), tone: 'plain' })
+      // 同一张图被引用多次时，「检测 10 个地址」会显得我们敲了十次门；
+      // 真正探过的地址数和引用处数差着说，才和命令行读起来一致。
+      const checkedText =
+        stats.remoteCheckedUnique > 0 && stats.remoteCheckedUnique < stats.remoteChecked
+          ? t('footer.remoteCheckedRefs', {
+              unique: stats.remoteCheckedUnique,
+              count: stats.remoteChecked,
+            })
+          : t('footer.remoteChecked', { count: stats.remoteChecked })
+      list.push({ text: checkedText, tone: 'plain' })
       if (stats.remoteDead > 0) {
         list.push({ text: t('footer.remoteDead', { count: stats.remoteDead }), tone: 'bad' })
       }

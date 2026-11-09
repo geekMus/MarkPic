@@ -463,6 +463,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.Localized += res.Localized
 		sum.LocalizedUnique += res.LocalizedUnique
 		sum.RemoteChecked += res.Checked
+		sum.RemoteCheckedUnique += res.CheckedUnique
 		sum.RemoteDead += res.Dead
 		sum.RemoteUnsupported += res.RemoteUnsupported
 		sum.LocalMissing += res.LocalMissing
@@ -647,6 +648,8 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 
 	// 记「这一篇里到底下成了几个不同的文件」，只为把「20 处引用、1 张图」说清楚。
 	var localizedNames map[string]struct{}
+	// 检测侧同理：引用 10 次只发 1 个请求，报告里得说得出这两个数的区别。
+	var remoteURLs map[string]struct{}
 	for _, it := range items {
 		switch it.Status {
 		case StatusUploaded:
@@ -671,11 +674,21 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			} else {
 				res.LocalizedUnique++
 			}
-		case StatusRemoteOK:
+		case StatusRemoteOK, StatusRemoteBad:
 			res.Checked++
-		case StatusRemoteBad:
-			res.Checked++
-			res.Dead++
+			// 同一张图被引用 10 次时 Checked 是 10，可我们只发了一个请求。
+			// 只报 10 会让人以为这个图床被敲了十次门，所以另记去重后的次数。
+			key := remoteimg.Key(it.Target)
+			if remoteURLs == nil {
+				remoteURLs = make(map[string]struct{}, 8)
+			}
+			if _, seen := remoteURLs[key]; !seen {
+				remoteURLs[key] = struct{}{}
+				res.CheckedUnique++
+			}
+			if it.Status == StatusRemoteBad {
+				res.Dead++
+			}
 		case StatusRemote:
 			// 碰不了的地址（ftp://、data:）单独计数：它们既不是「检测过」也不是
 			// 「失效」，混进 Skipped 里就再也没人看得见了。

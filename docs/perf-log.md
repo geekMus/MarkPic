@@ -2936,3 +2936,26 @@ if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
 
 教训：**「不碰」不等于「不看」。** 一个功能主动跳过某类输入时，最容易一起丢掉的
 就是「这类输入有没有问题」的判断 —— 而那恰恰是用户打开检测功能的理由。
+
+## 「远程图 10 张」其实只敲了一次门
+
+一篇文档里同一张图被引用 10 次，`--remote check` 报「远程图 10 张」。可我们只发了一个 HEAD —— `remoteEntry` 那套「领头/跟随」登记表，跟随者等领头者的结果。数字本身没错（10 处引用确实指着 10 个地方），但它回答的是「文档里有几处」，而读的人会理解成「图床被敲了几次」，两个问题差着量级。download 侧早就分开了：`localized` 按引用处算，`localizedUnique` 按文件算；检测侧只有前者。
+
+改法：
+
+- `internal/conv/types.go`：`FileResult.CheckedUnique`、`Summary.RemoteCheckedUnique`。
+- `internal/conv/runner.go` 的统计循环里 `case StatusRemoteOK, StatusRemoteBad:` 合并，`res.Checked++` 后再按 `remoteimg.Key(it.Target)` 去重累加 `res.CheckedUnique`。用 `Key` 而不是原串，是因为 `host/PIC.png` 与 `host/pic.png` 是两张图，而协议大小写不是。
+- `cmd/convert-md-picture/cli.go`：只有 `CheckedUnique < Checked` 时才把括号写出来（「远程图 1 张（10 处引用）」），否则还是老样子「远程图 4000 张」—— 99% 的情况两个数相等，多一个括号只是噪音。
+- `web/src/components/AppFooter.vue` 同理：`stats.remoteCheckedUnique < stats.remoteChecked` 才换文案。
+
+实测（`cmp-echosrv.exe` 36733）：
+
+| 夹具 | 改前 | 改后 |
+| --- | --- | --- |
+| 同一地址 10 处引用 | 远程图 10 张，0.0s | 远程图 1 张（10 处引用），0.0s |
+| 4000 个不同地址 | 远程图 4000 张，0.1s | 远程图 4000 张（不变），0.1s |
+| `<img src>` + `srcset` 两个候选指向同一张 + 一个坏地址 | 远程图 3 张，失效 1 张 | 远程图 2 张（3 处引用），失效 1 张 |
+
+顺带把「客户端是不是瓶颈」这件事钉死了：1000 / 4000 个唯一地址在 `-c 8` 与 `-c 48` 下都是 61–119 ms（约 3.5 万请求/秒）。之前记的「~2 ms/请求」是 `cmp-echosrv.exe` 每个请求都 `Sync()` 一次日志造成的 —— fsync 才是那条曲线的瓶颈，不是我们的代码。这也解释了为什么 `-c 48` 在这个夹具上跑不出优势：根本没有排队。
+
+回归：`TestRemoteCheckCountsUniqueProbesApart`（同一地址 5 处 + 另一地址 1 处 → `Checked == 6`、`CheckedUnique == 2`、汇总同步）。

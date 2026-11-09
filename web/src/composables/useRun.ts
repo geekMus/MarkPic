@@ -64,6 +64,8 @@ export interface RunStats {
   localizedUnique: number
   /** check 模式：检测了几个远程地址、其中几个打不开，以及有几个文件只是被检测。 */
   remoteChecked: number
+  /** 去重后真正探活过的地址数。 */
+  remoteCheckedUnique: number
   remoteDead: number
   /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
   remoteUnsupported: number
@@ -133,6 +135,7 @@ const live = reactive({
   localized: 0,
   localizedUnique: 0,
   remoteChecked: 0,
+  remoteCheckedUnique: 0,
   remoteDead: 0,
   remoteUnsupported: 0,
   localMissing: 0,
@@ -184,6 +187,7 @@ const stats = computed<RunStats>(() => {
       localized: finished.localized ?? 0,
       localizedUnique: finished.localizedUnique ?? 0,
       remoteChecked: finished.remoteChecked ?? 0,
+    remoteCheckedUnique: finished.remoteCheckedUnique ?? 0,
       remoteDead: finished.remoteDead ?? 0,
       remoteUnsupported: finished.remoteUnsupported ?? 0,
       localMissing: finished.localMissing ?? 0,
@@ -205,6 +209,7 @@ const stats = computed<RunStats>(() => {
     localized: live.localized,
     localizedUnique: live.localizedUnique,
     remoteChecked: live.remoteChecked,
+    remoteCheckedUnique: live.remoteCheckedUnique,
     remoteDead: live.remoteDead,
     remoteUnsupported: live.remoteUnsupported,
     localMissing: live.localMissing,
@@ -269,6 +274,7 @@ function liveReset(): void {
   live.localized = 0
   live.localizedUnique = 0
   live.remoteChecked = 0
+  live.remoteCheckedUnique = 0
   live.remoteDead = 0
   live.remoteUnsupported = 0
   live.localMissing = 0
@@ -373,6 +379,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.localized -= row.result.localized ?? 0
     live.localizedUnique -= row.result.localizedUnique ?? 0
     live.remoteChecked -= row.result.checked ?? 0
+    live.remoteCheckedUnique -= row.result.checkedUnique ?? 0
     live.remoteDead -= row.result.dead ?? 0
     live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
     live.localMissing -= row.result.localMissing ?? 0
@@ -388,6 +395,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.localized += result.localized ?? 0
   live.localizedUnique += result.localizedUnique ?? 0
   live.remoteChecked += result.checked ?? 0
+  live.remoteCheckedUnique += result.checkedUnique ?? 0
   live.remoteDead += result.dead ?? 0
   live.remoteUnsupported += result.remoteUnsupported ?? 0
   live.localMissing += result.localMissing ?? 0

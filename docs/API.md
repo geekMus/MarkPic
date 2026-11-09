@@ -95,7 +95,8 @@ type RunSummary = {
   uploaded: number
   failedImages: number
   localized?: number      // download 模式：这一轮下载了几张远程图
-  remoteChecked?: number  // check 模式：检测了几个远程地址
+  remoteChecked?: number  // check 模式：检测了几处远程引用（同一张图引用多次按处数算）
+  remoteCheckedUnique?: number // 去重后真正探活过的地址数（引用 10 次也只算 1）
   remoteDead?: number     // check 模式：其中几个打不开
   filesChecked?: number   // check 模式：几个文件只是被检测（没写输出）
   remoteReused?: number   // 上次已下过、这次没再下载的远程图张数

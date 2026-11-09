@@ -1466,3 +1466,34 @@ func TestRemoteCheckReportsMissingLocalImages(t *testing.T) {
 		}
 	}
 }
+
+// TestRemoteCheckCountsUniqueProbesApart 守住「引用次数」和「探活次数」不是一回事：
+// 同一张图被引用 5 次只发 1 个请求，报告里若只写「远程图 6 张」，
+// 读起来像我们对着图床敲了六次门。
+func TestRemoteCheckCountsUniqueProbesApart(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	var b strings.Builder
+	b.WriteString("# 标题\n\n")
+	for i := 0; i < 5; i++ {
+		b.WriteString("![同一张](" + host.URL + "/ok.png)\n\n")
+	}
+	b.WriteString("![另一张](" + host.URL + "/other.png)\n")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, b.String())
+
+	cfg := remoteCfg(host.URL+"/picgo", settings.RemoteCheck)
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Checked != 6 {
+		t.Fatalf("6 处引用都该算检测过，实际 %d", res.Checked)
+	}
+	if res.CheckedUnique != 2 {
+		t.Fatalf("真正探活过的只有 2 个地址，实际 %d", res.CheckedUnique)
+	}
+	if sum.RemoteChecked != 6 || sum.RemoteCheckedUnique != 2 {
+		t.Fatalf("汇总不对: checked=%d unique=%d", sum.RemoteChecked, sum.RemoteCheckedUnique)
+	}
+}

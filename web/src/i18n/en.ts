@@ -202,6 +202,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.localized': '{count} downloaded',
   'footer.localizedUnique': '{count} downloaded ({refs} links)',
   'footer.remoteChecked': '{count} remote links checked',
+  'footer.remoteCheckedRefs': '{unique} remote addresses checked ({count} references)',
   'footer.remoteDead': '{count} of them broken',
   'footer.remoteDeadDownloaded': '{count} could not be downloaded',
   'footer.checked': '{count} files checked',

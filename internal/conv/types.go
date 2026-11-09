@@ -59,7 +59,10 @@ type FileResult struct {
 	// 界面上就能写成「下载 1 张（20 处引用）」。
 	LocalizedUnique int `json:"localizedUnique"`
 	Dead            int `json:"dead"`
-	Checked         int `json:"checked"`
+	// CheckedUnique 是去重之后真正探活了几次：同一张图被引用 10 次时 Checked 是 10，
+	// 实际只发了一个请求。和 LocalizedUnique 一个道理，只报 10 会显得我们敲了十次门。
+	CheckedUnique int `json:"checkedUnique"`
+	Checked       int `json:"checked"`
 	// RemoteUnsupported 是「是远程地址，但我们碰不了」的引用数（ftp://、data:）。
 	// 它们既不算检测过、也不算失效，得单独记一笔，否则一篇里 4 处远程引用
 	// 只报「远程图 1 张」，另外 3 处等于从报告里消失了。
@@ -106,7 +109,9 @@ type Summary struct {
 	// LocalizedUnique 是去重之后真正下载了几张（按文件算，不按引用处算）。
 	LocalizedUnique int `json:"localizedUnique"`
 	RemoteChecked   int `json:"remoteChecked"`
-	RemoteDead      int `json:"remoteDead"`
+	// RemoteCheckedUnique 是去重后真正探活过的地址数（同一张图引用 10 次只算 1）。
+	RemoteCheckedUnique int `json:"remoteCheckedUnique"`
+	RemoteDead          int `json:"remoteDead"`
 	// RemoteUnsupported 是碰不了的远程地址数（ftp://、data: 之类）。
 	RemoteUnsupported int `json:"remoteUnsupported"`
 	// LocalMissing 是「只检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。

@@ -249,7 +249,15 @@ func checkDesc(r *conv.FileResult) string {
 		}
 		return "没有网络图片"
 	}
-	desc := fmt.Sprintf("远程图 %d 张，失效 %d 张", r.Checked, r.Dead)
+	// 同一张图被引用 10 次时 Checked 是 10，可实际只探了一次：两个数差着说，
+	// 才看得出「这张图被引用了很多次」和「我们敲了很多次门」不是一回事。
+	desc := ""
+	if r.CheckedUnique > 0 && r.CheckedUnique < r.Checked {
+		desc = fmt.Sprintf("远程图 %d 张（%d 处引用）", r.CheckedUnique, r.Checked)
+	} else {
+		desc = fmt.Sprintf("远程图 %d 张", r.Checked)
+	}
+	desc += fmt.Sprintf("，失效 %d 张", r.Dead)
 	if n := unsupportedCount(r); n > 0 {
 		desc += fmt.Sprintf("，另有 %d 处没法检测", n)
 	}
@@ -378,7 +386,11 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 		// 检测模式：Checked 就是处理过的远程引用总数（含失效的）。
 		// 下载模式不这么算 —— 那边只把「没下来的」记进 Checked，拿它当总数会打出
 		// 「下载 5 张 · 远程图 15 张 · 其中失效 15 张」，读起来像全军覆没。
-		parts = append(parts, fmt.Sprintf("远程图 %d 张", s.RemoteChecked))
+		if s.RemoteCheckedUnique > 0 && s.RemoteCheckedUnique < s.RemoteChecked {
+			parts = append(parts, fmt.Sprintf("远程图 %d 张（%d 处引用）", s.RemoteCheckedUnique, s.RemoteChecked))
+		} else {
+			parts = append(parts, fmt.Sprintf("远程图 %d 张", s.RemoteChecked))
+		}
 	}
 	if s.RemoteDead > 0 {
 		if s.Localized > 0 {

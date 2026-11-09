@@ -198,6 +198,7 @@ export const zh = {
   'footer.localized': '下载 {count}',
   'footer.localizedUnique': '下载 {count} 张（{refs} 处引用）',
   'footer.remoteChecked': '检测 {count} 个远程地址',
+  'footer.remoteCheckedRefs': '检测 {unique} 个远程地址（{count} 处引用）',
   'footer.remoteDead': '其中失效 {count}',
   'footer.remoteDeadDownloaded': '没下载回来 {count}',
   'footer.checked': '检测 {count} 个文件',
