@@ -3141,3 +3141,72 @@ const runningLabelKey = computed<MessageKey>(() => {
 无模式（默认上传）仍然是「上传中」，没动。
 
 教训：**「正在发生」的措辞要跟着动作走**。同一句「上传中」摆在三个不同的动作上，等于告诉用户一个他没在等的事情正在发生。
+
+## 取消之后，`images/` 里留下一堆 0 字节的图
+
+在界面里下载 20 张、图床限速 1 次/秒，第 2.5 秒点「取消」，跑完之后 `images/` 里躺着这么几个文件：
+
+```
+11.png      0
+12.png      0
+4.png      67
+7.png      67
+8.png      67
+```
+
+报告里那两个 0 字节的还是「已下载」。这种图点开永远是坏的，而且下次重跑时 `pickName` 还得先把它当残骸处理一遍。
+
+根因在重试循环的退出口：
+
+```go
+// 改前
+if werr := c.waitTurn(ctx, rawURL); werr != nil {
+    return res, err // err 还是 nil —— 第一次尝试就被取消时它没被赋过值
+}
+```
+
+`waitTurn` 是限流闸门：撞过 429 之后要把请求排到「下一个安全时刻」。如果上下文在排队之前就取消了，它返回 `ctx.Err()`；可这一行把 `err`（还是零值 nil）交了出去。调用方看到 `(Result{}, nil)`，当成一次成功的下载：临时文件 `os.Rename` 成正式文件名，文档里写上链接，统计一个「已下载」。
+
+实测证据（`CMP_DEBUG_DL` 临时打的日志）：
+
+```
+dl .../img/11.png tmp=.cmp-remote-2426997120.tmp res.Size=0 err=<nil>
+ren .cmp-remote-2426997120.tmp -> images/11.png size=0
+```
+
+修法两层：
+
+```go
+if werr := c.waitTurn(ctx, rawURL); werr != nil {
+    // 这里必须把 werr 自己交出去：err 可能是 nil（第一次尝试就被取消时
+    // 它还没被赋过值），返回 (零值, nil) 会被上层当成「下载成功，0 字节」。
+    return res, werr
+}
+```
+
+退避等待那一路有同样的问题，一并补上：
+
+```go
+case <-ctx.Done():
+    if err == nil {
+        err = ctx.Err()
+    }
+    return res, err
+```
+
+另外在 `downloadRemote` 加了一道兜底，不管上游以后怎么变，0 字节都不许改名成正式文件：
+
+```go
+if res.Size <= 0 {
+    return "", 0, "", remoteimg.ErrEmpty
+}
+```
+
+回归两条：
+
+- `TestDownloadToCancelledWhileQueueingIsAnError`：先让一台服务器一直回 429（把闸门撑起来），再用已经取消的上下文下载一次，断言返回 `context.Canceled`、写出 0 字节。**承重验证过**：把 `return res, werr` 改回 `return res, err`，立刻红 —— `取消之后不该报成功（res.Size=0，写进去 0 字节）`。
+- `TestRemoteCancelLeavesNoEmptyImages`：一边下 5 张、一边在第 250 毫秒取消，跑完检查 `images/` 里没有 0 字节文件。
+
+修后同一个夹具（12 张、1 秒/张、2.5 秒取消）：`images/` 里只有 3 个 67 字节的文件，未完成的那些老老实实报「已取消」。
+
+教训：**「没有错误」和「成功了」不是一回事**。错误变量默认是 nil，凡是「拿 err 当返回值」的地方，都要问一句：这条路径上 err 真的被赋过值吗？

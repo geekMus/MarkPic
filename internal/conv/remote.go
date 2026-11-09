@@ -385,6 +385,11 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 	if derr != nil {
 		return "", 0, "", derr
 	}
+	// 再兜一层：万一哪天又冒出「没有错误、也没有字节」的组合，也别把 0 字节的
+	// 文件改成文档里的链接 —— 那种图点开永远是坏的，而且重跑时还得先当残骸清理。
+	if res.Size <= 0 {
+		return "", 0, "", remoteimg.ErrEmpty
+	}
 	// 这里原来有一句 tmp.Sync()，是整条下载路径上最贵的一步：Windows 上一次
 	// fsync 约 2.1 ms，2000 张图就是 4.2 秒（占单张成本的一大半），而它买到的是
 	// 「断电之后这张图不会只剩半截」。

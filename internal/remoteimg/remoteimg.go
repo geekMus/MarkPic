@@ -465,12 +465,17 @@ func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) 
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
+				if err == nil {
+					err = ctx.Err()
+				}
 				return res, err
 			case <-time.After(retryDelay << uint(attempt-1)):
 			}
 		}
 		if werr := c.waitTurn(ctx, rawURL); werr != nil {
-			return res, err
+			// 这里必须把 werr 自己交出去：err 可能是 nil（第一次尝试就被取消时
+			// 它还没被赋过值），返回 (零值, nil) 会被上层当成「下载成功，0 字节」。
+			return res, werr
 		}
 		res, err = c.probeAt(ctx, rawURL)
 		if err == nil {
@@ -778,12 +783,17 @@ func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, 
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
+				if err == nil {
+					err = ctx.Err()
+				}
 				return res, err
 			case <-time.After(retryDelay << uint(attempt-1)):
 			}
 		}
 		if werr := c.waitTurn(ctx, rawURL); werr != nil {
-			return res, err
+			// 这里必须把 werr 自己交出去：err 可能是 nil（第一次尝试就被取消时
+			// 它还没被赋过值），返回 (零值, nil) 会被上层当成「下载成功，0 字节」。
+			return res, werr
 		}
 		var written int64
 		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes)

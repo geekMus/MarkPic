@@ -3,6 +3,7 @@ package conv
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -1568,5 +1569,69 @@ func TestRemoteDownloadCountsUniqueFailedApart(t *testing.T) {
 	}
 	if sum.RemoteFailed != 3 || sum.RemoteFailedUnique != 1 {
 		t.Fatalf("汇总不对: failed=%d unique=%d", sum.RemoteFailed, sum.RemoteFailedUnique)
+	}
+}
+
+// 取消之后，磁盘上不该留下一堆 0 字节的图。
+//
+// 实测过（GUI 里下 20 张、1 秒一张的图床，第 2.5 秒点取消）：images/ 里留下了
+// 7 个 0 字节的 png，报告里它们还是「已下载」—— 这种文件点开永远是坏的，
+// 而且下次重跑时 pickName 还要先把它当「残骸」处理一遍。
+func TestRemoteCancelLeavesNoEmptyImages(t *testing.T) {
+	dir := t.TempDir()
+	// 每个请求先吐出 8 个字节，然后卡在这里，直到测试结束 —— 模拟「下到一半被取消」。
+	release := make(chan struct{})
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", fmt.Sprint(len(pngBytes)))
+		_, _ = w.Write(pngBytes[:8])
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer func() {
+		once.Do(func() { close(release) })
+		srv.Close()
+	}()
+
+	src := ""
+	for i := 0; i < 5; i++ {
+		src += fmt.Sprintf("![i%d](%s/img/%d.png)\n\n", i, srv.URL, i)
+	}
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	cfg := remoteCfg("http://127.0.0.1:1", settings.RemoteDownload)
+	cfg.Concurrency = 2
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(250 * time.Millisecond)
+		cancel()
+	}()
+	_, _ = r.RunCollect(ctx, []string{doc})
+	once.Do(func() { close(release) })
+
+	entries, err := os.ReadDir(filepath.Join(dir, "images"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		info, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		if info.Size() == 0 {
+			t.Fatalf("取消之后留下了 0 字节的图: %s", e.Name())
+		}
 	}
 }

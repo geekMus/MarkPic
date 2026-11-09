@@ -1083,3 +1083,42 @@ func TestRateLimitIsPerHostNotGlobal(t *testing.T) {
 		t.Fatalf("两台主机该各有一份节奏，实际 %d 份", n)
 	}
 }
+
+// 取消发生在「还在排队等限流闸门」的时候，不能返回「成功、0 字节」。
+//
+// 踩过的现场：GUI 里下载 20 张 1 秒/张的图，第 2.5 秒点取消，images/ 里留下
+// 两个 0 字节的 png，报告里它们还写着「已下载」。根因是 waitTurn 失败时
+// `return res, err` 里的 err 还是 nil（第一次尝试就被取消，它压根没被赋过值），
+// 上层于是把零值 Result 当成一次成功的下载。
+func TestDownloadToCancelledWhileQueueingIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 一直回 429：让客户端把这一台主机的节奏降下来，闸门里就有等待了。
+		w.Header().Set("Retry-After", "1")
+		http.Error(w, "slow down", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := newClient(t)
+	url := srv.URL + "/x.png"
+
+	// 第一趟：撞上限流，闸门里留下等待时间。
+	var first bytes.Buffer
+	if _, err := c.DownloadTo(context.Background(), url, &first, 0); err == nil {
+		t.Fatal("429 应该报错")
+	}
+
+	// 第二趟：上下文在排队之前就取消了。
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var buf bytes.Buffer
+	res, err := c.DownloadTo(ctx, url, &buf, 0)
+	if err == nil {
+		t.Fatalf("取消之后不该报成功（res.Size=%d，写进去 %d 字节）", res.Size, buf.Len())
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("错误应该是 context.Canceled，实际 %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("取消之后不该写任何字节，实际 %d", buf.Len())
+	}
+}
