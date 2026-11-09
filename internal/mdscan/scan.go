@@ -601,8 +601,11 @@ func protectedMask(src []byte) maskBits {
 	n := len(src)
 	mask := newMaskBits(n)
 
-	// 围栏代码块
+	// 围栏代码块、缩进代码块
 	lineStart := 0
+	inCode := false // 正处在一个缩进代码块里
+	inList := false // 最近一次非空行开了列表项
+	prevBlank := true
 	for lineStart < n {
 		// 行尾用 IndexByte 找：这段循环每篇文档都要走一遍全文，
 		// 逐字节判断 src[lineEnd] != '\n' 曾占到解析时间的三分之一。
@@ -616,6 +619,26 @@ func protectedMask(src []byte) maskBits {
 			trim++
 			spaces++
 		}
+		// tab 在 CommonMark 里按四列算，落在这一格上就是缩进代码块。
+		tabbed := trim < lineEnd && src[trim] == '\t'
+		rest := trim
+		for rest < lineEnd && (src[rest] == ' ' || src[rest] == '\t') {
+			rest++
+		}
+		blank := rest >= lineEnd
+		indented := tabbed || spaces >= 4
+
+		// 缩进代码块延续到第一个「非空且不缩进」的行为止。
+		if inCode {
+			if blank || indented {
+				mask.setRange(lineStart, lineEnd)
+				prevBlank = blank
+				lineStart = lineEnd + 1
+				continue
+			}
+			inCode = false
+		}
+
 		if spaces <= 3 && trim < lineEnd && (src[trim] == '`' || src[trim] == '~') {
 			ch := src[trim]
 			runLen := 0
@@ -660,6 +683,20 @@ func protectedMask(src []byte) maskBits {
 				continue
 			}
 		}
+		// 缩进四个空格以上、前面是空行、又不在列表里 —— 这是代码块。
+		// 列表项下面的缩进行是列表内容（图片常常就写在那儿），不能当代码吞掉：
+		// 吞掉的后果是那张图静默地留在原地，谁也不知道。
+		if !blank && indented && prevBlank && !inList {
+			inCode = true
+			mask.setRange(lineStart, lineEnd)
+			prevBlank = false
+			lineStart = lineEnd + 1
+			continue
+		}
+		if !blank && !indented {
+			inList = isListMarker(src, lineStart, lineEnd)
+		}
+		prevBlank = blank
 		lineStart = lineEnd + 1
 	}
 
@@ -821,6 +858,43 @@ func isHTMLSpace(c byte) bool {
 //
 // 这里不用 strings.EqualFold(string(b[:n]), prefix)：那会把一小段字节转成字符串，
 // 在「每个 '<' 都要问一次」的热路径上是一笔纯浪费的分配。
+// isListMarker 判断一行是不是列表项的开头（`- x`、`* x`、`+ x`、`1. x`、`1) x`）。
+//
+// 只用来回答「缩进四个空格的行到底是代码还是列表内容」这一个问题：列表项下面的
+// 缩进行属于那一项，图片常常就写在那儿，当成代码吞掉就等于静默不处理。
+func isListMarker(src []byte, start, end int) bool {
+	i := start
+	spaces := 0
+	for i < end && src[i] == ' ' && spaces < 4 {
+		i++
+		spaces++
+	}
+	if spaces > 3 || i >= end {
+		return false
+	}
+	switch src[i] {
+	case '-', '*', '+':
+		i++
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		digits := 0
+		for i < end && digits < 10 && src[i] >= '0' && src[i] <= '9' {
+			i++
+			digits++
+		}
+		if i >= end || (src[i] != '.' && src[i] != ')') {
+			return false
+		}
+		i++
+	default:
+		return false
+	}
+	// 标记后面必须跟空白，`---` 是分割线、`+1` 是文字，都不是列表项。
+	if i < end && src[i] != ' ' && src[i] != '\t' {
+		return false
+	}
+	return true
+}
+
 func hasPrefixFold(b []byte, prefix string) bool {
 	if len(b) < len(prefix) {
 		return false

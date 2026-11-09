@@ -43,6 +43,14 @@ func TestScanMarkdown(t *testing.T) {
 		{"pre 块内忽略", "<pre>\n![a](p.png)\n</pre>", nil},
 		{"行内 code 标签忽略", "<code>![a](p.png)</code>", nil},
 		{"pre 大小写", "<PRE>![a](p.png)</PRE>", nil},
+		{"缩进代码块忽略", "文字\n\n    ![a](p.png)\n", nil},
+		{"缩进代码块跨空行", "文字\n\n    ![a](p.png)\n\n    ![b](q.png)\n", nil},
+		{"文件开头就是缩进代码", "    ![a](p.png)\n", nil},
+		{"tab 缩进代码忽略", "文字\n\n\t![a](p.png)\n", nil},
+		{"列表项里的缩进图保留", "- 项目\n\n    ![a](p.png)\n", []string{"p.png"}},
+		{"列表续行里的缩进图保留", "- 项目\n    ![a](p.png)\n", []string{"p.png"}},
+		{"分割线不是列表", "文字\n\n    ![a](p.png)\n\n---\n", nil},
+		{"列表结束后的缩进代码", "- 项目\n\n文字\n\n    ![a](p.png)\n", nil},
 		{"prefix 标签不算 pre", "<prefix>![a](p.png)</prefix>", []string{"p.png"}},
 	}
 	for _, c := range cases {
