@@ -397,6 +397,7 @@ const usageTemplate = `convert-md-picture — 把 Markdown 里的本地图片上
   convert-md-picture . --in-place
   convert-md-picture docs -o directory --out-dir ./out
   convert-md-picture post.md --remote check
+  convert-md-picture -j --remote check docs/ | jq -r '.deadLinks[].url'
   convert-md-picture post.md --remote download --remote-dir assets/img
 `
 
