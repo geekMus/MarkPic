@@ -14,6 +14,7 @@ import {
   preview,
   revealPath,
 } from './api'
+import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
 import { useRun } from './composables/useRun'
 import { useSettings } from './composables/useSettings'
@@ -115,6 +116,11 @@ async function enqueue(paths: string[]): Promise<void> {
     warning(t('error.preview', { detail: describeError(error, t('error.unknown')) }))
   }
 }
+// 拖进窗口就等于加进队列；拦不住 drag 事件的话 WebView2 会把窗口导航到那个文件
+const { active: dropActive } = useFileDrop({
+  onPaths: (paths) => void enqueue(paths),
+  onUnsupported: () => warning(t('drop.unsupported')),
+})
 
 function handleRun(): void {
   if (!canStart.value) return
@@ -280,6 +286,14 @@ onBeforeUnmount(() => {
       @about="aboutOpen = true"
     />
 
+    <!-- 拖文件进来时铺一层：不拦默认行为的话，WebView2 会直接导航到那个文件 -->
+    <div v-if="dropActive" class="dropzone" aria-hidden="true">
+      <span class="dropzone__pill">
+        <AppIcon name="folder-plus" :size="16" />
+        {{ t('drop.hint') }}
+      </span>
+    </div>
+
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
 
     <!-- 关于 / 更新：版本号挪到页面底部后，从那里点开 -->
@@ -418,5 +432,28 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 0;
   cursor: nwse-resize;
+}
+/* 拖拽时铺满窗口的一层薄雾：只在这一瞬间出现，平时完全不占视觉 */
+.dropzone {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--canvas) 74%, transparent);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.dropzone__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--panel);
+  box-shadow: 0 18px 40px -22px rgba(13, 17, 23, 0.55);
+  color: var(--ink);
+  font-size: var(--fs-3);
 }
 </style>

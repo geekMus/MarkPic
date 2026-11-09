@@ -157,6 +157,8 @@ export const en: Record<keyof typeof zh, string> = {
   'row.details.collapse': 'Hide image details',
   'row.item.missingFile': 'Local file not found',
   'row.item.remoteSkipped': 'Already remote — skipped',
+  'drop.hint': 'Drop to add to the queue',
+  'drop.unsupported': 'Could not read a local path from that drop — use the File / Folder buttons, or paste the path into manual input',
   'row.reveal': 'Show in File Explorer',
   'row.remove': 'Remove from queue',
   'row.stat.uploaded': 'Replaced',
