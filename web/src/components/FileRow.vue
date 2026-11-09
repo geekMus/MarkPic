@@ -46,14 +46,20 @@ const detailsId = `file-row-${useId()}`
 const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
   const result = props.row.result
   if (result) {
+    const meta = FILE_STATUS_META[result.status]
     // 检测模式下整篇「已检测」读起来是成功，但有死链的行必须一眼认出来 ——
     // 尤其点开「只看有问题的」之后，一行行全是中性的「已检测」等于没筛。
-    if ((result.dead ?? 0) > 0) return { tone: 'danger', labelKey: 'row.status.checked' }
+    //
+    // 这里只改颜色、不改说法。早先死链行一律换标题成「已检测」，于是下载模式
+    // 下那些「下载了一半」的行也写着「已检测」—— 看着像只查了查、没动过文件。
+    if ((result.dead ?? 0) > 0 || (result.remoteFailed ?? 0) > 0) {
+      return { tone: 'danger', labelKey: meta.labelKey }
+    }
     // 缺本地图的行只算警告（不红），但它确实有问题，筛选得能看见。
     if ((result.localMissing ?? 0) > 0) {
-      return { tone: 'warning', labelKey: FILE_STATUS_META[result.status].labelKey }
+      return { tone: 'warning', labelKey: meta.labelKey }
     }
-    return FILE_STATUS_META[result.status]
+    return meta
   }
   if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
   if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
