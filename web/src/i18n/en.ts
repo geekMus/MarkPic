@@ -157,6 +157,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.details.collapse': 'Hide image details',
   'row.item.missingFile': 'Local file not found',
   'row.item.remoteSkipped': 'Already remote — skipped',
+  'row.reveal': 'Show in File Explorer',
   'row.remove': 'Remove from queue',
   'row.stat.uploaded': 'Replaced',
   'row.stat.reused': 'Reused',

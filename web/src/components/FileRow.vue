@@ -19,7 +19,13 @@ const props = defineProps<{
   remoteMode?: 'ignore' | 'check' | 'download'
 }>()
 
-const emit = defineEmits<{ remove: [id: string] }>()
+const emit = defineEmits<{ remove: [id: string]; reveal: [path: string] }>()
+
+/** 已跑完的行给的是副本，其它情况给原文档 —— 想干活的总是这两者之一。 */
+const revealTarget = computed<string>(() => {
+  const out = props.row.result?.outputPath ?? ''
+  return out !== '' ? out : props.row.path
+})
 
 const { t } = useI18n()
 
@@ -392,16 +398,28 @@ function replaced(status: ImageStatus): boolean {
         <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
       </span>
 
-      <button
-        type="button"
-        class="icon-btn icon-btn--sm icon-btn--danger item__remove"
-        :title="t('row.remove')"
-        :aria-label="t('row.remove')"
-        :disabled="busy"
-        @click="emit('remove', row.id)"
-      >
-        <AppIcon name="x" :size="13" />
-      </button>
+      <!-- 两个操作平时藏着：改完文档想打开看一眼，或者不要这一行了 -->
+      <span class="item__actions">
+        <button
+          type="button"
+          class="icon-btn icon-btn--sm item__reveal"
+          :title="t('row.reveal')"
+          :aria-label="t('row.reveal')"
+          @click="emit('reveal', revealTarget)"
+        >
+          <AppIcon name="folder-open" :size="14" />
+        </button>
+        <button
+          type="button"
+          class="icon-btn icon-btn--sm icon-btn--danger item__remove"
+          :title="t('row.remove')"
+          :aria-label="t('row.remove')"
+          :disabled="busy"
+          @click="emit('remove', row.id)"
+        >
+          <AppIcon name="x" :size="13" />
+        </button>
+      </span>
     </div>
 
     <p v-if="reason" class="item__reason">{{ reason }}</p>
@@ -514,7 +532,7 @@ function replaced(status: ImageStatus): boolean {
 
 .item__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px 96px 34px;
+  grid-template-columns: minmax(0, 1fr) 76px 96px 68px;
   align-items: center;
   column-gap: 10px;
   min-height: 62px;
@@ -595,14 +613,30 @@ function replaced(status: ImageStatus): boolean {
   min-width: 0;
 }
 
-.item__remove {
+.item__actions {
+  display: flex;
   justify-self: end;
+  gap: 2px;
+}
+
+.item__reveal,
+.item__remove {
   opacity: 0;
 }
 
+.item:hover .item__reveal,
+.item__reveal:focus-visible,
 .item:hover .item__remove,
 .item__remove:focus-visible {
   opacity: 1;
+}
+
+/* 触屏没有悬停：两个按钮直接常显，否则永远点不到 */
+@media (hover: none) {
+  .item__reveal,
+  .item__remove {
+    opacity: 1;
+  }
 }
 
 .item__reason {
@@ -856,7 +890,7 @@ function replaced(status: ImageStatus): boolean {
   }
 
   .item__main {
-    grid-template-columns: minmax(0, 1fr) 96px 34px;
+    grid-template-columns: minmax(0, 1fr) 96px 68px;
   }
 
   .items__row {

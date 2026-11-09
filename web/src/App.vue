@@ -138,6 +138,15 @@ async function handleReveal(): Promise<void> {
   }
 }
 
+/** 行上的「在资源管理器里打开」：改完文档总要去看一眼 */
+async function revealRow(path: string): Promise<void> {
+  try {
+    await revealPath(path)
+  } catch (error) {
+    warning(t('error.revealOutput', { detail: describeError(error, t('error.unknown')) }))
+  }
+}
+
 async function handlePickDir(): Promise<void> {
   try {
     const paths = await pickFolder()
@@ -232,6 +241,7 @@ onBeforeUnmount(() => {
           @pick-folder="pick('folder')"
           @submit-paths="enqueue"
           @remove="removeRow"
+          @reveal="revealRow"
           @clear="clearQueue"
           @update:manual-open="manualOpen = $event"
         />

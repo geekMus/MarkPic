@@ -155,6 +155,7 @@ export const zh = {
   'row.details.collapse': '收起图片明细',
   'row.item.missingFile': '本地文件不存在',
   'row.item.remoteSkipped': '已是远程地址，跳过',
+  'row.reveal': '在资源管理器中显示',
   'row.remove': '从队列移除',
   'row.stat.uploaded': '替换',
   'row.stat.reused': '其中复用',

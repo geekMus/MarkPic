@@ -23,6 +23,7 @@ const emit = defineEmits<{
   'pick-folder': []
   'submit-paths': [paths: string[]]
   remove: [id: string]
+  reveal: [path: string]
   clear: []
   'update:manualOpen': [open: boolean]
 }>()
@@ -386,7 +387,7 @@ function onScroll(): void {
       </form>
 
       <template v-if="rows.length > 0">
-        <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 移除 34px -->
+        <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 操作 68px -->
         <div class="ledger__head" aria-hidden="true">
           <span class="ledger__col">{{ t('queue.col.file') }}</span>
           <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
@@ -409,7 +410,8 @@ function onScroll(): void {
             :row="row"
             :busy="busy"
             :remote-mode="remoteMode"
-            @remove="emit('remove', $event)"
+            @remove="emit('remove', $event)")
+            @reveal="emit('reveal', $event)"
           />
           <li
             v-if="window_.bottom > 0"
@@ -480,7 +482,7 @@ function onScroll(): void {
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px 96px 34px;
+  grid-template-columns: minmax(0, 1fr) 76px 96px 68px;
   align-items: center;
   column-gap: 10px;
   flex: none;
@@ -544,7 +546,7 @@ function onScroll(): void {
 /* 窄窗口：行里不再显示「图片」列（列宽留给文件名），列头跟着一起收 */
 @media (max-width: 820px) {
   .ledger__head {
-    grid-template-columns: minmax(0, 1fr) 96px 34px;
+    grid-template-columns: minmax(0, 1fr) 96px 68px;
   }
 
   .ledger__col--num {
