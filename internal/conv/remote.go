@@ -288,6 +288,11 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		// 最常见的原因不是权限，而是那儿已经有一个同名文件（「mkdir …: The system
+		// cannot find the path specified」这种系统原话谁也看不懂）。
+		if st, serr := os.Stat(dir); serr == nil && !st.IsDir() {
+			return "", 0, "", errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, dir))
+		}
 		return "", 0, "", err
 	}
 	tmp, err := os.CreateTemp(dir, ".cmp-remote-*.tmp")

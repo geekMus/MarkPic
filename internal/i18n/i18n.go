@@ -65,6 +65,7 @@ const (
 	KeyConvReadLocked         Key = "conv.readLocked"
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
+	KeyConvRemoteDirIsFile    Key = "conv.remoteDirIsFile"
 
 	KeyConvRemoteDead         Key = "conv.remoteDead"
 	KeyConvRemoteNotImage     Key = "conv.remoteNotImage"
@@ -246,6 +247,10 @@ var catalog = map[Key]entry{
 	KeyConvOutDirIsFile: {
 		"输出目录是一个文件，不是目录：%s",
 		"The output directory is a file, not a directory: %s",
+	},
+	KeyConvRemoteDirIsFile: {
+		"本地目录 %s 已经被一个同名文件占了，放不进图片（换个目录名，或先挪走那个文件）",
+		"%s is already taken by a file, so images cannot be saved there (rename it or pick another folder)",
 	},
 	KeyConvOutDirIsSourceDir: {
 		"输出目录就是文档所在的目录，因此这份文档会被原地覆盖",

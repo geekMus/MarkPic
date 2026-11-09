@@ -436,3 +436,36 @@ func TestRemoteDownloadFollowsOutputDirectory(t *testing.T) {
 		t.Fatalf("输出文档里的链接不对: %s", body)
 	}
 }
+
+// 下载目录的位置上已经有一个同名文件时，要说人话（不是系统的「cannot find the path」）。
+func TestRemoteDirCollidesWithFile(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	// 先占住 images 这个位置。
+	blocker := filepath.Join(dir, "images")
+	writeFile(t, blocker, "not a directory")
+	doc := filepath.Join(dir, "a.md")
+	writeFile(t, doc, "![p]("+host.URL+"/ok.png)\n")
+
+	r := NewRunner(remoteCfg("http://127.0.0.1:1", settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	if results[0].Failed != 1 {
+		t.Fatalf("应该报一处失败: %+v", results[0])
+	}
+	msg := results[0].Items[0].Error
+	if !strings.Contains(msg, "已经被一个同名文件占了") {
+		t.Fatalf("文案没说清楚原因: %q", msg)
+	}
+	if strings.Contains(msg, "mkdir ") {
+		t.Fatalf("不该把系统原话抛给用户: %q", msg)
+	}
+
+	// 英文也要有。
+	rEn := NewRunner(remoteCfg("http://127.0.0.1:1", settings.RemoteDownload), i18n.EN, "run", nil)
+	resEn, _ := rEn.RunCollect(context.Background(), []string{doc})
+	msgEn := resEn[0].Items[0].Error
+	if !strings.Contains(msgEn, "already taken by a file") {
+		t.Fatalf("英文文案不对: %q", msgEn)
+	}
+}
