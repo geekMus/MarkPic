@@ -1259,7 +1259,7 @@ func TestRemoteRequestsDecodeEscapesAndEntities(t *testing.T) {
 		"![反斜杠](" + host.URL + "/esc\\(1\\).png)\n\n" +
 		"<img src=\"" + host.URL + "/q.png?w=1&amp;h=2\">\n\n" +
 		"<img src=\"" + host.URL + "/q.png?w=1&#38;h=2\">\n\n" +
-		"![md 里的实体按字面](" + host.URL + "/q.png?w=1&amp;h=2)\n"
+		"![md 里的实体同样还原](" + host.URL + "/q.png?w=1&amp;h=2)\n"
 	doc := filepath.Join(dir, "doc.md")
 	writeFile(t, doc, src)
 
@@ -1276,12 +1276,12 @@ func TestRemoteRequestsDecodeEscapesAndEntities(t *testing.T) {
 			t.Errorf("服务器没收到 %q，收到的是 %v", want, got)
 		}
 	}
-	if got["/q.png?w=1&amp;h=2"] != 1 {
-		// Markdown 里的 `&amp;` 是五个字面字符，必须原样发出去。
-		t.Errorf("Markdown 里的 &amp; 不该被还原，实际收到 %v", got)
-	}
-	if got["/q.png?w=1&amp;amp;h=2"] != 0 || got["/q.png?w=1&h=2&amp;"] != 0 {
-		t.Errorf("出现了奇怪的查询串: %v", got)
+	// 三种写法（HTML 的 `&amp;`、HTML 的 `&#38;`、Markdown 的 `&amp;`）都还原成
+	// 同一个地址，去重之后只该发一次请求；一个字节都不该带着字面的 `amp;` 出去。
+	for target, n := range got {
+		if strings.Contains(target, "amp;") {
+			t.Errorf("地址里还带着字面的实体：%q（%d 次）", target, n)
+		}
 	}
 }
 

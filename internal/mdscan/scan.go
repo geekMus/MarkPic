@@ -112,7 +112,7 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 			continue
 		}
 		ref.Kind = KindMarkdown
-		ref.Target = UnescapeMarkdown(def.dest)
+		ref.Target = decodeMarkdownDest(def.dest)
 		ref.Title = def.title
 		ref.Line = lineOf(lineStarts, i)
 		d.Refs = append(d.Refs, ref)
@@ -281,7 +281,7 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 	}
 	// CommonMark 里 `\(` 等价于 `(`：不还原的话请求会带着字面的反斜杠出去
 	// （实测 `![a](http://h/ok\(1\).png)` 发出去的是 `HEAD /ok%5C%281%5C%29.png`）。
-	raw = UnescapeMarkdown(raw)
+	raw = decodeMarkdownDest(raw)
 	return Ref{
 		Start:    start,
 		End:      end,
@@ -1100,4 +1100,13 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+// decodeMarkdownDest 还原 Markdown 地址里的反斜杠转义与字符实体。
+//
+// CommonMark 把链接目的地当普通文本处理：`\(` 就是 `(`，`&amp;` 就是 `&`。
+// 少了实体这一步的后果实测过：`![a](http://h/i.png?a=1&amp;b=2)` 发出去的请求
+// 带着字面的 `amp;b=2`，等于换了一个地址 —— 轻则拿到尺寸不对的图，重则 404，
+// 检测模式于是把好地址报成失效。浏览器渲染同一篇 Markdown 时也会还原成 `&`。
+func decodeMarkdownDest(s string) string {
+	return DecodeAttrEntities(UnescapeMarkdown(s))
 }

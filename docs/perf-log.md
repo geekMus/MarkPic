@@ -3447,3 +3447,32 @@ if c.headLies(rawURL) {
 
 实测（10 个 picsum 地址，`-c 8`）：全部有效，`2.3s`；修前同一场景每个地址两趟往返。
 449 篇 / 380 条真死链的语料没受影响（`0.7–1.0s`，死链两侧答案一致，不会误标）。
+
+## Markdown 地址里的 `&amp;` 被原样发了出去
+
+`![a](http://h/i.png?a=1&amp;b=2)` 这种写法，请求里带着字面的 `amp;b=2`：
+
+```
+HEAD /img/a.png?x=1&amp;y=2     ← Markdown 写法
+HEAD /img/b.png?x=1&y=2       ← 同一个地址的 HTML 写法
+```
+
+浏览器渲染同一篇 Markdown 时会把它还原成 `&`：CommonMark 把链接目的地当普通文本处理，
+`\(` 是 `(`，`&amp;` 是 `&`。我们只做了前半截（反斜杠转义），漏了实体这一步，于是同一
+个地址在 Markdown 与 HTML 两种写法下被当成两个地址——不仅请求打到错的参数上（对方多半
+忽略它，回一张尺寸不对的图，或者干脆 404），去重也白做。
+
+改法是两处目的地解析都走同一个函数：
+
+```go
+func decodeMarkdownDest(s string) string {
+	return DecodeAttrEntities(UnescapeMarkdown(s))
+}
+```
+
+`DecodeAttrEntities` 原本是给 HTML 属性用的，只认**带分号**的 `&amp; &lt; &gt; &quot;
+&apos;` 加数字实体（`&#38;`、`&#x26;`）——`?a=1&copy=2` 少了分号在 HTML 里会变成 `©=2`，
+地址当场换一个，那比不还原糟得多。
+
+修后同一篇里 Markdown 与 HTML 两种写法合并成一条：`远程图 1 张（2 处引用）`。
+449 篇 / 380 条死链的语料 `0.3s`，无回归。

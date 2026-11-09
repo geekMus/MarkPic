@@ -504,8 +504,13 @@ func TestHTMLAttributeEntitiesAreDecoded(t *testing.T) {
 		{"srcset", `<img srcset="http://h/e.png?a=1&amp;b=2 1x">`, []string{"http://h/e.png?a=1&b=2"}},
 		// HTML 属性里的反斜杠没有转义含义，必须原样留着
 		{"反斜杠不还原", `<img src="http://h/f\(1\).png">`, []string{`http://h/f\(1\).png`}},
-		// Markdown 里 `&amp;` 就是字面的五个字符，不能解
-		{"Markdown 不解实体", `![a](http://h/g.png?w=1&amp;h=2)`, []string{"http://h/g.png?w=1&amp;h=2"}},
+		// Markdown 的链接目的地按 CommonMark 也是普通文本：`&amp;` 就是 `&`，
+		// `&#38;` 与 `&#x26;` 同样。不解的话请求会带着字面的 `amp;` 出去，等于换个地址。
+		{"Markdown 解命名实体", `![a](http://h/g.png?w=1&amp;h=2)`, []string{"http://h/g.png?w=1&h=2"}},
+		{"Markdown 解十进制实体", `![a](http://h/g.png?w=1&#38;h=2)`, []string{"http://h/g.png?w=1&h=2"}},
+		{"Markdown 解十六进制实体", `![a](http://h/g.png?w=1&#x26;h=2)`, []string{"http://h/g.png?w=1&h=2"}},
+		// 少了分号的按字面留着：`?a=1&copy=2` 解错会换成另一个地址。
+		{"Markdown 没有分号不解", `![a](http://h/g.png?a=1&copy=2)`, []string{"http://h/g.png?a=1&copy=2"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
