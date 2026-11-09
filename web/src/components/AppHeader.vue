@@ -28,16 +28,20 @@ const { available: windowChrome, maximized, minimize, toggleMaximize, close, sta
 const { t } = useI18n()
 const { choice: themeChoice } = useTheme()
 
+// 这盏灯回答的是「现在能不能开始」，所以「用不着 PicGo」和「PicGo 掉线」必须分开：
+// 只检测 / 只下载远程图时压根不上传，掉线是正常状态，标红只会让人以为出了故障。
 const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
   if (props.picgo === null) return props.healthChecking ? 'neutral' : 'danger'
-  return props.picgo.online ? 'success' : 'danger'
+  if (props.picgo.online) return 'success'
+  return props.picgo.needed ? 'danger' : 'neutral'
 })
 
 const picgoLabel = computed(() => {
   if (props.picgo === null) {
     return props.healthChecking ? t('header.picgo.checking') : t('header.picgo.offline')
   }
-  return props.picgo.online ? t('header.picgo.online') : t('header.picgo.offline')
+  if (props.picgo.online) return t('header.picgo.online')
+  return props.picgo.needed ? t('header.picgo.offline') : t('header.picgo.notNeeded')
 })
 
 const picgoTitle = computed(() => {

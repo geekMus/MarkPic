@@ -2261,3 +2261,34 @@ CommonMark 里 `![a](images/4 x.png)` 的地址在第一个空格处就结束了
 新 12.73/12.41 s，打平），但代价是零，所以保留：新增 `newTransport(idlePerHost)` 与
 `SetConcurrency(n)`（`NewRunner` 里按实际并发设置；必须在发请求前调用，
 `Transport` 字段本身不是并发安全的）。
+
+## 逐图明细：两万行明细一次全画出来
+
+队列那一行展开之后，下面会列出这个文件里每一张图的处理结果。这部分一直是
+`v-for` 全量渲染 —— 一篇两万张图的文档展开时，浏览器要一次性造出 **23000 个
+`.items__row`、184164 个 DOM 节点**，JS 堆从 8 MB 涨到 95 MB，展开本身耗时
+**2058 ms**，而这中间用户能看见的只有十几行。
+
+改成窗口化渲染：超过 `VIRTUAL_THRESHOLD = 200` 条时，列表固定 `ITEM_VIEWPORT = 420px`
+高、行高 `ITEM_HEIGHT = 30`、上下各留 `ITEM_OVERSCAN = 8` 行余量，只把
+`items.slice(start, end)` 渲染出来，用两个撑高的空 `li` 保住滚动条长度。
+
+| | 改之前 | 改之后 |
+| --- | --- | --- |
+| 展开耗时（20000 条） | 2058 ms | **26 ms** |
+| `.items__row` 节点 | 23000 | **30** |
+| DOM 节点总数 | 184164 | **387** |
+| JS 堆 | 95 MB | **8 MB** |
+| 连续滚动最差帧 | — | 10 ms（p95 8 ms） |
+
+阈值取 200 是因为「一眼能扫完」和「要找某一条」的分界线大概在那儿；边界实测
+`exact200.md` 仍然全渲染（200 行、无滚动、无占位 `li`），`exact201.md` 立刻进窗口
+（30 行、`max-height:420px`、`scrollHeight 6030`）。
+
+## PicGo 那盏灯：不用的东西不该标红
+
+只检测 / 只下载远程图时压根不上传，PicGo 掉线是**正常状态**。原来那盏灯只看
+`online`，于是这种模式下它红着——用户会以为出了故障。后端早就有
+`picgo.needed`（`settings.Remote` 不是 `check`/`download` 且非试运行时为真），
+只是前端没用。现在三种状态分开：`online` 绿、`needed && !online` 红、
+`!needed && !online` 灰并写「本次不需要 PicGo」。

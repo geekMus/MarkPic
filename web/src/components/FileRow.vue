@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileStatus, ImageItem, ImageStatus } from '../types'
@@ -161,6 +161,69 @@ function itemDetail(item: ImageItem): string {
   return item.url ?? ''
 }
 
+/* ------------------------------------------------------------------ *
+ * 逐图明细的虚拟滚动
+ *
+ * 一篇两万张图的文档，展开就是两万行：实测 184164 个 DOM 节点、95 MB 堆、
+ * 展开要 2.06 秒，而用户真正能看见的永远只有那十几行。超过阈值就只渲染
+ * 可视区附近的行，用上下两个占位块撑出滚动高度。
+ *
+ * 明细行高度是固定的（单行 + 省略号，实测 30px），所以不需要像文件列表
+ * 那样按行 id 记实测高度。
+ * ------------------------------------------------------------------ */
+
+/** 超过这个条数才启用虚拟滚动：几百行全渲染反而更简单，也不会有滚动条。 */
+const VIRTUAL_THRESHOLD = 200
+/** 明细行高度（`.items__row` 的 min-height 30px，单行不换行）。 */
+const ITEM_HEIGHT = 30
+/** 可视区上下各多渲染几行，滚动时不至于露白。 */
+const ITEM_OVERSCAN = 8
+/** 虚拟滚动时明细区的最大高度：再高就把整页滚动条抢走了。 */
+const ITEM_VIEWPORT = 420
+
+const itemsEl = ref<HTMLElement | null>(null)
+const itemsScrollTop = ref(0)
+const itemsViewport = ref(ITEM_VIEWPORT)
+
+const virtualItems = computed(() => items.value.length > VIRTUAL_THRESHOLD)
+
+const itemWindow = computed(() => {
+  const total = items.value.length
+  if (!virtualItems.value) {
+    return { start: 0, end: total, padTop: 0, padBottom: 0 }
+  }
+  const height = itemsViewport.value > 0 ? itemsViewport.value : ITEM_VIEWPORT
+  const visible = Math.ceil(height / ITEM_HEIGHT) + ITEM_OVERSCAN * 2
+  let start = Math.floor(itemsScrollTop.value / ITEM_HEIGHT) - ITEM_OVERSCAN
+  if (start < 0) start = 0
+  let end = start + visible
+  if (end > total) end = total
+  return { start, end, padTop: start * ITEM_HEIGHT, padBottom: (total - end) * ITEM_HEIGHT }
+})
+
+const visibleItems = computed(() =>
+  items.value.slice(itemWindow.value.start, itemWindow.value.end),
+)
+
+function onItemsScroll(event: Event): void {
+  const el = event.target as HTMLElement
+  itemsScrollTop.value = el.scrollTop
+  if (el.clientHeight > 0) itemsViewport.value = el.clientHeight
+}
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value
+  if (expanded.value) {
+    itemsScrollTop.value = 0
+    void nextTick(() => {
+      const el = itemsEl.value
+      if (!el) return
+      el.scrollTop = 0
+      if (el.clientHeight > 0) itemsViewport.value = el.clientHeight
+    })
+  }
+}
+
 /** 只有真正改写过的引用才配得上一条强调色的替换箭头。 */
 function replaced(status: ImageStatus): boolean {
   return (
@@ -182,7 +245,7 @@ function replaced(status: ImageStatus): boolean {
         :aria-expanded="noDetails ? undefined : expanded"
         :aria-controls="noDetails ? undefined : detailsId"
         :title="noDetails ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
-        @click="expanded = !expanded"
+        @click="toggleExpanded"
       >
         <span
           v-if="!noDetails"
@@ -256,8 +319,21 @@ function replaced(status: ImageStatus): boolean {
         </span>
       </div>
 
-      <ul v-if="items.length > 0" class="items">
-        <li v-for="(item, index) in items" :key="index" class="items__row" :data-status="item.status">
+      <ul
+        v-if="items.length > 0"
+        ref="itemsEl"
+        class="items"
+        :class="{ 'items--virtual': virtualItems }"
+        :style="virtualItems ? { maxHeight: ITEM_VIEWPORT + 'px' } : undefined"
+        @scroll="onItemsScroll"
+      >
+        <li v-if="itemWindow.padTop > 0" class="items__pad" :style="{ height: itemWindow.padTop + 'px' }" aria-hidden="true" />
+        <li
+          v-for="(item, index) in visibleItems"
+          :key="itemWindow.start + index"
+          class="items__row"
+          :data-status="item.status"
+        >
           <span class="items__line mono">L{{ item.line }}</span>
           <span class="items__status">{{ itemLabel(item) }}</span>
           <span class="items__target mono" :title="item.absolutePath || item.target">
@@ -270,6 +346,12 @@ function replaced(status: ImageStatus): boolean {
           <span v-else class="items__arrow" aria-hidden="true" />
           <span class="items__result mono" :title="itemDetail(item)">{{ itemDetail(item) }}</span>
         </li>
+        <li
+          v-if="itemWindow.padBottom > 0"
+          class="items__pad"
+          :style="{ height: itemWindow.padBottom + 'px' }"
+          aria-hidden="true"
+        />
       </ul>
 
       <p v-else class="details__empty">{{ emptyDetailsText }}</p>
@@ -495,6 +577,19 @@ function replaced(status: ImageStatus): boolean {
 .items {
   display: flex;
   flex-direction: column;
+}
+
+/* 虚拟滚动：只有明细多到需要它时才出滚动条，几百行的文档照旧整段展开。 */
+.items--virtual {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.items__pad {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .items__row {
