@@ -2,6 +2,7 @@ package remotecache
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -170,5 +171,74 @@ func TestOwnerFindsTheUrlBehindAName(t *testing.T) {
 	}
 	if _, _, ok := c.Owner("D:/docs/images", "other.png"); ok {
 		t.Fatal("别的文件名不该反查到")
+	}
+}
+
+// Owner 现在走的是反查表，不是遍历 entries。凡是改动 entries 的地方都必须同步
+// 维护那张表，否则「这个文件名被谁占了」会答错 —— 而答错的代价是把别人的图覆盖掉。
+func TestOwnerSeesEntriesMergedFromDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "remote-cache.json")
+
+	// 另一个进程（界面或命令行）写下的记录。
+	other := Open(path)
+	other.Store("https://a.example/pic.png", "D:/docs/images", "pic.png", 100)
+	if err := other.Save(); err != nil {
+		t.Fatalf("写缓存失败：%v", err)
+	}
+
+	// 这一轮是另一个人：他自己没下过这张图，但合并磁盘之后必须能反查到。
+	c := Open(path)
+	c.Store("https://b.example/x.png", "D:/docs/images", "x.png", 7)
+	if err := c.Save(); err != nil {
+		t.Fatalf("写缓存失败：%v", err)
+	}
+
+	if url, size, ok := c.Owner("D:/docs/images", "pic.png"); !ok || url != "https://a.example/pic.png" || size != 100 {
+		t.Fatalf("合并进来的条目也该能反查到：%q %d %v", url, size, ok)
+	}
+}
+
+// 同一个地址这次换了个文件名（撞名让号），旧名字的反查条目必须撤掉，
+// 否则那个名字会永远指着这张图，把后来真正用这个名字的地址挤成 -2。
+func TestStoreReleasesTheOldName(t *testing.T) {
+	dir := t.TempDir()
+	c := Open(filepath.Join(dir, "remote-cache.json"))
+	c.Store("https://a.example/pic.png", "D:/docs/images", "pic.png", 100)
+	c.Store("https://a.example/pic.png", "D:/docs/images", "pic-2.png", 100)
+
+	if _, _, ok := c.Owner("D:/docs/images", "pic.png"); ok {
+		t.Fatal("改名之后旧名字不该还挂在 a.example 名下")
+	}
+	if url, _, ok := c.Owner("D:/docs/images", "pic-2.png"); !ok || url != "https://a.example/pic.png" {
+		t.Fatalf("新名字该能反查到：%q %v", url, ok)
+	}
+}
+
+// 淘汰掉的条目不能还留在反查表里，否则会反查到一个已经不存在的记录。
+func TestPruneAlsoClearsTheIndex(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "remote-cache.json")
+	c := Open(path)
+	for i := 0; i < maxEntries+50; i++ {
+		c.Store(fmt.Sprintf("https://a.example/%04d.png", i), "D:/docs/images", fmt.Sprintf("img%04d.png", i), 10)
+	}
+	if err := c.Save(); err != nil {
+		t.Fatalf("写缓存失败：%v", err)
+	}
+
+	if n := c.Len(); n > maxEntries {
+		t.Fatalf("缓存条数 %d 超过上限 %d", n, maxEntries)
+	}
+	// 每一条反查都必须指向一条真实存在的记录。
+	for i := 0; i < maxEntries+50; i++ {
+		name := fmt.Sprintf("img%04d.png", i)
+		url, _, ok := c.Owner("D:/docs/images", name)
+		if !ok {
+			continue
+		}
+		if _, size, found := c.Lookup(url, "D:/docs/images"); !found || size != 10 {
+			t.Fatalf("%s 反查到了一条不存在的记录：%q", name, url)
+		}
 	}
 }

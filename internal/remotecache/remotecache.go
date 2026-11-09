@@ -16,8 +16,16 @@ import (
 	"time"
 )
 
-// maxEntries 是缓存条数上限。一个博客几千张图足够，再多就该换 LRU 策略了。
-const maxEntries = 4000
+// maxEntries 是缓存条数上限。
+//
+// 一开始是 4000（「一个博客几千张图足够」）。实测这个数太小了：一篇 5000 张图的
+// 大文档就撑满，第二篇开始一张都命中不了，20000 张图的工程第二次跑仍是 23 秒
+// （冷跑 36.6 秒），省下的只有 4000 张。
+//
+// 上限放到 20000 的代价实测：缓存文件 4.0 MB，启动读盘 + 解析 28ms，写回 21ms
+// （一轮只写一次）。相比它省下的几十秒下载，这笔账很划算；再往上（50000 条
+// 10 MB / 56ms、200000 条 40 MB / 231ms）才开始伤到启动时间。
+const maxEntries = 20000
 
 // TTL 之后不再复用。图床上的图会被删、会被换成别的图，
 // 但本地的文件是我们自己下的——只要文件还在、大小对得上，复用就是安全的。
@@ -45,9 +53,44 @@ type Cache struct {
 	mu      sync.Mutex
 	path    string
 	entries map[string]entry
-	hits    int
-	stores  int
-	dirty   bool
+	// byName 是「目录 + 文件名」到 cacheKey 的反查表，只为了 Owner 能 O(1)。
+	//
+	// 一开始 Owner 是遍历 entries 找的，条目一多就露馅：缓存上限 4000 条时单次
+	// 39µs，一篇 5000 张图的文档要问 5000 次，光这一项就是 0.2 秒；而
+	// 「下载一张图」本身常常只要几毫秒。条目涨到 60000 就是 3 秒。
+	byName map[string]string
+	hits   int
+	stores int
+	dirty  bool
+}
+
+// nameKey 是 byName 的键：目录和文件名都不区分大小写（Windows 语义）。
+func nameKey(dir, name string) string {
+	return strings.ToLower(filepath.Clean(dir)) + "\x00" + strings.ToLower(name)
+}
+
+// reindex 按 entries 重建反查表。调用方必须已持有锁（或者还没把 c 交出去）。
+func (c *Cache) reindex() {
+	c.byName = make(map[string]string, len(c.entries))
+	for k, e := range c.entries {
+		if e.Name == "" {
+			continue
+		}
+		dir := dirOfKey(k)
+		if dir == "" {
+			continue
+		}
+		c.byName[nameKey(dir, e.Name)] = k
+	}
+}
+
+// dirOfKey 从 cacheKey 里取出目录那一截（键是 url + "\x00" + 小写目录）。
+func dirOfKey(key string) string {
+	i := strings.LastIndexByte(key, 0)
+	if i < 0 {
+		return ""
+	}
+	return key[i+1:]
 }
 
 // Open 读入缓存文件。文件不存在或读坏了都返回一个空缓存（不是错误：
@@ -70,6 +113,7 @@ func Open(path string) *Cache {
 			c.entries[k] = v
 		}
 	}
+	c.reindex()
 	return c
 }
 
@@ -125,21 +169,33 @@ func (c *Cache) Lookup(rawURL, dir string) (name string, size int64, ok bool) {
 //
 // 用它来避免覆盖：两个不同地址都叫 pic.png 时，后来那张必须换个名字，
 // 否则先跑那篇文档里的图会被悄悄换掉。
+//
+// 这张反查表是 O(1) 的：每张下载回来的图都要问一次（60000 张图就是 60000 次），
+// 遍历 entries 在缓存满的时候单次要几十微秒，累积起来比下载本身还贵。
 func (c *Cache) Owner(dir, name string) (rawURL string, size int64, ok bool) {
 	if !c.Enabled() {
 		return "", 0, false
 	}
-	suffix := "\x00" + strings.ToLower(filepath.Clean(dir))
-	want := strings.ToLower(name)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	for k, e := range c.entries {
-		if !strings.HasSuffix(k, suffix) || strings.ToLower(e.Name) != want {
-			continue
-		}
-		return strings.TrimSuffix(k, suffix), e.Size, true
+	key, found := c.byName[nameKey(dir, name)]
+	if !found {
+		return "", 0, false
 	}
-	return "", 0, false
+	e, found := c.entries[key]
+	if !found || e.Name == "" {
+		return "", 0, false
+	}
+	return rawURLOfKey(key), e.Size, true
+}
+
+// rawURLOfKey 从 cacheKey 里取出地址那一截。
+func rawURLOfKey(key string) string {
+	i := strings.LastIndexByte(key, 0)
+	if i < 0 {
+		return key
+	}
+	return key[:i]
 }
 
 // Store 记下「这个地址这次下成了什么」。
@@ -148,9 +204,22 @@ func (c *Cache) Store(rawURL, dir, name string, size int64) {
 		return
 	}
 	now := time.Now().Unix()
+	key := cacheKey(rawURL, dir)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.entries[cacheKey(rawURL, dir)] = entry{Name: name, Size: size, CachedAt: now, UsedAt: now}
+	// 同一个地址这次换了个文件名（撞名让号了），旧名字的反查条目要撤掉，
+	// 否则它会一直指着这张图，把别的地址挤走。
+	if old, ok := c.entries[key]; ok && old.Name != "" && !strings.EqualFold(old.Name, name) {
+		oldKey := nameKey(dir, old.Name)
+		if c.byName[oldKey] == key {
+			delete(c.byName, oldKey)
+		}
+	}
+	if c.byName == nil {
+		c.byName = make(map[string]string, len(c.entries)+1)
+	}
+	c.entries[key] = entry{Name: name, Size: size, CachedAt: now, UsedAt: now}
+	c.byName[nameKey(dir, name)] = key
 	c.stores++
 	c.dirty = true
 }
@@ -183,6 +252,8 @@ func (c *Cache) Save() error {
 	}
 	prune(merged, now)
 	c.entries = merged
+	// 合并进来的条目（别的进程写的）也要能被 Owner 反查到。
+	c.reindex()
 	c.dirty = false
 	c.mu.Unlock()
 
