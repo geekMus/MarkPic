@@ -77,7 +77,7 @@ func Default() Settings {
 	return Settings{
 		Endpoint:      "http://127.0.0.1:36677",
 		Concurrency:   DefaultConcurrency,
-		Retries:       2,
+		Retries:       DefaultRetries,
 		Output:        OutputSidecar,
 		Suffix:        ".converted",
 		Backup:        true,
@@ -93,6 +93,9 @@ func Default() Settings {
 // 68.8 / 31.5 / 46.4 秒——48 到 64 之间有一道墙，越过去只会互相拖。
 const MaxConcurrency = 64
 
+// MinConcurrency 下限就是「一次一张」。
+const MinConcurrency = 1
+
 // DefaultConcurrency 是默认并发上传数。上传是纯等网络，并发太低最吃亏。
 //
 // 真 PicGo + 120 张各不相同的图（交错跑，抵消网络漂移）：
@@ -105,6 +108,14 @@ const MaxConcurrency = 64
 // 每张图重新握手），也没有限流退避（图床一限流就整批失败）。两样补齐之后
 // 32 与 48 不但更快，还比 16 更稳（16 的波动来自排队排到队尾的那几张）。
 const DefaultConcurrency = 48
+
+// 重试次数：0 次（一试就放弃）到 5 次，默认 2 次。再多只是在图床已经挂了的时候
+// 多等一会儿——真挂了重试 5 次也不会变成成功。
+const (
+	MinRetries     = 0
+	MaxRetries     = 5
+	DefaultRetries = 2
+)
 
 // 旧版本的默认并发数：1.0 是 4，2.0（含）之前是 8，4.0 之前是 16。
 const (
@@ -151,17 +162,17 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 		return fmt.Errorf(i18n.T(lang, i18n.KeySettingsUnknownOutput), s.Output)
 	}
 
-	if s.Concurrency < 1 {
-		s.Concurrency = 1
+	if s.Concurrency < MinConcurrency {
+		s.Concurrency = MinConcurrency
 	}
 	if s.Concurrency > MaxConcurrency {
 		s.Concurrency = MaxConcurrency
 	}
-	if s.Retries < 0 {
-		s.Retries = 0
+	if s.Retries < MinRetries {
+		s.Retries = MinRetries
 	}
-	if s.Retries > 5 {
-		s.Retries = 5
+	if s.Retries > MaxRetries {
+		s.Retries = MaxRetries
 	}
 
 	s.Suffix = strings.TrimSpace(s.Suffix)

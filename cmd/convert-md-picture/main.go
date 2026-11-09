@@ -139,10 +139,10 @@ func newRootCmd(opt *options) *cobra.Command {
 
 	// 帮助文本保持中文，因此不走 cobra 默认模板。
 	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
-		fmt.Fprint(c.OutOrStdout(), usageText)
+		fmt.Fprint(c.OutOrStdout(), usageText())
 	})
 	cmd.SetUsageFunc(func(c *cobra.Command) error {
-		_, err := fmt.Fprint(c.OutOrStdout(), usageText)
+		_, err := fmt.Fprint(c.OutOrStdout(), usageText())
 		return err
 	})
 
@@ -160,7 +160,9 @@ func newRootCmd(opt *options) *cobra.Command {
 	f.StringVar(&opt.remote, "remote", "", "远程图片怎么办：ignore/check/download（检测失效链接 / 下载回本地）")
 	f.StringVar(&opt.remoteDir, "remote-dir", "", "download 模式下把图片存到哪个相对目录（默认 images）")
 	f.StringVarP(&opt.endpoint, "endpoint", "e", "", "PicGo 服务地址")
-	f.IntVarP(&opt.concurrency, "concurrency", "c", 0, "同时处理的文件数，也是同时上传的图片数（1-32，默认 16）")
+	f.IntVarP(&opt.concurrency, "concurrency", "c", 0, fmt.Sprintf(
+		"同时处理的文件数，也是同时上传的图片数（%d-%d，默认 %d）",
+		settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency))
 	f.IntVar(&opt.retries, "retries", -1, "上传失败重试次数")
 	f.BoolVarP(&opt.quiet, "quiet", "q", false, "只输出汇总")
 	f.BoolVarP(&opt.showVersion, "version", "v", false, "显示版本")
@@ -352,7 +354,12 @@ func findRunning(port int) string {
 	return ""
 }
 
-const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接
+func usageText() string {
+	return fmt.Sprintf(usageTemplate, settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency,
+		settings.MinRetries, settings.MaxRetries, settings.DefaultRetries)
+}
+
+const usageTemplate = `convert-md-picture — 把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接
 
 用法：
   convert-md-picture                    打开桌面窗口
@@ -376,8 +383,8 @@ const usageText = `convert-md-picture — 把 Markdown 里的本地图片上传�
       --remote-dir string
                          download 模式存到哪个相对目录（默认 images，可写 ../images）
   -e, --endpoint string  PicGo 服务地址（默认 http://127.0.0.1:36677）
-  -c, --concurrency int  同时处理的文件数，也是同时上传的图片数 1-32（默认 16）
-      --retries int      上传失败重试次数 0-5（默认 2）
+  -c, --concurrency int  同时处理的文件数，也是同时上传的图片数 %d-%d（默认 %d）
+      --retries int      上传失败重试次数 %d-%d（默认 %d）
   -q, --quiet            只输出结果汇总
   -v, --version          显示版本
   -h, --help             显示帮助

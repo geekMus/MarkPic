@@ -1,0 +1,33 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/geekMus/convert-md-picture/internal/settings"
+)
+
+// 帮助文本里的数字以前是手写的，改默认并发时忘了跟着改，`--help` 就一直
+// 说「1-32（默认 16）」，而那时候默认已经是 48、上限 64。用户照着帮助
+// 写 -c 48，程序接受，但帮助本身在撒谎。这里把三个区间钉在常量上。
+func TestUsageTextFollowsSettingsLimits(t *testing.T) {
+	text := usageText()
+	want := []string{
+		fmt.Sprintf("%d-%d（默认 %d）", settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency),
+		fmt.Sprintf("%d-%d（默认 %d）", settings.MinRetries, settings.MaxRetries, settings.DefaultRetries),
+	}
+	for _, w := range want {
+		if !strings.Contains(text, w) {
+			t.Errorf("帮助文本里没有 %q，改常量时忘了同步这里：\n%s", w, text)
+		}
+	}
+}
+
+// 顺带钉住另一件事：帮助文本里的 fmt.Sprintf 只该有六个 %d。
+// 多一个少一个会让整段帮助变成「%!d(MISSING)」。
+func TestUsageTemplateHasNoStrayVerbs(t *testing.T) {
+	if n := strings.Count(usageTemplate, "%"); n != 6 {
+		t.Fatalf("帮助模板里有 %d 个百分号，期望 6 个：%s", n, usageTemplate)
+	}
+}
