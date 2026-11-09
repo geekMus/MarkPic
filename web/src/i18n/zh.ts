@@ -57,7 +57,7 @@ export const zh = {
   'settings.concurrency.hint': '同时处理的文件数，也是同时上传的图片数',
   'settings.retries': '失败重试',
   'settings.reuse': '复用上次的上传结果',
-  'settings.reuse.hint': '同一张图不再重传，直接沿用上次拿到的地址',
+  'settings.reuse.hint': '同一张图不再重传，直接沿用上次拿到的地址；下载远程图时也不再重复下载',
   'settings.remote.ignore': '保留原样',
   'settings.remote.ignore.hint': '远程图片不动，只处理本地图片（和以前一样）',
   'settings.remote.check': '只检测',

@@ -73,7 +73,7 @@ convert-md-picture .\docs --dry-run
 | `--in-place` | 等价于 `--output in-place`，会先备份 `.bak` |
 | `--backup` | 原地替换前备份，默认开启；用 `--backup=false` 关闭 |
 | `--dry-run` | 只检查，不上传、不写文件 |
-| `--no-reuse` | 不复用上次的上传结果，每张图都重新上传 |
+| `--no-reuse` | 不复用上次的上传/下载结果，每张图都重新传、重新下 |
 | `--remote <ignore\|check\|download>` | 文章里的远程图怎么处理，默认 `ignore`（原样留着） |
 | `--remote-dir <dir>` | `download` 模式把图片放到文档旁边的哪个子目录，默认 `images` |
 | `-e, --endpoint <url>` | PicGo 服务地址，默认 `http://127.0.0.1:36677` |
@@ -102,7 +102,7 @@ convert-md-picture .\docs --dry-run
 
 `download` 的几个细节：
 
-- 上次已经下过、文件还在且大小一致的图**不再重新下载**（记录在 `data/remote-cache.json`）
+- 上次已经下过、文件还在且大小一致的图**不再重新下载**（记录在 `data/remote-cache.json`；`--no-reuse` 会连上传缓存一起关掉，强制重新下载）
 - 图片存到 `<文档所在目录>/<remoteDir>/`（`-o directory` 模式下是**输出目录**旁边，因为文档被写到了那里），文件名沿用远程地址的最后一段；没后缀或后缀不像图片时按真实内容补（`image/png` → `.png`）。
 - 同一张图被多篇文章引用时只下载一次，其它文章复用（不同目录会复制一份过去）。
 - 已经下载过、大小也一致的文件不会被重写。

@@ -58,7 +58,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.concurrency.hint': 'Documents processed at once — and images uploaded at once',
   'settings.retries': 'Retries',
   'settings.reuse': 'Reuse previous uploads',
-  'settings.reuse.hint': "Don't upload an image again — keep the link from last time",
+  'settings.reuse.hint': "Don't upload an image again — keep the link from last time (and don't re-download remote images)",
   'settings.remote.ignore': 'Leave them',
   'settings.remote.ignore.hint': 'Remote images stay untouched; only local images are converted (same as before)',
   'settings.remote.check': 'Check only',

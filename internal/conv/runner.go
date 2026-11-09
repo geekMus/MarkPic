@@ -143,8 +143,13 @@ func (r *Runner) SaveUploadCache() {
 }
 
 // AttachRemoteCache 打开「远程图下载记录」。缓存丢了只是重新下载一遍，不是用户数据。
+//
+// 开关跟上传缓存共用 ReuseUploads：对用户来说这是同一件事（「上次做过的别再重复做」），
+// 拆成两个开关只会让人猜「我到底关对了没有」。--no-reuse 两个一起关。
 func (r *Runner) AttachRemoteCache(path string) *Runner {
-	r.remoteCache = remotecache.Open(path)
+	if r.cfg.ReuseUploads {
+		r.remoteCache = remotecache.Open(path)
+	}
 	return r
 }
 
