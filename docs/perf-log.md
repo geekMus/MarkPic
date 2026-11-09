@@ -2793,3 +2793,70 @@ func Key(rawURL string) string {
 
 教训一句话：**「不写文件」和「不做任何事」是两回事**。给预检加守卫时，要把每个动作
 问一遍「这个动作有副作用吗」，只跳过有副作用的那些。
+
+## 坏掉的地址被说成「不支持协议」，带密码的地址会漏密码
+
+拿畸形 URL 压 `--remote check`（一篇文档 14 条：`http://`、`http:///path.png`、
+`[::1]`、8 KB 长路径、`#frag`、`?q=1&r=2`、大写 `HTTP://`、带标题、非法转义 ……）。
+没有 panic、没有挂住，450 毫秒跑完，但报出来的原因有一处会把人带偏：
+
+```
+第 10 行  没法检测  http://127.0.0.1:36733/%zz.png（只支持 http/https 地址，这种没法检测或下载 …）
+```
+
+这条地址的协议就是 http，坏的是那个百分号转义（`url.Parse` 直接失败）。可报告
+说的是「只支持 http/https」——用户看到这句，第一反应会是去查程序到底支不支持
+http，而不是去改那个 `%zz`。这也是前面几轮的老毛病：**把两种不同的处境压进同一
+句话**（跟「连不上」vs「图床在让我们排队」是同一类问题）。
+
+改法是把「分类」抽出来，让调用方按类型给不同的话：
+
+```go
+// internal/remoteimg/remoteimg.go
+const (
+	TargetFine TargetProblem = iota
+	TargetBadScheme   // ftp://、mailto:、data:
+	TargetMalformed   // 协议没问题，地址自己写坏了
+)
+
+func ClassifyTarget(rawURL string) TargetProblem
+```
+
+`Supports` 跟着变成 `ClassifyTarget(rawURL) == TargetFine`，`internal/conv/remote.go`
+的 `handleRemote` 改成 switch，多出一条新文案：
+
+```
+http://h/%zz.png 这个地址写坏了，百分号转义、括号或空格可能有错
+```
+
+`http://`、`http:///path.png`（有协议、没主机名）也归到这一类——它们以前同样被
+报成「不支持协议」。
+
+同一批畸形输入里还测出第二件事：地址带凭据时（`http://user:pw@host/x.png`，
+私有图床的常见写法），一旦探测失败，Go 的传输层错误会把整条地址原样带出来：
+
+```
+连不上这个地址：Head "http://user:pw@host/x.png": dial tcp …: connect: connection refused
+```
+
+这句话会进终端的逐行明细、结尾的去重清单，也会进界面的「复制失效清单」——
+而这几样东西的命运都是被贴进 issue 或聊天窗口。也就是说，一次检测失败会顺手把
+图床密码公开。新增两个函数解决：
+
+- `remoteimg.Redact(url)`：只抹 URL 的 userinfo（`http://***@host/x.png`），
+  文档本身一个字节都不动——抹的是我们打印出来的那份。
+- `remoteimg.RedactText(text)`：错误信息里夹带的地址也要抹。先看有没有 `@` 再
+  走正则，没有凭据的消息不为正则买单。
+
+接线位置：`internal/conv/remote.go` 里给 `items[idx].Error` 赋值的那一处（所有
+远程错误都从这里出去）、`cmd/convert-md-picture/cli.go` 的逐行明细与去重清单、
+`web/src/composables/useDeadLinks.ts` 的 `redactUrl`（剪贴板那一份）。
+
+回归五条：`TestClassifyTargetTellsBadSchemeFromBadURL`（13 组输入）、
+`TestRemoteMalformedURLSaysWhatItIs`（消息里不许出现「只支持 http/https」）、
+`TestRedactHidesCredentials`（10 组，含协议相对与 URL 里带多个 `@`）、
+`TestRedactTextCleansEmbeddedURLs`、`TestRemoteCredentialedURLIsRedactedInReport`
+（报告里不许有密码，用户文档里必须还有）。
+
+教训一句话：**分类先于措辞**。同一句话里塞两种处境，报告读起来就像在说另一件事；
+而「要打印给别人看的东西」得先过一遍凭据。

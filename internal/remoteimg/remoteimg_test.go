@@ -186,6 +186,73 @@ func TestProbeFollowsRedirect(t *testing.T) {
 	}
 }
 
+// 「协议不支持」和「地址写坏了」必须分开：前者得换地址，后者改一个字就好。
+// 早先两者共用一句「只支持 http/https 地址」，`http://h/%zz.png` 于是被报成
+// 「不支持 http」，用户会去查程序到底支不支持 http。
+func TestClassifyTargetTellsBadSchemeFromBadURL(t *testing.T) {
+	cases := []struct {
+		url  string
+		want TargetProblem
+	}{
+		{"http://h/a.png", TargetFine},
+		{"https://h/a.png", TargetFine},
+		{"HTTP://H/a.png", TargetFine},
+		{"//h/a.png", TargetFine},
+		{" http://h/a.png?q=1 ", TargetFine},
+		{"ftp://h/a.png", TargetBadScheme},
+		{"data:image/png;base64,AAAA", TargetBadScheme},
+		{"mailto:a@b.c", TargetBadScheme},
+		{"images/x.png", TargetBadScheme},
+		{"http://", TargetMalformed},
+		{"http:///path.png", TargetMalformed},
+		{"http://h/%zz.png", TargetMalformed},
+		{"http://[::1/a.png", TargetMalformed},
+	}
+	for _, c := range cases {
+		if got := ClassifyTarget(c.url); got != c.want {
+			t.Errorf("ClassifyTarget(%q) = %v，想要 %v", c.url, got, c.want)
+		}
+	}
+	if !Supports("//h/a.png") || Supports("ftp://h/a.png") || Supports("http://") {
+		t.Error("Supports 应该跟着 ClassifyTarget 走")
+	}
+}
+
+// 报告会被整段贴进 issue 或聊天窗口，地址里的账号密码不能跟着走。
+func TestRedactHidesCredentials(t *testing.T) {
+	cases := map[string]string{
+		"http://user:pass@h/a.png":      "http://***@h/a.png",
+		"https://user@h/a.png":          "https://***@h/a.png",
+		"//user:pass@h/a.png":           "//***@h/a.png",
+		"http://h/a.png":                "http://h/a.png",
+		"HTTP://user:pass@h/a.png?q=1":  "HTTP://***@h/a.png?q=1",
+		"http://user:p@ss@h:8080/a.png": "http://***@h:8080/a.png",
+		"ftp://user:pass@h/a.png":       "ftp://***@h/a.png",
+		"images/a.png":                  "images/a.png",
+		"http://h/a.png#frag":           "http://h/a.png#frag",
+		"http://user:pass@h":            "http://***@h",
+	}
+	for in, want := range cases {
+		if got := Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q，想要 %q", in, got, want)
+		}
+	}
+}
+
+// 错误信息里夹带的地址也要抹：`Head "http://user:pw@h/x.png": dial …`。
+func TestRedactTextCleansEmbeddedURLs(t *testing.T) {
+	in := `连不上这个地址：Head "http://user:pw@h/x.png": dial tcp 127.0.0.1:1: connect: connection refused`
+	want := `连不上这个地址：Head "http://***@h/x.png": dial tcp 127.0.0.1:1: connect: connection refused`
+	if got := RedactText(in); got != want {
+		t.Fatalf("RedactText = %q\n想要 %q", got, want)
+	}
+	// 没有凭据的话原样返回（也就不用走正则）。
+	plain := "连不上这个地址：dial tcp 127.0.0.1:36677: connect: connection refused"
+	if got := RedactText(plain); got != plain {
+		t.Fatalf("没有凭据时不该改动：%q", got)
+	}
+}
+
 func TestProbeUnsupportedScheme(t *testing.T) {
 	c := newClient(t)
 	for _, u := range []string{"ftp://example.com/a.png", "data:image/png;base64,AAA", "not a url"} {

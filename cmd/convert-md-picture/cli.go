@@ -15,6 +15,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
+	"github.com/geekMus/convert-md-picture/internal/remoteimg"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 	"github.com/geekMus/convert-md-picture/internal/version"
 )
@@ -328,7 +329,7 @@ func (p *printer) detailLines(r *conv.FileResult) []string {
 			hidden++
 			continue
 		}
-		line := fmt.Sprintf("%s第 %d 行  %s  %s", indent, it.Line, label, it.Target)
+		line := fmt.Sprintf("%s第 %d 行  %s  %s", indent, it.Line, label, remoteimg.Redact(it.Target))
 		if it.Error != "" {
 			line += "（" + it.Error + "）"
 		}
@@ -454,7 +455,8 @@ func (p *printer) deadLines() []string {
 			break
 		}
 		e := p.dead[url]
-		out = append(out, "  · "+url)
+		// 清单是要被复制走的：地址里的账号密码换成 ***，免得跟着贴进 issue。
+		out = append(out, "  · "+remoteimg.Redact(url))
 		line := "      " + e.reason
 		if len(e.where) > 0 {
 			line += "（" + strings.Join(e.where, "、") + "）"

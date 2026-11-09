@@ -58,6 +58,29 @@ export function collectDeadLinks(rows: readonly RunRowView[]): DeadLink[] {
   )
 }
 
+/**
+ * 把地址里的账号密码换成 ***。
+ *
+ * 这份清单是给人复制走的，多半会被贴进 issue、聊天窗口或者笔记里。地址写成
+ * `http://user:pass@host/x.png` 的文档不算罕见（私有图床常见写法），
+ * 原样带出去就等于把密码一起公开了。地址本身还在用户自己的文档里，改它不难。
+ */
+export function redactUrl(target: string): string {
+  const s = target.trim()
+  // 协议相对地址（//user:pass@host/x.png）没有 `://`，同样是带凭据的地址。
+  let start = -1
+  const scheme = s.indexOf('://')
+  if (scheme >= 0) start = scheme + 3
+  else if (s.startsWith('//')) start = 2
+  if (start < 0) return s
+  const rest = s.slice(start)
+  const cut = rest.search(/[/?#]/)
+  const authority = cut < 0 ? rest : rest.slice(0, cut)
+  const at = authority.lastIndexOf('@')
+  if (at < 0) return s
+  return `${s.slice(0, start)}***${authority.slice(at)}${rest.slice(authority.length)}`
+}
+
 export interface DeadReportStrings {
   title: string
   /** download 模式（有地址是下载失败而不是 404）时用的标题。 */
@@ -85,7 +108,7 @@ export function formatDeadReport(links: readonly DeadLink[], s: DeadReportString
     const shown = link.refs.slice(0, MAX_REFS).map((ref) => `${ref.file}:${ref.line}`)
     const places =
       link.refs.length > MAX_REFS ? `${shown.join(s.sep)} ${s.more}` : shown.join(s.sep)
-    out.push(`- ${link.url}`)
+    out.push(`- ${redactUrl(link.url)}`)
     if (link.reason !== '') out.push(`  ${link.reason}`)
     out.push(`  ${s.refs(places, link.refs.length)}`)
   }

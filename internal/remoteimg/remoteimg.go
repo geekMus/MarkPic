@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1069,7 +1070,83 @@ func checkScheme(rawURL string) error {
 
 // Supports 判断这个地址能不能做检测/下载（只支持 http/https）。
 func Supports(rawURL string) bool {
-	return checkScheme(Normalize(rawURL)) == nil
+	return ClassifyTarget(rawURL) == TargetFine
+}
+
+// TargetProblem 说明一个远程地址为什么用不了。
+type TargetProblem int
+
+const (
+	// TargetFine 是能检测、也能下载的地址。
+	TargetFine TargetProblem = iota
+	// TargetBadScheme 是协议本身不支持（ftp://、mailto:、data:）。
+	TargetBadScheme
+	// TargetMalformed 是协议没问题，但地址本身写坏了（`%zz` 这种非法转义、
+	// 缺主机名、方括号没闭上）。
+	TargetMalformed
+)
+
+// ClassifyTarget 分清「协议不支持」和「地址写坏了」。
+//
+// 这两件事对用户完全是两回事：前者改插件也读不了，只能换地址；后者多半是
+// 手滑（`%zz`、`http://`），改一个字就好。以前它们共用一句「只支持
+// http/https 地址」，于是 `http://h/%zz.png` 被报成「不支持 http」——用户看到
+// 这句会去查程序支不支持 http，而真正要改的是那个百分号。
+func ClassifyTarget(rawURL string) TargetProblem {
+	u, err := url.Parse(Normalize(rawURL))
+	if err != nil {
+		return TargetMalformed
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		// 相对路径（`images/x.png`）也落在这里：它压根不是远程地址。
+		return TargetBadScheme
+	}
+	if u.Host == "" {
+		return TargetMalformed
+	}
+	return TargetFine
+}
+
+// Redact 把地址里的账号密码换成 `***`。
+//
+// 报告和清单经常被整段贴进 issue、聊天窗口。`http://user:pass@host/x.png`
+// 一旦探测失败，Go 的传输层错误会把整条地址原样带出来（`Head "http://user:...": …`），
+// 密码就跟着进了一份公开的记录。地址本身属于用户自己的文档，这里只管我们打印出来的那份。
+func Redact(rawURL string) string {
+	s := strings.TrimSpace(rawURL)
+	// 协议相对地址（`//user:pass@host/x.png`）没有 `://`，同样是带凭据的地址。
+	start := -1
+	if i := strings.Index(s, "://"); i >= 0 {
+		start = i + 3
+	} else if strings.HasPrefix(s, "//") {
+		start = 2
+	}
+	if start < 0 {
+		return s
+	}
+	rest := s[start:]
+	authority := rest
+	if end := strings.IndexAny(rest, "/?#"); end >= 0 {
+		authority = rest[:end]
+	}
+	at := strings.LastIndexByte(authority, '@')
+	if at < 0 {
+		return s
+	}
+	return s[:start] + "***" + authority[at:] + rest[len(authority):]
+}
+
+// urlInText 找出话里夹带的地址（错误信息里常有 `Head "http://…": …`）。
+var urlInText = regexp.MustCompile(`https?://[^\s"'<>]+`)
+
+// RedactText 把一段话里所有地址的账号密码抹掉。
+//
+// 先看有没有 `@` 再动手：绝大多数消息没有凭据，不该为正则买单。
+func RedactText(s string) string {
+	if !strings.Contains(s, "@") {
+		return s
+	}
+	return urlInText.ReplaceAllStringFunc(s, Redact)
 }
 
 // extByType 是常见图片类型对应的后缀。

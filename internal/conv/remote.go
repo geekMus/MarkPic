@@ -140,7 +140,9 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 							items[idx].URL = link
 						}
 						if msg != "" {
-							items[idx].Error = msg
+							// 地址里可能带着账号密码，而错误信息会把整条 URL 抄进去。
+							// 这份说明会被打进终端、也会被复制进清单，先抹掉。
+							items[idx].Error = remoteimg.RedactText(msg)
 						}
 					}
 					mu.Unlock()
@@ -163,9 +165,13 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 
 // handleRemote 处理一个远程地址：检测或下载，返回状态、要写回文档的链接、给用户的说明。
 func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (status, link, msg string) {
-	if !remoteimg.Supports(rawURL) {
+	switch remoteimg.ClassifyTarget(rawURL) {
+	case remoteimg.TargetBadScheme:
 		// ftp:// 与 data: 既检测不了也下载不了：原样留着，并说清楚为什么。
-		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteUnsupported), rawURL)
+		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteUnsupported), remoteimg.Redact(rawURL))
+	case remoteimg.TargetMalformed:
+		// 地址是 http 的，只是写坏了。这时说「不支持 http/https」会把人带偏。
+		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteBadURL), remoteimg.Redact(rawURL))
 	}
 
 	rf, leader := r.remoteEntry(rawURL)

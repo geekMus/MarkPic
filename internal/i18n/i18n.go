@@ -73,6 +73,7 @@ const (
 	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
 	KeyConvRemoteTooBusy      Key = "conv.remoteTooBusy"
 	KeyConvRemoteUnsupported  Key = "conv.remoteUnsupported"
+	KeyConvRemoteBadURL       Key = "conv.remoteBadURL"
 	KeyConvRemoteTooLarge     Key = "conv.remoteTooLarge"
 	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
 	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
@@ -310,6 +311,10 @@ var catalog = map[Key]entry{
 	KeyConvRemoteUnsupported: {
 		"只支持 http/https 地址，这种没法检测或下载：%s",
 		"Only http/https addresses can be checked or downloaded, so this one was left alone: %s",
+	},
+	KeyConvRemoteBadURL: {
+		"%s 这个地址写坏了，百分号转义、括号或空格可能有错",
+		"%s is malformed — check its percent-escapes, brackets or spaces",
 	},
 	KeyConvRemoteTooLarge: {
 		"远程图片太大了（超过 %d MB），没有下载",

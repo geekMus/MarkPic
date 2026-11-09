@@ -1319,6 +1319,69 @@ func TestRemoteRateLimitSaysWhatItIs(t *testing.T) {
 //
 // 实测 449 篇的真实语料加 --dry-run 后，380 处死链一个都没查出来，报告里只剩
 // 「无图 67 个」 —— 用户看到的像是「没问题」，其实什么都没查。
+// 地址是 http 的、只是写坏了（非法的百分号转义）时，不能说「只支持 http/https」：
+// 用户会以为程序不支持 http，而真正要改的是那个百分号。
+func TestRemoteMalformedURLSaysWhatItIs(t *testing.T) {
+	dir := t.TempDir()
+	host, _ := fakeImageHost(t)
+	src := "# 标题\n\n![坏地址](" + host.URL + "/%zz.png)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteCheck), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.RemoteUnsupported != 1 {
+		t.Fatalf("写坏的地址也要计成没法处理，实际 %d: %+v", res.RemoteUnsupported, res.Items)
+	}
+	msg := res.Items[0].Error
+	if strings.Contains(msg, "只支持 http/https") {
+		t.Fatalf("这是地址写坏了，不是协议不支持：%q", msg)
+	}
+	if !strings.Contains(msg, "地址写坏了") {
+		t.Fatalf("要说清是地址写坏了，实际 %q", msg)
+	}
+	if sum.RemoteUnsupported != 1 {
+		t.Fatalf("汇总也要带上，实际 %d", sum.RemoteUnsupported)
+	}
+	if got, _ := os.ReadFile(doc); string(got) != src {
+		t.Fatalf("这种地址该原样留着：\n%s", got)
+	}
+}
+
+// 地址里带账号密码（私有图床常见写法）又打不开时，报告不能把密码抄进去：
+// 那份明细经常被整段贴进 issue。
+func TestRemoteCredentialedURLIsRedactedInReport(t *testing.T) {
+	dir := t.TempDir()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dead := "http://user:hunter2@" + ln.Addr().String() + "/x.png"
+	_ = ln.Close()
+
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "# 标题\n\n![私有图]("+dead+")\n")
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteCheck), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	msg := results[0].Items[0].Error
+	if strings.Contains(msg, "hunter2") {
+		t.Fatalf("报告里漏出了密码：%q", msg)
+	}
+	if !strings.Contains(msg, "***@") {
+		t.Fatalf("密码该被抹成 ***@，实际 %q", msg)
+	}
+	// 文档本身不动：抹的是我们打印出来的那份，不是用户的文件。
+	if got, _ := os.ReadFile(doc); !strings.Contains(string(got), "hunter2") {
+		t.Fatalf("用户文档不该被改：\n%s", got)
+	}
+}
+
 func TestDryRunStillChecksRemoteImages(t *testing.T) {
 	dir := t.TempDir()
 	host, _ := fakeImageHost(t)
