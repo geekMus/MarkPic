@@ -319,7 +319,8 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 		}
 		return "", 0, "", err
 	}
-	tmp, err := os.CreateTemp(dir, ".cmp-remote-*.tmp")
+	sweepStaleTemps(dir, remoteTempPrefix)
+	tmp, err := os.CreateTemp(dir, remoteTempPrefix+"*.tmp")
 	if err != nil {
 		return "", 0, "", err
 	}

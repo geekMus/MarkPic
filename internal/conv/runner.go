@@ -1045,7 +1045,9 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".cmp-*.tmp")
+	// 上次被强杀时留下的临时文件会一直躺在用户的目录里，顺手收拾掉。
+	sweepStaleTemps(dir, writeTempPrefix)
+	tmp, err := os.CreateTemp(dir, writeTempPrefix+"*.tmp")
 	if err != nil {
 		return err
 	}
