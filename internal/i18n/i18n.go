@@ -74,6 +74,11 @@ const (
 	KeyConvRemoteStatus      Key = "conv.remoteStatus"
 	KeyConvRemoteNotImage    Key = "conv.remoteNotImage"
 	KeyConvRemoteUnreachable Key = "conv.remoteUnreachable"
+	// 图已经传上去了 / 已经下下来了，可文档没写成：文件里一处也没改，
+	// 汇总要是还写「替换 N 处链接」，那就是在说一件没发生的事。
+	KeyConvUploadOrphan   Key = "conv.uploadOrphan"
+	KeyConvDownloadOrphan Key = "conv.downloadOrphan"
+
 	// 证书校验没过：连接是通的，问题在证书（自签名、过期、域名对不上）。
 	KeyConvRemoteBadCert      Key = "conv.remoteBadCert"
 	KeyConvRemoteTooBusy      Key = "conv.remoteTooBusy"
@@ -322,6 +327,14 @@ var catalog = map[Key]entry{
 	KeyConvRemoteUnreachable: {
 		"连不上这个地址：%v",
 		"Could not reach that address: %v",
+	},
+	KeyConvUploadOrphan: {
+		"这 %d 张图已经传到图床了，可文档没写成：文件里一处链接都没改，图床那边多出了这些没人引用的图",
+		"%d image(s) were already uploaded, but the document could not be written: no link was changed and those uploads are now unreferenced",
+	},
+	KeyConvDownloadOrphan: {
+		"这 %d 张图已经下到本地了，可文档没写成：文件里一处链接都没改，本地多出了这些没人引用的图",
+		"%d image(s) were already downloaded, but the document could not be written: no link was changed and those files are now unreferenced",
 	},
 	KeyConvRemoteBadCert: {
 		"对方证书没过校验：多半是自签名、证书过期或者域名对不上。连接其实是通的，问题只在证书 —— 这是你自己的图床时，把它的证书装进系统的受信任根，或者换一张带正规证书的地址。",

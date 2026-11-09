@@ -1312,3 +1312,40 @@ func TestUploadSendsIdenticalContentOnce(t *testing.T) {
 		}
 	})
 }
+func TestUploadedButUnwrittenSaysSoInsteadOfCountingReplaced(t *testing.T) {
+	// 输出目录是个文件：图已经传上去了，可文档一个字都没写成。
+	// 这时汇总里要是还写「替换 1 处链接」，就是一句谎话，而且图床那边多了一张
+	// 没人引用的图，得说清楚。
+	srv, hitCount := fakePicGo(t, nil)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.png"), "png-bytes")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "# t\n\n![a](a.png)\n")
+
+	blocker := filepath.Join(dir, "blockfile")
+	writeFile(t, blocker, "not a directory")
+
+	cfg := settings.Default()
+	cfg.Endpoint = srv.URL
+	cfg.Output = settings.OutputDirectory
+	cfg.OutDir = blocker
+	cfg.Retries = 0
+
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Status != FileFailed {
+		t.Fatalf("输出目录是文件，该报失败，实际 %s", res.Status)
+	}
+	if len(hitCount()) != 1 {
+		t.Fatalf("图该已经传上去了，实际命中 %v", hitCount())
+	}
+	if res.Uploaded != 0 || sum.Uploaded != 0 {
+		t.Fatalf("文档没写成，就不该计「替换」：file=%d sum=%d", res.Uploaded, sum.Uploaded)
+	}
+	joined := strings.Join(res.Warnings, "；")
+	if !strings.Contains(joined, "传到图床") {
+		t.Fatalf("该提示「图已经传上去了」，实际 %q", joined)
+	}
+}

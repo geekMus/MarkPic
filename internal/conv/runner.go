@@ -860,6 +860,9 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	if perr != nil {
 		res.Status = FileFailed
 		res.Error = perr.Error()
+		// 图已经传上去了，可连输出路径都没算出来：文件里一处都没改。
+		// 汇总要是还写「替换 N 处链接」，那就是在说一件没发生的事。
+		r.noteOrphanImages(&res)
 		return res
 	}
 
@@ -876,6 +879,8 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	}
 	if werr := writeOutput(target, out); werr != nil {
 		res.Status = FileFailed
+		// 图已经上传 / 已经下载，可文档没写成 —— 磁盘上那份文件一个字都没变。
+		r.noteOrphanImages(&res)
 		switch {
 		case errors.Is(werr, errTargetReadOnly):
 			res.Error = i18n.T(r.lang, i18n.KeyConvWriteReadOnly, target)
@@ -1224,6 +1229,21 @@ func backupFile(path string) error {
 		return err
 	}
 	return os.WriteFile(bak, data, 0o644)
+}
+
+// noteOrphanImages 处理「图已经传上去了 / 已经下下来了，可文档没写成」的处境。
+//
+// 这时磁盘上那份文件一个字都没变，汇总里却会写着「替换 N 处链接」—— 那是一句谎话。
+// 清掉这些计数，再用一条提示把实情说出来：图床那边（或本地）多出了几张没人引用的图。
+func (r *Runner) noteOrphanImages(res *FileResult) {
+	if res.Uploaded > 0 {
+		res.Warnings = append(res.Warnings, i18n.T(r.lang, i18n.KeyConvUploadOrphan, res.Uploaded))
+		res.Uploaded, res.Reused = 0, 0
+	}
+	if res.Localized > 0 {
+		res.Warnings = append(res.Warnings, i18n.T(r.lang, i18n.KeyConvDownloadOrphan, res.Localized))
+		res.Localized, res.LocalizedUnique = 0, 0
+	}
 }
 
 // writeOutput 把结果写到 path。
