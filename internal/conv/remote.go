@@ -1,6 +1,7 @@
 package conv
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -330,15 +331,17 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 		return "", 0, "", cerr
 	}
 
-	name := r.remoteFileName(dir, rawURL, res)
+	name := r.remoteFileName(dir, rawURL, res, tmpName)
 	abs = filepath.Join(dir, name)
-	// 已经下过同一张图（上次运行留下的、大小一致）：不重写，省一次落盘。
+	// 已经下过同一张图（上次运行留下的、内容一致）：不重写，省一次落盘。
 	if st, serr := os.Stat(abs); serr == nil && st.Size() == res.Size && res.Size > 0 {
-		if rerr := os.Remove(tmpName); rerr == nil {
-			keep = true // 已经删掉了，defer 别再删一次
+		if same, cerr := sameFile(tmpName, abs); cerr == nil && same {
+			if rerr := os.Remove(tmpName); rerr == nil {
+				keep = true // 已经删掉了，defer 别再删一次
+			}
+			r.remoteCache.Store(rawURL, dir, name, res.Size)
+			return r.relFor(docDir, abs), res.Size, abs, nil
 		}
-		r.remoteCache.Store(rawURL, dir, name, res.Size)
-		return r.relFor(docDir, abs), res.Size, abs, nil
 	}
 	if rerr := os.Rename(tmpName, abs); rerr != nil {
 		return "", 0, "", rerr
@@ -364,8 +367,9 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 	if strings.EqualFold(dst, srcAbs) {
 		return r.relFor(docDir, dst), nil
 	}
-	if st, err := os.Stat(dst); err == nil && st.Size() == size {
-		// 已经有同样大小的一份，直接用。
+	// 目标位置已经有一份：只有内容确实一样才算「已经搬过」。
+	// 只比大小是不够的 —— 两张不同的图完全可能一样大，那样 b.md 就会指向 a.md 那张图。
+	if same, err := sameFile(srcAbs, dst); err == nil && same {
 		return r.relFor(docDir, dst), nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -380,7 +384,11 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 
 // remoteFileName 给下载下来的图片起个本地名：优先用地址里原本的文件名，
 // 同目录下撞名（不同地址、同一个文件名）才加序号。
-func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result) string {
+//
+// fresh 是这次刚下到临时文件里的内容：判断「磁盘上那个同名文件是不是同一张图」时
+// 要比内容，不能只比大小 —— 两张不同的 PNG 完全可能一样大（同尺寸同压缩率），
+// 只比大小就会把前一篇文档里的图悄悄换掉。
+func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result, fresh string) string {
 	base := localBaseName(rawURL)
 	if base == "" {
 		base = "remote-" + shortHash(rawURL)
@@ -414,9 +422,9 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result) string
 			continue
 		}
 		// 缓存关掉时（--no-reuse）没法反查归属，那就退一步看磁盘：
-		// 同名文件存在、而且大小和这次下下来的不一样，那它肯定是另一张图。
-		if res.Size > 0 {
-			if st, serr := os.Stat(abs); serr == nil && !st.IsDir() && st.Size() != res.Size {
+		// 同名文件存在、内容又和这次下下来的不一样，那它肯定是另一张图。
+		if st, serr := os.Stat(abs); serr == nil && !st.IsDir() {
+			if same, cerr := sameFile(fresh, abs); cerr == nil && !same {
 				continue
 			}
 		}
@@ -424,6 +432,30 @@ func (r *Runner) remoteFileName(dir, rawURL string, res remoteimg.Result) string
 		return name
 	}
 	return fmt.Sprintf("remote-%s%s", shortHash(rawURL), ext)
+}
+
+// sameFile 逐字节比较两个文件。大小不同直接返回 false，省掉一次读盘。
+func sameFile(a, b string) (bool, error) {
+	sa, err := os.Stat(a)
+	if err != nil {
+		return false, err
+	}
+	sb, err := os.Stat(b)
+	if err != nil {
+		return false, err
+	}
+	if sa.Size() != sb.Size() {
+		return false, nil
+	}
+	da, err := os.ReadFile(a)
+	if err != nil {
+		return false, err
+	}
+	db, err := os.ReadFile(b)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(da, db), nil
 }
 
 // localBaseName 从地址里取「文件名那一截」，并清理成 Windows 上能用的名字。

@@ -33,6 +33,15 @@ var (
 	jpegBytes = []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00, 0xFF, 0xD9}
 )
 
+// sameSizeA / sameSizeB 是两张「字节数完全一样、内容不一样」的 PNG。
+//
+// 为什么专门造这一对：判断「磁盘上那个同名文件是不是同一张图」如果只比大小，
+// 这一对就会互相覆盖 —— 先跑那篇文档里的图被悄悄换掉，谁也不报错。
+var (
+	sameSizeA = append(append([]byte{}, pngBytes...), 0x41)
+	sameSizeB = append(append([]byte{}, pngBytes...), 0x42)
+)
+
 // fakeImageHost 起一个假图床/图源：按路径给不同的响应。
 func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 	t.Helper()
@@ -58,6 +67,14 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 		case "/noext":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(pngBytes)
+		case "/a/pic.png":
+			// 和 /b/pic.png 名字一样、大小也一样，只有内容不同。
+			// 「同名 + 同大小」是最容易被漏掉的一类撞车：只比大小会当成同一张图。
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(sameSizeA)
+		case "/b/pic.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(sameSizeB)
 		default:
 			http.NotFound(w, r)
 		}
@@ -526,5 +543,108 @@ func TestRemoteDownloadDoesNotOverwriteDifferentImage(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Fatalf("应该有两张图，实际 %v", names)
+	}
+}
+
+// 「同名 + 同大小 + 内容不同」是最容易被漏掉的一类撞车：只比大小会当成同一张图。
+// 缓存关掉时（--no-reuse）连归属都反查不到，只能靠内容比对。
+func TestRemoteDownloadDoesNotOverwriteSameSizeImage(t *testing.T) {
+	dir := t.TempDir()
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		switch r.URL.Path {
+		case "/a/pic.png":
+			_, _ = w.Write(sameSizeA)
+		case "/b/pic.png":
+			_, _ = w.Write(sameSizeB)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer host.Close()
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+	cfg.ReuseUploads = false // 缓存关掉：这条路径只能看磁盘
+
+	docA := filepath.Join(dir, "a.md")
+	writeFile(t, docA, "![一]("+host.URL+"/a/pic.png)\n")
+	NewRunner(cfg, i18n.ZH, "run1", nil).RunCollect(context.Background(), []string{docA})
+	saved := filepath.Join(dir, "images", "pic.png")
+	before, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	docB := filepath.Join(dir, "b.md")
+	writeFile(t, docB, "![二]("+host.URL+"/b/pic.png)\n")
+	results, _ := NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docB})
+	if results[0].Localized != 1 {
+		t.Fatalf("第二张也该下载成功: %+v", results[0])
+	}
+	after, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("同名同大小的另一张图把先下载的那张覆盖了")
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "images"))
+	if len(entries) != 2 {
+		t.Fatalf("应该有两张图（pic.png 与 pic-2.png），实际 %d 个", len(entries))
+	}
+	outB, _ := os.ReadFile(filepath.Join(dir, "b.converted.md"))
+	if !strings.Contains(string(outB), "images/pic-2.png") {
+		t.Fatalf("b.md 应该指向 pic-2.png: %s", outB)
+	}
+}
+
+// 两篇文档在**不同目录**里引用同一个地址时，第二篇是「复制别人下好的那份」。
+// 若目标位置已经躺着一张同名同大小、内容不同的图，不能当成「已经搬过」——
+// 那会让 b.md 指向 a.md 那张图。
+func TestRemoteCopyToOtherDirReplacesWrongSameSizeFile(t *testing.T) {
+	dirA := filepath.Join(t.TempDir(), "a")
+	dirB := filepath.Join(t.TempDir(), "b")
+	if err := os.MkdirAll(filepath.Join(dirB, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	host := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		switch r.URL.Path {
+		case "/x/pic.png":
+			_, _ = w.Write(sameSizeA)
+		case "/y/pic.png":
+			_, _ = w.Write(sameSizeB)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer host.Close()
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+
+	// 第一轮：b 目录里先落下一张 y/pic.png（和 x/pic.png 同大小、不同内容）。
+	docB := filepath.Join(dirB, "b.md")
+	writeFile(t, docB, "![y]("+host.URL+"/y/pic.png)\n")
+	NewRunner(cfg, i18n.ZH, "run1", nil).RunCollect(context.Background(), []string{docB})
+	stale, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stale, sameSizeB) {
+		t.Fatalf("准备阶段不对，b/images/pic.png 应该是第二张图")
+	}
+
+	// 第二轮：b 改成引用 x/pic.png，a 也引用它。b 走「复制别人下好的那份」这条路。
+	writeFile(t, docB, "![x]("+host.URL+"/x/pic.png)\n")
+	docA := filepath.Join(dirA, "a.md")
+	writeFile(t, docA, "![x]("+host.URL+"/x/pic.png)\n")
+	NewRunner(cfg, i18n.ZH, "run2", nil).RunCollect(context.Background(), []string{docA, docB})
+
+	got, err := os.ReadFile(filepath.Join(dirB, "images", "pic.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, sameSizeA) {
+		t.Fatal("b 目录里还是那张旧图：同名同大小时被当成了「已经搬过」")
 	}
 }

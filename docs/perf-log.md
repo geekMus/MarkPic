@@ -2082,3 +2082,22 @@ HTTP 500 在重试）。缓存命中时输出文档照常改写（链接仍然�
   用户下载完才发现图是空的**，这比直接报错糟糕得多。
 
 新增测试：`TestDownloadRejectsEmptyBody`、`TestNotImageCarriesTheActualType`。
+### 「同名 + 同大小」才是最难发现的那种撞车
+
+上一轮修掉了「两个地址都叫 `pic.png`、大小不同」的覆盖。可**两张不同的图完全可能一样大**（同尺寸、同压缩率），
+而当时判断「磁盘上这个同名文件是不是同一张图」用的是大小。于是：
+
+- `--no-reuse`（缓存关掉、反查不到归属）时，第二篇文档会把第一篇的图**覆盖**掉，第一篇的链接悄悄指向另一张图；
+- 跨目录复用那条路（`placeRemoteFile`）也一样：目标目录里躺着一张同名同大小的旧图，就被当成「已经搬过了」，
+  新文档指向的是别人那张图。
+
+改法：两处都改成**逐字节比对**（新增 `sameFile(a, b)`，先比大小再读文件，大小不同立刻返回）。
+`remoteFileName` 现在需要拿到「刚下到临时文件里的那份内容」才能判断，所以多一个 `fresh` 参数。
+
+两条回归都是先写用例、看到 FAIL 才改代码，改完再把修复临时换回「只比大小」确认用例会红：
+
+- `TestRemoteDownloadDoesNotOverwriteSameSizeImage`（`--no-reuse`，同目录）
+- `TestRemoteCopyToOtherDirReplacesWrongSameSizeFile`（跨目录复制那条路）
+
+真机复验：两张 268 字节、SHA-256 分别是 `60503F77…` 与 `D6CAB07E…` 的 PNG，同名 `pic.png`，
+第二次运行得到 `pic.png` + `pic-2.png`，`b.converted.md` 指向 `images/pic-2.png`，第一张一个字节没变。
