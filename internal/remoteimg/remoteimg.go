@@ -21,7 +21,24 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/version"
 )
+
+// userAgent 是对外报的名字。
+//
+// Go 默认的 "Go-http-client/1.1" 会被一部分图床直接挡掉：实测维基共享资源的图，
+// 用默认 UA 回 403，换成这个名字就是 200。那不是图坏了，是我们自报家门太敷衍——
+// 检测模式会把好地址报成「失效」，用户照着报告去改，改的全是好图。
+var userAgent = "convert-md-picture/" + version.Version
+
+// setHeaders 给请求盖上 User-Agent。所有出站请求都走这里，免得漏掉一处。
+func setHeaders(req *http.Request, extra ...string) {
+	req.Header.Set("User-Agent", userAgent)
+	for i := 0; i+1 < len(extra); i += 2 {
+		req.Header.Set(extra[i], extra[i+1])
+	}
+}
 
 // Client 是检测与下载共用的 HTTP 客户端。
 // 图片站经常慢得离谱，超时给得比上传那边宽松一点：这里等的是别人的服务器，
@@ -635,9 +652,13 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	// HEAD 没带正文，嗅探不了类型。所以「状态码成功但类型不是图片（或压根没给）」
 	// 也得用 GET 看一眼前 512 字节 —— 否则 application/octet-stream 的图床
 	// 会被整片误判成坏的。
-	if res.OK() || isDefinitelyGone(res.Status) {
+	if res.OK() {
 		return res, nil
 	}
+	// 404/410 也要再问一次 GET 才定论：有些图床压根不实现 HEAD，一律回 404，
+	// 可 GET 明明能拿到整张图（实测 picsum.photos：HEAD 404、GET 302 → 200 PNG）。
+	// 早先这里把 404/410 当成「确定的没了」直接返回，于是这种图床上的图全被
+	// 报成失效。代价是真死链多一次请求，比把好地址报死划算得多。
 	got, gerr := c.probeGet(ctx, rawURL)
 	if gerr != nil {
 		return got, gerr
@@ -651,6 +672,11 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	// 只转非 2xx：2xx 但内容不是图片是「这张图坏了」，由调用方看 OK() 判断，
 	// 不是「这一趟没成」。
 	if got.Status < 200 || got.Status > 299 {
+		// 404/410 仍然是「问过了，确实没了」：不算这一趟出错，交给调用方按
+		// 状态码说「打不开了」。其余 4xx/5xx 才走错误，好让重试预算看见它。
+		if isDefinitelyGone(got.Status) {
+			return got, nil
+		}
 		return got, &statusError{Status: got.Status}
 	}
 	return got, nil
@@ -670,7 +696,10 @@ func isRedirect(status int) bool {
 }
 
 // isDefinitelyGone 判断这个状态码是不是「确定的没了」。
-// 404/410 再问一次也是白问；405/501/403/5xx 才可能是手法或对方抖动的问题。
+//
+// 注意它只决定「要不要为此报错」，不决定「要不要再问一次」：404/410 在
+// probeAt 里照样会补一次 GET —— 有的图床不实现 HEAD，对什么地址都回 404，
+// 把这种情况直接判死会把有效地址报成失效。
 func isDefinitelyGone(status int) bool {
 	return status == http.StatusNotFound || status == http.StatusGone
 }
@@ -680,6 +709,7 @@ func (c *Client) probeHead(ctx context.Context, rawURL string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	setHeaders(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return Result{Size: -1}, err
@@ -705,6 +735,7 @@ func (c *Client) probeGet(ctx context.Context, rawURL string) (Result, error) {
 	}
 	// 只要开头这么点字节：够嗅探类型，也不会把整张图拉下来。
 	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", sniffPrefix-1))
+	setHeaders(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return Result{Size: -1}, err
@@ -1029,6 +1060,7 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	if err != nil {
 		return Result{}, 0, err
 	}
+	setHeaders(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return Result{Size: -1}, 0, err

@@ -1635,3 +1635,29 @@ func TestRemoteCancelLeavesNoEmptyImages(t *testing.T) {
 		}
 	}
 }
+
+// 对方答话了、只是不肯给图（403 防盗链、500 抽风）时，不能说「连不上」：
+// 那会把人引去查防火墙、DNS、代理，可对方明明答话了。
+func TestRemoteForbiddenSaysServerAnswered(t *testing.T) {
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "no hotlinking", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	src := "# 标题\n\n![图](" + srv.URL + "/x.png)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteCheck), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	msg := results[0].Items[0].Error
+	if strings.Contains(msg, "连不上这个地址") {
+		t.Fatalf("对方答话了，不能说连不上：%q", msg)
+	}
+	if !strings.Contains(msg, "HTTP 403") {
+		t.Fatalf("要把状态码说出来，实际 %q", msg)
+	}
+}

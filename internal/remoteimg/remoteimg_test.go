@@ -86,8 +86,9 @@ func TestProbeStatuses(t *testing.T) {
 		wantHits int // 允许的请求数上限（HEAD 失败后会补一次 GET）
 	}{
 		{http.StatusOK, true, 1},
-		{http.StatusNotFound, false, 1},
-		{http.StatusGone, false, 1},
+		// 404/410 也要补一次 GET：不实现 HEAD 的图床对什么都是 404。
+		{http.StatusNotFound, false, 2},
+		{http.StatusGone, false, 2},
 	}
 	for _, tc := range cases {
 		t.Run(fmt.Sprint(tc.code), func(t *testing.T) {
@@ -420,6 +421,7 @@ func TestProbeRetriesTransientFailures(t *testing.T) {
 	}
 }
 
+// 404 仍然不该重试，但要补一次 GET 才算数（有的图床对 HEAD 一律回 404）。
 func TestProbeDoesNotRetryDefiniteMisses(t *testing.T) {
 	var mu sync.Mutex
 	count := 0
@@ -435,8 +437,8 @@ func TestProbeDoesNotRetryDefiniteMisses(t *testing.T) {
 	if _, err := c.Probe(context.Background(), srv.URL+"/gone.png"); err != nil {
 		t.Fatalf("404 不是传输层错误: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("404 不该重试，实际请求 %d 次", count)
+	if count != 2 {
+		t.Fatalf("404 该是 HEAD + 一次确认的 GET，实际请求 %d 次", count)
 	}
 }
 
@@ -1186,5 +1188,46 @@ func TestDownloadStallIsReported(t *testing.T) {
 	}
 	if spent := time.Since(start); spent > 4*time.Second {
 		t.Fatalf("卡住要早点判死，实际花了 %v", spent)
+	}
+}
+
+// 有些图床压根不实现 HEAD，对什么地址都回 404，可 GET 能拿到整张图。
+// 早先 404 被当成「确定的没了」直接返回，这类图床上的图于是全被报成失效。
+func TestProbeConfirmsHeadNotFoundWithGet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	res, err := newClient(t).Probe(context.Background(), srv.URL+"/x.png")
+	if err != nil {
+		t.Fatalf("不该报错: %v", err)
+	}
+	if !res.OK() {
+		t.Fatalf("GET 能拿到图，就该算有效，实际 %+v", res)
+	}
+}
+
+// 每个出站请求都得报上自己的名字：Go 默认的 UA 会被一部分图床直接挡掉
+// （实测维基共享资源对 "Go-http-client/1.1" 回 403，换成我们的名字就是 200）。
+func TestProbeSendsUserAgent(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	if _, err := newClient(t).Probe(context.Background(), srv.URL+"/x.png"); err != nil {
+		t.Fatalf("不该报错: %v", err)
+	}
+	if !strings.HasPrefix(got, "convert-md-picture/") {
+		t.Fatalf("User-Agent = %q，应该是 convert-md-picture/<版本>", got)
 	}
 }

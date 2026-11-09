@@ -69,6 +69,7 @@ const (
 	KeyConvRemoteDirIsFile    Key = "conv.remoteDirIsFile"
 
 	KeyConvRemoteDead         Key = "conv.remoteDead"
+	KeyConvRemoteStatus       Key = "conv.remoteStatus"
 	KeyConvRemoteNotImage     Key = "conv.remoteNotImage"
 	KeyConvRemoteUnreachable  Key = "conv.remoteUnreachable"
 	KeyConvRemoteTooBusy      Key = "conv.remoteTooBusy"
@@ -293,6 +294,13 @@ var catalog = map[Key]entry{
 	KeyConvRemoteDead: {
 		"远程图片已经打不开了（HTTP %d）",
 		"The remote image is no longer reachable (HTTP %d)",
+	},
+	// KeyConvRemoteStatus 专门给「对方答话了，但没给图」用：403 防盗链、500 抽风、
+	// 405 不认识这个方法。一律报「连不上」会把人引去查防火墙/DNS/代理，
+	// 可对方明明答话了，是它不肯给这张图。
+	KeyConvRemoteStatus: {
+		"对方回了 HTTP %d，这张图没有拿到",
+		"The server answered HTTP %d, so the image was not fetched",
 	},
 	KeyConvRemoteNotImage: {
 		"这个地址返回的不是图片（%s）",

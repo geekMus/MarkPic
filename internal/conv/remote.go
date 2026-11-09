@@ -255,6 +255,14 @@ func remoteOutcome(res remoteimg.Result, err error, lang i18n.Lang) remoteFile {
 			return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(
 				i18n.T(lang, i18n.KeyConvRemoteTooBusy), err, remoteimg.RateLimitRetries)}
 		}
+		// 对方答话了（4xx/5xx）却是按「连不上」报的，会把人的注意力引到网络上去。
+		// 404/410 仍按「已经打不开了」说 —— 那是「图没了」，跟「不肯给」不是一回事。
+		if code, ok := remoteimg.StatusCode(err); ok {
+			if code == 404 || code == 410 {
+				return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDead), code)}
+			}
+			return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteStatus), code)}
+		}
 		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteUnreachable), err)}
 	case res.OK():
 		return remoteFile{status: StatusRemoteOK}
@@ -308,8 +316,12 @@ func remoteOutcomeDownload(ctx context.Context, err error, lang i18n.Lang) remot
 	}
 	// 404/410 是「这张图没了」，不是「这次没下成」：跟检测模式一个说法，
 	// 别让同一件事在两个模式下有两个名字。5xx 重试完还是 5xx 才算失败。
-	if code, ok := remoteimg.StatusCode(err); ok && (code == 404 || code == 410) {
-		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDead), code)}
+	if code, ok := remoteimg.StatusCode(err); ok {
+		if code == 404 || code == 410 {
+			return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDead), code)}
+		}
+		// 其余状态码：对方答话了，但没把图给我们（403 防盗链、500 抽风）。
+		return remoteFile{status: StatusRemoteBad, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteStatus), code)}
 	}
 	return remoteFile{status: StatusFailed, msg: fmt.Sprintf(i18n.T(lang, i18n.KeyConvRemoteDownloadFail), err)}
 }

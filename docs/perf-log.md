@@ -3358,3 +3358,62 @@ big.png=4194304
 
 **教训**：「保护一个区域」和「跳过一处内容」是同一件事的两面。多保护一个区域，可能让真内容
 静默消失；少保护一个区域，则会把示例改坏。判据写不清的时候，先想清楚哪一边的错更不可挽回。
+
+## 检测说三张图坏了，其实只有一张真的坏了
+
+拿六个真实网络地址当夹具（`%TEMP%\cmp-realurls`）：
+
+| 地址 | 修前 | 修后 |
+| --- | --- | --- |
+| `avatars.githubusercontent.com/u/1?v=4` | 有效 | 有效 |
+| `upload.wikimedia.org/.../PNG_transparency_demonstration_1.png` | **HTTP 403** | 有效 |
+| `raw.githubusercontent.com/golang/go/master/doc/gopher/frontpage.png` | 404 | 404（这张真的搬走了） |
+| `httpbin.org/image/png` | 有效 | 有效 |
+| `www.google.com/images/branding/.../logo.png` | 有效 | 有效 |
+| `picsum.photos/200` | **HTTP 404** | 有效 |
+
+「6 张里失效 3 张」变成「6 张里失效 1 张」。两条根因，都不是图床的错：
+
+**一、没报上自己的名字。** 探测请求一律用 Go 的默认 User-Agent（`Go-http-client/1.1`）。
+维基共享资源按这个字符串关门：
+
+```
+$ curl -s -o NUL -w "%{http_code}`n" -A "Go-http-client/1.1" https://upload.wikimedia.org/wiki/...
+403
+$ curl -s -o NUL -w "%{http_code}`n" -A "convert-md-picture/1.0.0" https://upload.wikimedia.org/wiki/...
+200
+```
+
+修法：`remoteimg` 里每个出站请求过 `setHeaders(req)`，把 `User-Agent` 设成
+`convert-md-picture/<版本>`（版本取自 `internal/version`）。
+
+**二、把 HEAD 的 404 当成了终审。** `picsum.photos` 不实现 HEAD：
+
+```
+$ curl -sI -o NUL -w "%{http_code}`n"   https://picsum.photos/200   → 404 text/plain
+$ curl -s  -o NUL -w "%{http_code}`n"   https://picsum.photos/200   → 302（跟着跳就是 200 PNG）
+```
+
+早先 `probeAt` 里写着 `if res.OK() || isDefinitelyGone(res.Status) { return res, nil }`，
+404 直接返回，GET 那一步根本不走。修法：404/410 也照常补一次 GET，GET 也拿不到才判死。
+代价是真死链多一次请求 —— 449 篇真实语料的 380 条死链：
+
+| | 冷跑 | 热跑 |
+| --- | --- | --- |
+| 只发 HEAD | 514 ms | 215 ms |
+| 补一次 GET | 662 ms | 280 ms |
+
+**三、顺手改的说法。** 403/500 以前也走「连不上这个地址：HTTP 403」这条路 —— 对方明明答话了，
+报「连不上」会把人引去查防火墙、DNS、代理。现在 404/410 说「已经打不开了」，其余状态码说
+「对方回了 HTTP %d，这张图没有拿到」（新键 `conv.remoteStatus`），下载模式按同一套。
+
+**回归**（都做过承载验证：改回去立刻红）：
+
+- `TestProbeSendsUserAgent`：把 `setHeaders` 里的 UA 去掉 → FAIL `User-Agent = "Go-http-client/1.1"`。
+- `TestProbeConfirmsHeadNotFoundWithGet`：把 `if res.OK() {` 改回带 `isDefinitelyGone` 的短路 → FAIL。
+- `TestProbeStatuses` 的 404/410 两组请求数上限从 1 改成 2；`TestProbeDoesNotRetryDefiniteMisses` 同理
+  （要的是「不重试」这个性质，不是「只发一次」）。
+- `TestRemoteForbiddenSaysServerAnswered`：403 的说明必须含 `HTTP 403`、且不含「连不上这个地址」。
+
+**教训**：「这张图坏了」是三个不同的判断叠在一起 —— 地址写错了、对方不肯给、我们问错了问题（HEAD）。
+把它们全报成一句话，用户就得自己去猜；而按报告去改文档的人，改的是好图。
