@@ -10,6 +10,8 @@ import type { RunPhase } from '../composables/useRun'
 
 const props = defineProps<{
   picgo: Health['picgo'] | null
+  // 这一轮到底用不用得着 PicGo，由面板里那份设置决定（可能还没保存）。
+  picgoNeeded?: boolean
   healthChecking: boolean
   theme: 'light' | 'dark'
   optionsOpen: boolean
@@ -30,10 +32,15 @@ const { choice: themeChoice } = useTheme()
 
 // 这盏灯回答的是「现在能不能开始」，所以「用不着 PicGo」和「PicGo 掉线」必须分开：
 // 只检测 / 只下载远程图时压根不上传，掉线是正常状态，标红只会让人以为出了故障。
+//
+// 优先用上层算好的那一位：服务端返回的 needed 是按**已保存**的设置算的，
+// 而面板里刚改完还没保存时，两者说的不是同一件事。
+const needed = computed(() => props.picgoNeeded ?? props.picgo?.needed ?? true)
+
 const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
   if (props.picgo === null) return props.healthChecking ? 'neutral' : 'danger'
   if (props.picgo.online) return 'success'
-  return props.picgo.needed ? 'danger' : 'neutral'
+  return needed.value ? 'danger' : 'neutral'
 })
 
 const picgoLabel = computed(() => {
@@ -41,7 +48,7 @@ const picgoLabel = computed(() => {
     return props.healthChecking ? t('header.picgo.checking') : t('header.picgo.offline')
   }
   if (props.picgo.online) return t('header.picgo.online')
-  return props.picgo.needed ? t('header.picgo.offline') : t('header.picgo.notNeeded')
+  return needed.value ? t('header.picgo.offline') : t('header.picgo.notNeeded')
 })
 
 const picgoTitle = computed(() => {

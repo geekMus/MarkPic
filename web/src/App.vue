@@ -71,6 +71,10 @@ const { hasUpdate, autoCheck, check: checkUpdate, stopPolling } = useUpdate()
 
 const version = computed(() => health.value?.version ?? '')
 const picgo = computed(() => health.value?.picgo ?? null)
+// 服务端给的 needed 是按**已保存**的设置算的，而面板里的选择可能还没保存就开跑
+// （整轮用的就是面板里这份）。这盏灯回答的是「现在能不能开始」，所以按面板里
+// 真正会用的那份设置来判：只检测 / 只下载 / 试运行都不上传。
+const picgoNeeded = computed(() => settings.remote === 'ignore' && !settings.dryRun)
 const dataDir = computed(() => health.value?.dataDir ?? '')
 const dataNote = computed(() => health.value?.dataNote ?? '')
 const settingsNote = computed(() => health.value?.settingsNote ?? '')
@@ -203,6 +207,7 @@ onBeforeUnmount(() => {
   <div class="app">
     <AppHeader
       :picgo="picgo"
+      :picgo-needed="picgoNeeded"
       :health-checking="healthLoading"
       :theme="theme"
       :options-open="optionsOpen"
