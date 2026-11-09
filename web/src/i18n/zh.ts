@@ -112,6 +112,8 @@ export const zh = {
   'row.status.failed': '失败',
   'row.status.preview': '预览',
   'row.status.uploading': '上传中',
+  'row.status.downloading': '下载中',
+  'row.status.checking': '检测中',
   'row.status.cancelled': '已取消',
   'row.status.finished': '已结束',
   'row.status.notFound': '未找到文件',

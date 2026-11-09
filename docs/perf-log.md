@@ -3107,3 +3107,37 @@ if ((result.dead ?? 0) > 0 || (result.remoteFailed ?? 0) > 0) {
 两个模式共用一行代码，区别全部来自 `result.status` 本身——原来那处 `labelKey: 'row.status.checked'` 是在替数据说话，而数据本来就说得很清楚。
 
 教训：**状态标签是数据的转述，不是评价**。想强调「这行有问题」，颜色足够；把标题一起换掉，等于在同一个位置同时给出两个事实，而且未必都是真的。
+
+## 只检测的那一行，状态写着「上传中」
+
+队列里「跑起来」这个状态是写死的：
+
+```ts
+// 改前
+if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
+```
+
+上传模式下这是对的。可 `--remote check` 一个字节都不传、`--remote download` 只往回拿，两边的行也照样写着「上传中」—— 用户看到的是「程序正在往图床上传东西」，而它其实只是在发 HEAD 请求，或者正在把远程图写到 `images/` 里。三个动作的时间尺度差得远（一次探测几十毫秒，一张图下载几百毫秒到几秒），措辞混用还会让人误判进度卡在哪儿。
+
+改成由这一轮的模式挑词：
+
+```ts
+const runningLabelKey = computed<MessageKey>(() => {
+  switch (props.remoteMode) {
+    case 'download': return 'row.status.downloading'
+    case 'check': return 'row.status.checking'
+    default: return 'row.status.uploading'
+  }
+})
+```
+
+`remoteMode` 从 `App.vue` 的 `settings.remote` 一路传到 `FileQueue.vue` 再传给 `FileRow.vue`，只在这一个地方用。实测（`%TEMP%\cmp-slowdl`，24 处引用打到一台 4 次/秒的限流服务器上，跑一轮约 6 秒）：
+
+| 模式 | 跑的过程中 | 跑完 |
+| --- | --- | --- |
+| download | 下载中 | 完成 |
+| check | 检测中 | 已检测 |
+
+无模式（默认上传）仍然是「上传中」，没动。
+
+教训：**「正在发生」的措辞要跟着动作走**。同一句「上传中」摆在三个不同的动作上，等于告诉用户一个他没在等的事情正在发生。

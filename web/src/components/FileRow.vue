@@ -8,7 +8,16 @@ import { useI18n, type MessageKey } from '../i18n'
 
 type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
-const props = defineProps<{ row: RunRowView; busy: boolean }>()
+const props = defineProps<{
+  row: RunRowView
+  busy: boolean
+  /**
+   * 这一轮在做什么。只影响「跑起来时那一瞬间」的说法：上传模式下写「上传中」，
+   * 下载模式写「下载中」，检测模式写「检测中」。这三个词本来就各不相同，
+   * 一律叫「上传中」会让只检测/只下载的人以为程序在做别的事。
+   */
+  remoteMode?: 'ignore' | 'check' | 'download'
+}>()
 
 const emit = defineEmits<{ remove: [id: string] }>()
 
@@ -43,8 +52,19 @@ const expanded = ref(false)
 
 const detailsId = `file-row-${useId()}`
 
-const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
-  const result = props.row.result
+/** 跑起来的那一瞬间该说什么，取决于这一轮在做什么。 */
+const runningLabelKey = computed<MessageKey>(() => {
+  switch (props.remoteMode) {
+    case 'download':
+      return 'row.status.downloading'
+    case 'check':
+      return 'row.status.checking'
+    default:
+      return 'row.status.uploading'
+  }
+})
+
+const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const result = props.row.result
   if (result) {
     const meta = FILE_STATUS_META[result.status]
     // 检测模式下整篇「已检测」读起来是成功，但有死链的行必须一眼认出来 ——
@@ -61,7 +81,7 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
     }
     return meta
   }
-  if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
+  if (props.row.phase === 'running') return { tone: 'accent', labelKey: runningLabelKey.value }
   if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
   if (props.row.phase === 'settled') return { tone: 'neutral', labelKey: 'row.status.finished' }
   if (props.row.missing) return { tone: 'neutral', labelKey: 'row.status.notFound' }

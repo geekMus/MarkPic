@@ -227,6 +227,7 @@ onBeforeUnmount(() => {
           :completed="completedCount"
           :total="totalCount"
           :manual-open="manualOpen"
+          :remote-mode="settings.remote"
           @pick-files="pick('files')"
           @pick-folder="pick('folder')"
           @submit-paths="enqueue"

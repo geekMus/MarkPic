@@ -14,6 +14,8 @@ const props = defineProps<{
   completed: number
   total: number
   manualOpen: boolean
+  /** 这一轮在做什么（上传 / 只检测 / 下载回本地），只用来给行内文案挑词。 */
+  remoteMode?: 'ignore' | 'check' | 'download'
 }>()
 
 const emit = defineEmits<{
@@ -406,6 +408,7 @@ function onScroll(): void {
             :data-row-id="row.id"
             :row="row"
             :busy="busy"
+            :remote-mode="remoteMode"
             @remove="emit('remove', $event)"
           />
           <li

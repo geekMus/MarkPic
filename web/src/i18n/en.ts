@@ -114,6 +114,8 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.failed': 'Failed',
   'row.status.preview': 'Preview',
   'row.status.uploading': 'Uploading',
+  'row.status.downloading': 'Downloading',
+  'row.status.checking': 'Checking',
   'row.status.cancelled': 'Cancelled',
   'row.status.finished': 'Finished',
   'row.status.notFound': 'Not found',
