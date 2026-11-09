@@ -3476,3 +3476,99 @@ func decodeMarkdownDest(s string) string {
 
 修后同一篇里 Markdown 与 HTML 两种写法合并成一条：`远程图 1 张（2 处引用）`。
 449 篇 / 380 条死链的语料 `0.3s`，无回归。
+
+## 「省下 5 张下载」，其实只省了 4 张
+
+`--remote download` 的复用路径上有一句统计，问的是「这一轮少下了几张」。它一直是错的，
+错得不算大，但指向很坏：报告在替一件没发生的事邀功。
+
+### 现场
+
+夹具 `%TEMP%\cmp-redl-cache`：一篇文档，五处引用指向五个不同的地址（本地极简应答器
+`fastimg.exe`，36734，任何路径都回 67 字节 PNG）。第一轮正常下载五张，然后删掉其中一张：
+
+```
+PS> bin\convert-md-picture.exe --remote download -o in-place .\cmp-redl-cache
+[完成]  doc.md  下载 5 张远程图 · 省下 0 张下载
+PS> Remove-Item .\cmp-redl-cache\images\p2.png
+PS> bin\convert-md-picture.exe --remote download -o in-place .\cmp-redl-cache
+[完成]  doc.md  下载 5 张远程图 · 省下 5 张下载      ← 难看的地方在这里
+```
+
+`images/` 里明明只有四个文件是我上次留下的，p2 是这一轮重新下的，可报告说五张全是省下的。
+
+### 根因
+
+`internal/remotecache/remotecache.go` 的 `Lookup` 一查到条目就记账：
+
+```go
+	e.UsedAt = time.Now().Unix()
+	c.entries[cacheKey(rawURL, dir)] = e
+	c.hits++                       // ← 这里
+	return e.Name, e.Size, true
+```
+
+可「缓存里有这一条」和「磁盘上那个文件还在」是两件事。调用方 `internal/conv/remote.go`
+拿到名字之后还要自己 stat 一次：
+
+```go
+	if name, cached, ok := r.remoteCache.Lookup(rawURL, dir); ok {
+		abs = filepath.Join(dir, name)
+		if st, serr := os.Stat(abs); serr == nil && st.Size() == cached {
+			return r.relFor(docDir, abs), cached, abs, nil
+		}
+	}
+```
+
+stat 不通过就走正常下载——而那次「命中」早就已经进了账。用户删掉一张图、换了个输出目录、
+或者同步盘还没把文件拉下来，都会走过这条路。
+
+### 改法
+
+把记账从 `Lookup` 里挪出来，交给调用方在 stat 通过之后补一次：
+
+```go
+// NoteHit 记一次「真的用上了上次下好的文件」（省下一次下载）。
+//
+// 调用点在 Lookup 的调用方、stat 通过之后 —— 见 Lookup 的注释。
+func (c *Cache) NoteHit() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hits++
+}
+```
+
+```go
+		if st, serr := os.Stat(abs); serr == nil && st.Size() == cached {
+			// 到这里才算「省下一次下载」：文件真的还在。
+			// Lookup 自己不会记账，文件被删掉时我们还得重新下一张。
+			r.remoteCache.NoteHit()
+			return r.relFor(docDir, abs), cached, abs, nil
+		}
+```
+
+### 回归
+
+- `internal/remotecache/remotecache_test.go`：`TestSaveAndReopen` 改成「重开之后 Lookup 到
+  但计数仍为 0，`NoteHit()` 之后才是 1」；新增 `TestLookupCountsOnlyAfterNoteHit`
+  （两次确认就是两次，落空一次不影响计数）。
+- `internal/conv/remote_test.go`：新增 `TestRemoteCacheCountsOnlyFilesStillThere`——下两张、
+  删掉其中一张再跑一轮，`RemoteReused` 必须等于 1，且删掉的那张要真的补回来
+  （不然「省下 1 张」是拿坏掉的文档换来的）。
+- 承载验证过：把 `r.remoteCache.NoteHit()` 那一行注释掉，立刻红：
+
+```
+--- FAIL: TestRemoteCacheCountsOnlyFilesStillThere (0.02s)
+    remote_test.go:1717: 只该省下还在的那一张，实际 0
+```
+
+修后同一个夹具：第二轮报「省下 4 张下载」。
+
+### 教训
+
+「命中」是两件事：**知道了位置**，和**真的用上了那个文件**。前者是查表，后者要碰磁盘。
+报告的每一个数字都该说后者。这不是性能问题，是同一类毛病里最便宜能发现的一种——
+数字比实际大一点，用户还高兴，直到有一天他发现 `images/` 里少了一张图却没人告诉他。

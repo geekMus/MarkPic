@@ -1101,6 +1101,7 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
 // decodeMarkdownDest 还原 Markdown 地址里的反斜杠转义与字符实体。
 //
 // CommonMark 把链接目的地当普通文本处理：`\(` 就是 `(`，`&amp;` 就是 `&`。

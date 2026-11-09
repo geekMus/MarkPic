@@ -153,6 +153,11 @@ func cacheKey(rawURL, dir string) string {
 }
 
 // Lookup 查这个地址上次下到了哪里。命中时返回文件名与大小（调用方自己确认文件还在）。
+//
+// 注意这里**不**记命中次数：命中之后调用方还要 stat 一次，确认那个文件真的还在、
+// 大小也对得上。文件被删掉的时候这次「命中」根本没用上，调用方会重新下一张 ——
+// 要是在这里就记账，报告就会写「省下 5 张下载」，而实际上只省了 4 张。
+// 所以计数交给 NoteHit，由调用方在真的用上那个文件之后补一次。
 func (c *Cache) Lookup(rawURL, dir string) (name string, size int64, ok bool) {
 	if !c.Enabled() {
 		return "", 0, false
@@ -165,8 +170,19 @@ func (c *Cache) Lookup(rawURL, dir string) (name string, size int64, ok bool) {
 	}
 	e.UsedAt = time.Now().Unix()
 	c.entries[cacheKey(rawURL, dir)] = e
-	c.hits++
 	return e.Name, e.Size, true
+}
+
+// NoteHit 记一次「真的用上了上次下好的文件」（省下一次下载）。
+//
+// 调用点在 Lookup 的调用方、stat 通过之后 —— 见 Lookup 的注释。
+func (c *Cache) NoteHit() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hits++
 }
 
 // Owner 反查「这个目录里的这个文件名，上次是哪个地址下的」。

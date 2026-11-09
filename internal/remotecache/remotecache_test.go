@@ -39,8 +39,38 @@ func TestSaveAndReopen(t *testing.T) {
 	if !ok || name != "a.png" || size != 1024 {
 		t.Fatalf("重开之后应该还记得: %q %d %v", name, size, ok)
 	}
+	// 查到条目只是「可能省下一次下载」，调用方还要确认文件还在，所以这里不该计数。
+	if again.Hits() != 0 {
+		t.Fatalf("Lookup 不该记命中，实际 %d", again.Hits())
+	}
+	again.NoteHit()
 	if again.Hits() != 1 {
-		t.Fatalf("命中数应该是 1，实际 %d", again.Hits())
+		t.Fatalf("NoteHit 之后命中数应该是 1，实际 %d", again.Hits())
+	}
+}
+
+// 命中之后文件被删掉了，调用方会重新下一张 —— 那一次不算「省下」。
+func TestLookupCountsOnlyAfterNoteHit(t *testing.T) {
+	c := Open(filepath.Join(t.TempDir(), "remote-cache.json"))
+	c.Store("https://cdn.example.com/a.png", `C:\docs`, "a.png", 1024)
+
+	if _, _, ok := c.Lookup("https://cdn.example.com/a.png", `C:\docs`); !ok {
+		t.Fatal("缓存里明明有这一条")
+	}
+	if c.Hits() != 0 {
+		t.Fatalf("只查了一下、文件不一定还在，不该记命中，实际 %d", c.Hits())
+	}
+	c.NoteHit()
+	c.NoteHit()
+	if c.Hits() != 2 {
+		t.Fatalf("两次确认就是两次，实际 %d", c.Hits())
+	}
+	// 没命中的查询也不能记账。
+	if _, _, ok := c.Lookup("https://cdn.example.com/b.png", `C:\docs`); ok {
+		t.Fatal("b.png 根本没存过")
+	}
+	if c.Hits() != 2 {
+		t.Fatalf("落空一次不该影响计数，实际 %d", c.Hits())
 	}
 }
 

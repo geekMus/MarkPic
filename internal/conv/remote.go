@@ -370,6 +370,9 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 	if name, cached, ok := r.remoteCache.Lookup(rawURL, dir); ok {
 		abs = filepath.Join(dir, name)
 		if st, serr := os.Stat(abs); serr == nil && st.Size() == cached {
+			// 到这里才算「省下一次下载」：文件真的还在。
+			// Lookup 自己不会记账，文件被删掉时我们还得重新下一张。
+			r.remoteCache.NoteHit()
 			return r.relFor(docDir, abs), cached, abs, nil
 		}
 	}

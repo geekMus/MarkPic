@@ -1686,3 +1686,39 @@ func TestRemoteDownloadEOFExplainsItself(t *testing.T) {
 		t.Fatalf("要说是对方断了连接，实际 %q", msg)
 	}
 }
+
+// 缓存说「这张上次下过了」，但文件已经被用户删了 —— 那一次不算「省下」。
+//
+// 记账原来做在 Lookup 里，而 Lookup 之后调用方还要 stat 一次确认文件还在。
+// 文件不在时会重新下一张，可那一次命中早就记过账了，报告于是写「省下 5 张下载」，
+// 而实际上只省了 4 张。
+func TestRemoteCacheCountsOnlyFilesStillThere(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(t.TempDir(), "remote-cache.json")
+	host, _ := fakeImageHost(t)
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "![a]("+host.URL+"/ok.png)\n\n![b]("+host.URL+"/photo.jpg)\n")
+
+	cfg := remoteCfg("http://127.0.0.1:36677", settings.RemoteDownload)
+
+	first := NewRunner(cfg, i18n.ZH, "run1", nil).AttachRemoteCache(cachePath)
+	_, sum := first.RunCollect(context.Background(), []string{doc})
+	if sum.RemoteReused != 0 {
+		t.Fatalf("第一轮没东西可复用，实际 %d", sum.RemoteReused)
+	}
+
+	if err := os.Remove(filepath.Join(dir, "images", "ok.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	second := NewRunner(cfg, i18n.ZH, "run2", nil).AttachRemoteCache(cachePath)
+	_, sum2 := second.RunCollect(context.Background(), []string{doc})
+	if sum2.RemoteReused != 1 {
+		t.Fatalf("只该省下还在的那一张，实际 %d", sum2.RemoteReused)
+	}
+
+	// 被删掉的那张必须真的补回来，否则「省下 1 张」就是拿坏掉的文档换来的。
+	if st, err := os.Stat(filepath.Join(dir, "images", "ok.png")); err != nil || st.Size() != int64(len(pngBytes)) {
+		t.Fatalf("删掉的图应该重新下回来: %v", err)
+	}
+}
