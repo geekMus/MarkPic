@@ -43,6 +43,13 @@ func openAppWindow(url, title string, stop <-chan os.Signal) error {
 	width := uint(math.Round(float64(windowWidth) * scale))
 	height := uint(math.Round(float64(windowHeight) * scale))
 
+	// 上次关窗时的大小优先（存的是逻辑像素，这里按当前屏的缩放折算）。
+	// 记录读不出来就用默认尺寸，不提示 —— 用户不关心记事本坏没坏。
+	if saved, ok := loadWindowSize(); ok {
+		width = uint(math.Round(float64(saved.Width) * scale))
+		height = uint(math.Round(float64(saved.Height) * scale))
+	}
+
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		AutoFocus: true,
 		// 默认会把用户数据放在 exe 旁边（污染绿色版目录），改放到本机应用数据里。

@@ -81,6 +81,12 @@ func RemoteCachePath() string {
 	return filepath.Join(Dir(), "remote-cache.json")
 }
 
+// WindowPath 返回「窗口大小」的记事本位置。它只是让下次打开时窗口还是上次那个大小；
+// 丢了就用默认尺寸，不影响任何用户数据。
+func WindowPath() string {
+	return filepath.Join(Dir(), "window.json")
+}
+
 // WebViewDir 返回 WebView2 的用户数据目录。这里是缓存，删掉会自动重建；
 // 建不出来时返回空串，交给运行时自己决定放哪。
 func WebViewDir() string {

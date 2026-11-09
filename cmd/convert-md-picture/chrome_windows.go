@@ -287,6 +287,10 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		return 1
 	case wmEraseBkgnd:
 		return 1
+	case wmClose:
+		// 关窗是唯一拿得到「用户最终喜欢多大」的时刻。记完继续往下走，
+		// 真正的关闭还是交给原来的窗口过程 —— 这里只做记录，不拦消息。
+		rememberWindowSize(uintptr(hwnd))
 	case wmGetMinMaxInfo:
 		// 没有系统边框，最小尺寸得自己定，不然窗口能被拖成一条缝。
 		if lp != nil {
