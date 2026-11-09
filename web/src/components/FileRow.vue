@@ -407,6 +407,8 @@ function replaced(status: ImageStatus): boolean {
 
         <span class="item__id">
           <span class="item__name">{{ row.name }}</span>
+          <!-- 目录行和文件行长得一样，光看名字分不出这是「一篇文档」还是「一个目录」 -->
+          <span v-if="row.isDir" class="item__tag">{{ t('row.dirTag') }}</span>
           <span class="item__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
       </button>
@@ -611,6 +613,19 @@ function replaced(status: ImageStatus): boolean {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.item__tag {
+  /* 纵向 flex 的交叉轴默认 stretch，徽标会被拉成整列宽 —— 得自己收回文字宽 */
+  align-self: flex-start;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink-3);
+  font-size: 11px;
+  line-height: 15px;
+  letter-spacing: 0.02em;
 }
 
 .item__dir {

@@ -163,6 +163,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.item.remoteSkipped': 'Already remote — skipped',
   'drop.hint': 'Drop to add to the queue',
   'drop.unsupported': 'Could not read a local path from that drop — use the File / Folder buttons, or paste the path into manual input',
+  'row.dirTag': 'folder',
   'row.reveal': 'Show in File Explorer',
   'row.remove': 'Remove from queue',
   'row.stat.uploaded': 'Replaced',
