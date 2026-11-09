@@ -131,32 +131,74 @@ function measureMountedRows(): void {
   }
 }
 
+/**
+ * 「只看有问题的」筛选。
+ *
+ * 检测模式下，一份 300 篇的目录里可能只有十几处死链：全是问题的那几行埋在
+ * 几百行「一切正常」中间，翻到手软。这里只做过滤，虚拟化照旧按筛选后的行算，
+ * 所以筛选本身不增加渲染成本。
+ */
+const onlyProblems = ref(false)
+
+function isProblem(row: RunRowView): boolean {
+  if (row.missing) return true
+  const res = row.result
+  if (!res) return false
+  if (res.failed > 0 || (res.dead ?? 0) > 0) return true
+  return res.status === 'failed' || res.status === 'partial'
+}
+
+const problemCount = computed(() => props.rows.reduce((n, row) => (isProblem(row) ? n + 1 : n), 0))
+
+/**
+ * 筛选真正生效的条件。problemCount 为 0 时（比如重新跑一轮全好了）自动放开，
+ * 否则按钮已经藏起来了，列表却还停在一份空的筛选结果上。
+ */
+const filtering = computed(() => onlyProblems.value && problemCount.value > 0)
+
+const filteredRows = computed(() =>
+  filtering.value ? props.rows.filter((row) => isProblem(row)) : props.rows,
+)
+
+/** 切筛选时回到顶部：否则滚动位置还停在上一次的第 200 行，新列表里根本没有那一行。 */
+function toggleProblems(): void {
+  onlyProblems.value = !onlyProblems.value
+  if (body.value) body.value.scrollTop = 0
+  scrollTop.value = 0
+  void nextTick(() => {
+    syncViewport()
+    measureMountedRows()
+  })
+}
+
 /** 每行的高度前缀和，offsets[i] 是第 i 行的顶部偏移。 */
 const offsets = computed(() => {
   void heightsVersion.value
-  const arr = new Float64Array(props.rows.length + 1)
-  for (let i = 0; i < props.rows.length; i += 1) {
-    arr[i + 1] = arr[i] + (heights.get(props.rows[i].id) ?? ROW_HEIGHT)
+  const list_ = filteredRows.value
+  const arr = new Float64Array(list_.length + 1)
+  for (let i = 0; i < list_.length; i += 1) {
+    arr[i + 1] = arr[i] + (heights.get(list_[i].id) ?? ROW_HEIGHT)
   }
   return arr
 })
 
-const totalHeight = computed(() => offsets.value[props.rows.length] ?? 0)
+const totalHeight = computed(() => offsets.value[filteredRows.value.length] ?? 0)
 
 function indexAt(offset: number): number {
   const arr = offsets.value
+  const count = filteredRows.value.length
   let low = 0
-  let high = props.rows.length
+  let high = count
   while (low < high) {
     const mid = (low + high) >> 1
     if (arr[mid + 1] <= offset) low = mid + 1
     else high = mid
   }
-  return Math.min(low, Math.max(0, props.rows.length - 1))
+  return Math.min(low, Math.max(0, count - 1))
 }
 
 const window_ = computed(() => {
-  const count = props.rows.length
+  const count = filteredRows.value.length
   if (count === 0) return { start: 0, end: 0, top: 0, bottom: 0 }
   const height = viewportHeight.value || 600
   const start = Math.max(0, indexAt(scrollTop.value) - OVERSCAN)
@@ -169,7 +211,7 @@ const window_ = computed(() => {
   }
 })
 
-const visibleRows = computed(() => props.rows.slice(window_.value.start, window_.value.end))
+const visibleRows = computed(() => filteredRows.value.slice(window_.value.start, window_.value.end))
 
 watch(
   () => props.rows.length,
@@ -236,6 +278,21 @@ function onScroll(): void {
           @click="emit('update:manualOpen', !manualOpen)"
         >
           <AppIcon name="terminal" :size="16" />
+        </button>
+
+        <!-- 检测模式下死链往往只有十几处，埋在几百行「一切正常」里翻不到 -->
+        <button
+          v-if="problemCount > 0"
+          type="button"
+          class="icon-btn queue__filter"
+          :class="{ 'icon-btn--active': onlyProblems }"
+          :title="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
+          :aria-label="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
+          :aria-pressed="onlyProblems"
+          @click="toggleProblems"
+        >
+          <AppIcon name="alert" :size="16" />
+          <span class="queue__filter-count num" aria-hidden="true">{{ problemCount }}</span>
         </button>
 
         <span class="panel__divider" aria-hidden="true" />
@@ -337,6 +394,29 @@ function onScroll(): void {
   display: flex;
   flex-direction: column;
 }
+
+/* 「只看有问题的」：图标按钮右上角挂一个计数，一眼知道有几处要看 */
+.queue__filter {
+  position: relative;
+}
+
+.queue__filter-count {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--bad);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  pointer-events: none;
+}
+
 
 /* 虚拟滚动的占位块：只负责撑高度，不参与布局计算 */
 .queue__spacer {

@@ -45,7 +45,12 @@ const detailsId = `file-row-${useId()}`
 
 const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
   const result = props.row.result
-  if (result) return FILE_STATUS_META[result.status]
+  if (result) {
+    // 检测模式下整篇「已检测」读起来是成功，但有死链的行必须一眼认出来 ——
+    // 尤其点开「只看有问题的」之后，一行行全是中性的「已检测」等于没筛。
+    if ((result.dead ?? 0) > 0) return { tone: 'danger', labelKey: 'row.status.checked' }
+    return FILE_STATUS_META[result.status]
+  }
   if (props.row.phase === 'running') return { tone: 'accent', labelKey: 'row.status.uploading' }
   if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
   if (props.row.phase === 'settled') return { tone: 'neutral', labelKey: 'row.status.finished' }
@@ -70,6 +75,8 @@ const reason = computed(() => {
   }
   if (result.error) return result.error
   if (result.failed > 0) return t('row.reason.failed', { count: result.failed })
+  const dead = result.dead ?? 0
+  if (dead > 0) return t('row.reason.dead', { count: dead })
   const warning = result.warnings?.[0]
   return warning ?? ''
 })
