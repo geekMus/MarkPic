@@ -153,7 +153,7 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 				done++
 				progress := done
 				mu.Unlock()
-				r.notify(Event{Type: EventFileProgress, ID: id, Uploaded: progress, Total: total})
+				r.notify(Event{Type: EventFileProgress, ID: id, Done: progress, Total: total})
 			}
 		}()
 	}

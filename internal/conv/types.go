@@ -155,11 +155,14 @@ type Summary struct {
 
 // Event 是推送给前端的事件（SSE）。
 type Event struct {
-	Type     string      `json:"type"`
-	RunID    string      `json:"runId,omitempty"`
-	ID       string      `json:"id,omitempty"`
-	Files    []FileTask  `json:"files,omitempty"`
+	Type  string     `json:"type"`
+	RunID string     `json:"runId,omitempty"`
+	ID    string     `json:"id,omitempty"`
+	Files []FileTask `json:"files,omitempty"`
+	// Uploaded 是「这一篇已经替换成功几处」，Done 是「这一篇已经处理了几张图」。
+	// 远程模式下不产生替换，进度写 Done；两个数混用会让界面在只检测时冒出「替换 13」。
 	Uploaded int         `json:"uploaded"`
+	Done     int         `json:"done"`
 	Total    int         `json:"total"`
 	Result   *FileResult `json:"result,omitempty"`
 	Summary  *Summary    `json:"summary,omitempty"`

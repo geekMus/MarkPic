@@ -154,7 +154,9 @@ const reason = computed(() => {
 const percent = computed(() => {
   if (props.row.phase === 'settled' || props.row.phase === 'cancelled') return 100
   if (props.row.total > 0) {
-    return Math.min(100, Math.round((props.row.uploaded / props.row.total) * 100))
+    // 远程模式只动 done（这一篇处理了几张），上传模式只动 uploaded（替换了几处）。
+    const moved = props.row.done ?? props.row.uploaded
+    return Math.min(100, Math.round((moved / props.row.total) * 100))
   }
   return 0
 })

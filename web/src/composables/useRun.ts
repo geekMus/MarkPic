@@ -27,7 +27,9 @@ export interface RunRow {
   dir: string
   images: number | null
   phase: RowPhase
+  // uploaded 是「替换成功的引用数」，done 是「这一篇处理了几张图」——远程模式下只有后者会动。
   uploaded: number
+  done?: number
   total: number
   /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
   missing?: boolean
@@ -60,6 +62,7 @@ export interface RunStats {
   /** 队列里那些还没展开的目录行有几行（开跑之后目录展开成文件，这里回到 0）。 */
   dirs: number
   images: number
+  // uploaded 是「替换了几处」，与行上的 done（处理了几张图）不是一个东西。
   uploaded: number
   /** 靠缓存省下的去重图片数（跑完之后才有准确值）。 */
   reused: number
@@ -561,9 +564,10 @@ function onSignal(event: RunEvent): void {
       const row = rowAt(event.id)
       if (!row) return
       live.images += event.total - (row.images ?? row.total)
-      live.uploaded += event.uploaded - row.uploaded
+      // 进度是「这一篇处理了几张图」，不是「替换了几处」：只检测/只下载时上传数是 0，
+      // 以前把进度累加进 uploaded，页脚会闪出「替换 13」这种没发生过的数字。
       row.phase = 'running'
-      row.uploaded = event.uploaded
+      row.done = event.done ?? 0
       row.total = event.total
       row.images = event.total
       return

@@ -1885,3 +1885,47 @@ func TestOutputDirectoryCarriesLocalImages(t *testing.T) {
 		t.Fatalf("本地图的链接不该被改写：%s", out)
 	}
 }
+
+// TestRemoteProgressReportsDoneNotUploaded 钉住进度事件的字段：只检测时「替换」必须一直是 0。
+//
+// 以前 file.progress 把「处理了几张」塞进 Uploaded 字段，界面照着累加，于是只检测的
+// 一轮里页脚会闪出「替换 13」这种根本没发生过的数字。
+func TestRemoteProgressReportsDoneNotUploaded(t *testing.T) {
+	dir := t.TempDir()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngBytes)
+	}))
+	defer srv.Close()
+
+	src := ""
+	for i := 0; i < 6; i++ {
+		src += fmt.Sprintf("![i%d](%s/img/%d.png)", i, srv.URL, i) + "\n\n"
+	}
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	var progress []Event
+	emit := func(ev Event) {
+		if ev.Type == EventFileProgress {
+			progress = append(progress, ev)
+		}
+	}
+	r := NewRunner(remoteCfg("http://127.0.0.1:1", settings.RemoteCheck), i18n.ZH, "run", emit)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+	if len(results) != 1 || results[0].Checked != 6 || sum.RemoteChecked != 6 {
+		t.Fatalf("结果 = %+v（汇总 %+v），want 一篇检测了 6 张", results, sum)
+	}
+
+	if len(progress) == 0 {
+		t.Fatal("检测模式一个进度事件都没有")
+	}
+	for i, ev := range progress {
+		if ev.Uploaded != 0 {
+			t.Errorf("第 %d 个进度事件的上传数是 %d，只检测不该有替换", i+1, ev.Uploaded)
+		}
+		if ev.Done <= 0 || ev.Done > ev.Total {
+			t.Errorf("第 %d 个进度事件 done=%d total=%d，进度该落在 (0, total]", i+1, ev.Done, ev.Total)
+		}
+	}
+}

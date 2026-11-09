@@ -169,7 +169,7 @@ export type RunFileInfo = {
 export type RunEvent =
   | { type: 'run.started'; runId: string; files: RunFileInfo[] }
   | { type: 'file.started'; runId: string; id: string }
-  | { type: 'file.progress'; runId: string; id: string; uploaded: number; total: number }
+  | { type: 'file.progress'; runId: string; id: string; done?: number; uploaded: number; total: number }
   | { type: 'file.finished'; runId: string; id: string; result: FileResult }
   | { type: 'run.finished'; runId: string; summary: RunSummary }
   | { type: 'run.cancelled'; runId: string; summary?: RunSummary }
