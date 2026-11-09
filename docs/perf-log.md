@@ -2611,3 +2611,22 @@ func Key(rawURL string) string {
 三条都有回归，都验证过承重（把改动临时去掉立刻红）：
 `TestRemoteDownloadSkipsDirectoryInTheWay`（缓存开/关两个子用例）、
 `TestTargetIsDirectoryExplainsItself`、`TestRemoteDirNamesTheRealBlocker`。
+
+## 文档里写的地址，和发出去的地址不是一个
+
+用一台「把收到的请求全记下来」的图床（`cmp-echosrv.exe`：任何路径都回一张 1×1 PNG，每个请求把 `METHOD RequestURI` 追加到日志）巡检 Markdown/HTML 的写法边缘，抓到两个「文档里看着没错、图却打不开」的：
+
+| 文档里写的 | 改之前服务器收到 | 改之后 |
+| --- | --- | --- |
+| `![a](http://h/ok\(1\).png)` | `HEAD /ok%5C%281%5C%29.png` | `HEAD /ok(1).png` |
+| `<img src="http://h/a.png?w=1&amp;h=2">` | `HEAD /a.png?w=1&amp;h=2` | `HEAD /a.png?w=1&h=2` |
+| `<img src="http://h/b.png?w=1&#38;h=2">` | `HEAD /b.png?w=1&`（后半截被吃掉） | `HEAD /b.png?w=1&h=2` |
+| `![a](http://h/d.png?w=1&amp;h=2)` | `HEAD /d.png?w=1&amp;h=2` | 不变（Markdown 里就是五个字面字符） |
+
+根因：`internal/mdscan/scan.go` 的 `Ref.Target` 注释写着「已去掉尖括号、还原反斜杠转义」，实现只做了前半句；HTML 的 `src`/`srcset` 属性值也原样取出，没解实体。本地路径这两条都被 `CleanTarget` 兜住了，**远程地址一次都没走**，于是字面的反斜杠和 `&amp;` 直接进了请求。
+
+修法是 `mdscan` 里新增 `UnescapeMarkdown`（只吃 CommonMark 认可的 ASCII 标点转义）与 `DecodeAttrEntities`（只认带分号的 `&amp;` `&lt;` `&gt;` `&quot;` `&apos;` 加 `#38`/`#x26` 数字实体），在 `parseMarkdownImage`、引用式定义的 dest、`<img src>`、`srcset` 四处接线。
+
+**为什么不用 `html.UnescapeString`**：实测它不看分号 —— `?a=1&copy=2` 变成 `?a=1©=2`、`?a=1&notanentity;b=2` 变成 `?a=1¬anentity;b=2`、`?a=1&amp=2` 变成 `?a=1&=2`。地址里这种「少了分号的查询串」太常见，解错的代价是把请求发到另一个地址，比不还原糟得多。
+
+回归：`TestMarkdownBackslashEscapesAreResolved`、`TestReferenceStyleResolvesBackslashEscapes`、`TestHTMLAttributeEntitiesAreDecoded`、`TestEntityDecodingNeedsTheSemicolon`（`internal/mdscan`）+ 端到端 `TestRemoteRequestsDecodeEscapesAndEntities`（`internal/conv`，直接看假图床收到的 path 与查询串）。端到端那条是真承重的：把两处解码去掉，它会报 `服务器没收到 "/esc(1).png"，收到的是 map[/esc\(1\).png:1 /q.png?w=1&:1 …]`。

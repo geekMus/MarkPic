@@ -419,3 +419,94 @@ func TestLooseRefsOnAHugeLineAreLinear(t *testing.T) {
 	}
 	t.Logf("一行 %d 字节、%d 处引用：%v", len(src), n, elapsed)
 }
+
+// 反斜杠转义：CommonMark 里 `\(` 就是 `(`。不还原的话，请求会带着字面的反斜杠
+// 发出去（实测 `![a](http://h/ok\(1\).png)` 变成 `HEAD /ok%5C%281%5C%29.png`），
+// 图床自然 404 —— 而且用户看着文档里明明写着对的地址。
+func TestMarkdownBackslashEscapesAreResolved(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"括号", `![a](http://h/ok\(1\).png)`, []string{"http://h/ok(1).png"}},
+		{"尖括号里的括号", `![a](<http://h/ok(2).png>)`, []string{"http://h/ok(2).png"}},
+		{"反斜杠本身", `![a](http://h/a\\b.png)`, []string{`http://h/a\b.png`}},
+		// 空格不是可转义标点：`a\ b.png` 里的反斜杠得留着，交给 CleanTarget 处理
+		{"空格前的反斜杠保持原样", `![a](a\ b.png)`, []string{`a\ b.png`}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := targets(c.src)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("第 %d 处 = %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+// 引用式定义的地址同样要做反斜杠还原。
+func TestReferenceStyleResolvesBackslashEscapes(t *testing.T) {
+	src := "![a][r]\n\n[r]: http://h/ok\\(1\\).png\n"
+	got := targets(src)
+	if len(got) != 1 || got[0] != "http://h/ok(1).png" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// HTML 属性值里的字符实体必须还原：`src="a.png?w=1&amp;h=2"` 的地址真的是
+// `?w=1&h=2`。不还原时图床收到的是一个叫 `amp;h` 的怪参数。
+func TestHTMLAttributeEntitiesAreDecoded(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"amp", `<img src="http://h/a.png?w=1&amp;h=2">`, []string{"http://h/a.png?w=1&h=2"}},
+		{"数字实体", `<img src="http://h/b.png?w=1&#38;h=2">`, []string{"http://h/b.png?w=1&h=2"}},
+		{"十六进制实体", `<img src="http://h/c.png?w=1&#x26;h=2">`, []string{"http://h/c.png?w=1&h=2"}},
+		{"单引号属性", `<img src='http://h/d.png?a=1&amp;b=2'>`, []string{"http://h/d.png?a=1&b=2"}},
+		{"srcset", `<img srcset="http://h/e.png?a=1&amp;b=2 1x">`, []string{"http://h/e.png?a=1&b=2"}},
+		// HTML 属性里的反斜杠没有转义含义，必须原样留着
+		{"反斜杠不还原", `<img src="http://h/f\(1\).png">`, []string{`http://h/f\(1\).png`}},
+		// Markdown 里 `&amp;` 就是字面的五个字符，不能解
+		{"Markdown 不解实体", `![a](http://h/g.png?w=1&amp;h=2)`, []string{"http://h/g.png?w=1&amp;h=2"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := targets(c.src)
+			if len(got) != len(c.want) {
+				t.Fatalf("got %v want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Errorf("第 %d 处 = %q, want %q", i, got[i], c.want[i])
+				}
+			}
+		})
+	}
+}
+
+// 少了分号的 `&copy=2`、`&amp=2` 必须按字面留着。html.UnescapeString 会把它们
+// 解成 `©=2` 和 `&=2` —— 地址当场换了一个，这比不还原糟得多。
+func TestEntityDecodingNeedsTheSemicolon(t *testing.T) {
+	cases := map[string]string{
+		"http://h/a.png?a=1&copy=2":          "http://h/a.png?a=1&copy=2",
+		"http://h/a.png?a=1&amp=2":           "http://h/a.png?a=1&amp=2",
+		"http://h/a.png?a=1&times=2":         "http://h/a.png?a=1&times=2",
+		"http://h/a.png?a=1&unknown;b=2":     "http://h/a.png?a=1&unknown;b=2",
+		"http://h/a.png?a=1&amp;b=2":         "http://h/a.png?a=1&b=2",
+		"http://h/a.png?a=1&amp;b=2&amp;c=3": "http://h/a.png?a=1&b=2&c=3",
+		"http://h/a.png?a=1&#x26;b=2":        "http://h/a.png?a=1&b=2",
+	}
+	for in, want := range cases {
+		if got := DecodeAttrEntities(in); got != want {
+			t.Errorf("DecodeAttrEntities(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

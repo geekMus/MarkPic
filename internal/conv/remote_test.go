@@ -52,6 +52,11 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		hits[r.URL.Path]++
+		// 查询串单独记一份，键是「路径?查询串」：实体没还原时请求会变成
+		// `/q.png?w=1&amp;h=2`，光看 Path 是看不出来的。
+		if r.URL.RawQuery != "" {
+			hits[r.URL.Path+"?"+r.URL.RawQuery]++
+		}
 		first := false
 		if r.URL.Path == "/flaky.png" {
 			flaky++
@@ -98,6 +103,12 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 		case "/pic.png":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(sameSizeB)
+		case "/q.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
+		case "/esc(1).png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1164,5 +1175,41 @@ func TestRemoteDirNamesTheRealBlocker(t *testing.T) {
 	}
 	if strings.Contains(msg, "mkdir ") || strings.Contains(msg, "cannot find the path") {
 		t.Fatalf("不该把系统原话抛给用户: %q", msg)
+	}
+}
+
+// 文档里写的是 HTML 实体、CommonMark 反斜杠转义时，**发出去的**必须是还原后的地址。
+// 这两个 bug 都实测过：`&amp;` 没还原，图床收到一个叫 `amp;h` 的参数；`\(` 没还原，
+// 请求变成 `/ok%5C%281%5C%29.png`，对方直接 404 —— 而文档里看起来是对的。
+func TestRemoteRequestsDecodeEscapesAndEntities(t *testing.T) {
+	dir := t.TempDir()
+	host, hits := fakeImageHost(t)
+	src := "# 转义\n\n" +
+		"![反斜杠](" + host.URL + "/esc\\(1\\).png)\n\n" +
+		"<img src=\"" + host.URL + "/q.png?w=1&amp;h=2\">\n\n" +
+		"<img src=\"" + host.URL + "/q.png?w=1&#38;h=2\">\n\n" +
+		"![md 里的实体按字面](" + host.URL + "/q.png?w=1&amp;h=2)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, _ := r.RunCollect(context.Background(), []string{doc})
+
+	if results[0].Failed != 0 {
+		t.Fatalf("不该有失败: %s", results[0].Error)
+	}
+	got := hits()
+	for _, want := range []string{"/esc(1).png", "/q.png?w=1&h=2"} {
+		if got[want] == 0 {
+			t.Errorf("服务器没收到 %q，收到的是 %v", want, got)
+		}
+	}
+	if got["/q.png?w=1&amp;h=2"] != 1 {
+		// Markdown 里的 `&amp;` 是五个字面字符，必须原样发出去。
+		t.Errorf("Markdown 里的 &amp; 不该被还原，实际收到 %v", got)
+	}
+	if got["/q.png?w=1&amp;amp;h=2"] != 0 || got["/q.png?w=1&h=2&amp;"] != 0 {
+		t.Errorf("出现了奇怪的查询串: %v", got)
 	}
 }

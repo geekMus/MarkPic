@@ -8,6 +8,7 @@ package mdscan
 import (
 	"bytes"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -108,7 +109,7 @@ func ScanLang(src []byte, lang i18n.Lang) *Document {
 			continue
 		}
 		ref.Kind = KindMarkdown
-		ref.Target = def.dest
+		ref.Target = UnescapeMarkdown(def.dest)
 		ref.Line = lineOf(lineStarts, i)
 		d.Refs = append(d.Refs, ref)
 		i = nextEnd
@@ -274,6 +275,9 @@ func parseMarkdownImage(src []byte, start int) (Ref, int, bool) {
 	if len(raw) >= 2 && raw[0] == '<' && raw[len(raw)-1] == '>' {
 		raw = raw[1 : len(raw)-1]
 	}
+	// CommonMark 里 `\(` 等价于 `(`：不还原的话请求会带着字面的反斜杠出去
+	// （实测 `![a](http://h/ok\(1\).png)` 发出去的是 `HEAD /ok%5C%281%5C%29.png`）。
+	raw = UnescapeMarkdown(raw)
 	return Ref{
 		Start:    start,
 		End:      end,
@@ -474,8 +478,10 @@ func parseHTMLImage(src []byte, start int, dst []Ref) ([]Ref, int, bool) {
 				End:      tagEnd,
 				URLStart: valueStart,
 				URLEnd:   valueEnd,
-				Target:   string(src[valueStart:valueEnd]),
-				Quote:    quote,
+				// HTML 里属性值是真的 `&`：`src="a.png?w=1&amp;h=2"` 请求时必须还原成
+				// `?w=1&h=2`（实测不还原会把整串 `amp;h=2` 发给对方）。
+				Target: DecodeAttrEntities(string(src[valueStart:valueEnd])),
+				Quote:  quote,
 			})
 		case name == "srcset":
 			refs = appendSrcsetRefs(refs, src, start, tagEnd, valueStart, valueEnd)
@@ -518,7 +524,7 @@ func appendSrcsetRefs(dst []Ref, src []byte, tagStart, tagEnd, valueStart, value
 				End:      tagEnd,
 				URLStart: valueStart + urlStart,
 				URLEnd:   valueStart + urlEnd,
-				Target:   string(value[urlStart:urlEnd]),
+				Target:   DecodeAttrEntities(string(value[urlStart:urlEnd])),
 			})
 		}
 		// 跳到下一个逗号，把描述符（1x / 640w）连同逗号一起略过
@@ -888,6 +894,112 @@ func CleanTarget(raw string) string {
 		sb.WriteByte(raw[i])
 	}
 	return sb.String()
+}
+
+// urlEntities 是地址里真正会出现的几个字符实体。
+//
+// 刻意只有五个，而且必须带分号。`&copy;`、`&times;` 在 HTML 里当然合法，但它们
+// 出现在地址里几乎一定是查询串被截断了 —— `?a=1&copy=2` 少了分号就变成 `©=2`，
+// 地址直接换了一个。宁可按字面留着：留着最多是对方不认这个参数，解错了是换地址。
+var urlEntities = map[string]string{
+	"amp":  "&",
+	"lt":   "<",
+	"gt":   ">",
+	"quot": `"`,
+	"apos": "'",
+}
+
+// DecodeAttrEntities 还原 HTML 属性值里的字符实体。
+//
+// HTML 里 `<img src="a.png?w=1&amp;h=2">` 的属性值真的是 `&`，请求前必须还原。
+// 不还原的后果实测过：图床收到的是一个叫 `amp;h` 的参数，`?w=1&amp;h=2` 整串
+// 被当成两个怪参数，服务器多半忽略它们、返回一张尺寸不对的图，或者干脆 404。
+func DecodeAttrEntities(s string) string {
+	if strings.IndexByte(s, '&') < 0 {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); {
+		if s[i] != '&' {
+			sb.WriteByte(s[i])
+			i++
+			continue
+		}
+		// 实体名不可能很长，扫一小段找不到分号就按字面的 '&' 处理。
+		semi := strings.IndexByte(s[i:], ';')
+		if semi <= 1 || semi > 12 {
+			sb.WriteByte(s[i])
+			i++
+			continue
+		}
+		if decoded, ok := decodeEntityName(s[i+1 : i+semi]); ok {
+			sb.WriteString(decoded)
+			i += semi + 1
+			continue
+		}
+		sb.WriteByte(s[i])
+		i++
+	}
+	return sb.String()
+}
+
+func decodeEntityName(name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	if name[0] == '#' {
+		r, ok := parseEntityNumber(name[1:])
+		if !ok {
+			return "", false
+		}
+		return string(r), true
+	}
+	v, ok := urlEntities[name]
+	return v, ok
+}
+
+// parseEntityNumber 解析 `#38` 与 `#x26` 两种数字实体。
+func parseEntityNumber(s string) (rune, bool) {
+	base := 10
+	if len(s) > 0 && (s[0] == 'x' || s[0] == 'X') {
+		base = 16
+		s = s[1:]
+	}
+	if s == "" || len(s) > 7 {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(s, base, 32)
+	if err != nil || n == 0 || n > 0x10FFFF {
+		return 0, false
+	}
+	return rune(n), true
+}
+
+// UnescapeMarkdown 还原 CommonMark 的反斜杠转义：`\(` 就是 `(`。
+//
+// 只对 Markdown 写法做这件事。HTML 属性值里反斜杠没有转义含义
+// （`<img src="a\(1\).png">` 的地址里真的有一个反斜杠），不能一起处理。
+func UnescapeMarkdown(s string) string {
+	if strings.IndexByte(s, '\\') < 0 {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) && isASCIIPunct(s[i+1]) {
+			sb.WriteByte(s[i+1])
+			i++
+			continue
+		}
+		sb.WriteByte(s[i])
+	}
+	return sb.String()
+}
+
+// isASCIIPunct 判断是否是 CommonMark 认可的「可转义标点」。
+func isASCIIPunct(c byte) bool {
+	return c >= '!' && c <= '/' || c >= ':' && c <= '@' || c >= '[' && c <= '`' || c >= '{' && c <= '~'
 }
 
 func itoa(n int) string {
