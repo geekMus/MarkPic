@@ -95,6 +95,8 @@ export type FileResult = {
   remoteFailed?: number
   /** 这些失败地址去重后的个数（remoteFailed 按引用处算）。 */
   remoteFailedUnique?: number
+  /** 默认模式下原样保留、没动的远程图引用数（同时算在 skipped 里）。 */
+  remoteKept?: number
   /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
   localMissing?: number
   /** 去重后真正探活过的地址数（同一张图引用多次只算 1）。 */
@@ -140,6 +142,8 @@ export type RunSummary = {
   remoteFailed?: number
   /** 这些失败地址去重后的个数（remoteFailed 按引用处算）。 */
   remoteFailedUnique?: number
+  /** 默认模式下原样保留、没动的远程图引用数（同时算在 skipped 里）。 */
+  remoteKept?: number
   /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
   localMissing?: number
   /** 去重后真正探活过的地址数（同一张图引用多次只算 1）。 */

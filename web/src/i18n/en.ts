@@ -152,6 +152,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.reason.remoteFailed': '{count} of them could not be downloaded',
   'row.reason.dead': '{count} of them cannot be opened',
   'row.reason.localMissing': '{count} local image(s) not found',
+  'row.reason.remoteKept': '{count} remote image(s) left as they are',
   'row.details.empty': 'This file has no local images to process.',
   'row.details.expand': 'Show image details',
   'row.details.collapse': 'Hide image details',
@@ -216,6 +217,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.remoteDeadDownloadedRefs': '{unique} could not be downloaded ({count} references)',
   'footer.checked': '{count} files checked',
   'footer.remoteUnsupported': '{count} links cannot be handled',
+  'footer.remoteKept': '{count} remote image(s) left as they are',
   'footer.localMissing': '{count} local image(s) not found',
   'error.remoteDirRequired': 'Please fill in the sub-folder for downloaded images',
 

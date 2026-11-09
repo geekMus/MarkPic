@@ -150,6 +150,7 @@ export const zh = {
   'row.reason.remoteFailed': '其中 {count} 个地址没下载回来',
   'row.reason.dead': '其中 {count} 个地址打不开',
   'row.reason.localMissing': '其中 {count} 张本地图找不到',
+  'row.reason.remoteKept': '其中 {count} 处远程图原样保留',
   'row.details.empty': '这个文件里没有可处理的本地图片。',
   'row.details.expand': '展开图片明细',
   'row.details.collapse': '收起图片明细',
@@ -212,6 +213,7 @@ export const zh = {
   'footer.remoteDeadDownloadedRefs': '没下载回来 {unique} 个地址（{count} 处引用）',
   'footer.checked': '检测 {count} 个文件',
   'footer.remoteUnsupported': '{count} 处地址没法处理',
+  'footer.remoteKept': '{count} 处远程图原样保留',
   'footer.localMissing': '{count} 张本地图找不到',
   'error.remoteDirRequired': '请填写图片要放到哪个子目录',
 

@@ -133,6 +133,12 @@ const reason = computed(() => {
   if (localMissingCount.value > 0) {
     return t('row.reason.localMissing', { count: localMissingCount.value })
   }
+  // 默认模式不碰远程图：一篇只有远程图的文档会落到「无图」，不说一句就像它
+  // 一张图都没有。
+  const remoteKept = result.remoteKept ?? 0
+  if (remoteKept > 0) {
+    return t('row.reason.remoteKept', { count: remoteKept })
+  }
   const warning = result.warnings?.[0]
   return warning ?? ''
 })

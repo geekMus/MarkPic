@@ -136,6 +136,10 @@ const parts = computed<Part[]>(() => {
       // 检测/下载模式都不碰本地图，缺图却是文档自己的毛病，页脚也得说一句。
       list.push({ text: t('footer.localMissing', { count: stats.localMissing }), tone: 'warn' })
     }
+    if (stats.remoteKept > 0) {
+      // 默认模式不碰远程图，可「没有可处理的图片」那句单看像是一张图都没有。
+      list.push({ text: t('footer.remoteKept', { count: stats.remoteKept }), tone: 'plain' })
+    }
     if (stats.remoteUnsupported > 0) {
       // ftp://、data: 这类地址既不算检测过、也不算失效，不单列就没人知道它们存在。
       list.push({

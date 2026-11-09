@@ -1722,3 +1722,36 @@ func TestRemoteCacheCountsOnlyFilesStillThere(t *testing.T) {
 		t.Fatalf("删掉的图应该重新下回来: %v", err)
 	}
 }
+
+// 默认模式（remote=ignore）不碰远程图。一篇只有远程图的文档会报「无图」，
+// 于是 RemoteKept 是唯一的证据：它得如实记下原样保留了几处。
+func TestIgnoreModeCountsKeptRemoteImages(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "local.png"), "png")
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, "# t\n\n![a](http://127.0.0.1:36999/a.png)\n\n![b](http://127.0.0.1:36999/b.png)\n\n![c](local.png)\n")
+
+	picgoSrv, hitCount := fakePicGo(t, nil)
+	cfg := remoteCfg(picgoSrv.URL, settings.RemoteIgnore)
+	cfg.DryRun = true
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.RemoteKept != 2 {
+		t.Fatalf("该记下 2 处原样保留的远程图，实际 %d", res.RemoteKept)
+	}
+	if sum.RemoteKept != 2 {
+		t.Fatalf("汇总也该是 2，实际 %d", sum.RemoteKept)
+	}
+	if res.Skipped != 3 {
+		// 2 处远程图 + 1 张试运行里没上传的本地图。
+		t.Fatalf("跳过数该是 2 处远程 + 1 张本地的本地图（界面上那句「跳过 N」不该变），实际 %d", res.Skipped)
+	}
+	if n := len(hitCount()); n != 0 {
+		t.Fatalf("默认模式不该碰图床: %v", hitCount())
+	}
+	if got, _ := os.ReadFile(doc); string(got) != "# t\n\n![a](http://127.0.0.1:36999/a.png)\n\n![b](http://127.0.0.1:36999/b.png)\n\n![c](local.png)\n" {
+		t.Fatalf("文档不该被改: %q", got)
+	}
+}

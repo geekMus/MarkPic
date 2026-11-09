@@ -469,6 +469,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.RemoteFailed += res.RemoteFailed
 		sum.RemoteFailedUnique += res.RemoteFailedUnique
 		sum.RemoteUnsupported += res.RemoteUnsupported
+		sum.RemoteKept += res.RemoteKept
 		sum.LocalMissing += res.LocalMissing
 		sum.FailedImages += res.Failed
 		switch res.Status {
@@ -712,6 +713,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 				res.RemoteUnsupported++
 			} else {
 				res.Skipped++
+				// 单独记一笔「原样保留的远程图」：它同时算在 Skipped 里（界面上
+				// 那句「跳过 N」没变），但一篇只有远程图的文档会报「没有可处理的
+				// 图片」，不说这句就像文档里一张图都没有。
+				res.RemoteKept++
 			}
 		case StatusFailed, StatusMissing:
 			res.Failed++

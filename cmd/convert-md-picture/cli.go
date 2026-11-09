@@ -225,6 +225,11 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		}
 		return fmt.Sprintf("  [部分]  %s  %s，%d 张失败  → %s", name, changedDesc(r), r.Failed, shorten(r.OutputPath))
 	case conv.FileNoImages:
+		// 默认模式下远程图原样保留，一篇只有远程图的文档会落到「无图」里 ——
+		// 不说一句，读起来像这张文档一张图都没有。
+		if r.RemoteKept > 0 {
+			return fmt.Sprintf("  [无图]  %s  没有可处理的图片（另有 %d 处远程图原样保留）", name, r.RemoteKept)
+		}
 		return fmt.Sprintf("  [无图]  %s  没有可处理的图片", name)
 	case conv.FileChecked:
 		return fmt.Sprintf("  [检测]  %s  %s", name, checkDesc(r))
@@ -456,6 +461,11 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	}
 	if s.RemoteReused > 0 {
 		parts = append(parts, fmt.Sprintf("省下 %d 张下载", s.RemoteReused))
+	}
+	if s.RemoteKept > 0 {
+		// 默认模式不碰远程图，可一篇只有远程图的文档会报成「无图」；
+		// 汇总里补一句，免得让人以为文档里真没有图。
+		parts = append(parts, fmt.Sprintf("远程图原样保留 %d 处", s.RemoteKept))
 	}
 	if s.NoImages > 0 {
 		parts = append(parts, fmt.Sprintf("无图 %d 个", s.NoImages))

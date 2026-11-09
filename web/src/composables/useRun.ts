@@ -84,6 +84,7 @@ export interface RunStats {
   remoteUnsupported: number
   /** 检测/下载模式里引用了、但磁盘上找不到的本地图片总数。 */
   localMissing: number
+  remoteKept: number
   filesChecked: number
   remoteReused: number
 }
@@ -155,6 +156,7 @@ const live = reactive({
   remoteFailedUnique: 0,
   remoteUnsupported: 0,
   localMissing: 0,
+  remoteKept: 0,
   filesChecked: 0,
   remoteReused: 0,
   settled: 0,
@@ -212,6 +214,7 @@ const stats = computed<RunStats>(() => {
     remoteFailedUnique: finished.remoteFailedUnique ?? 0,
       remoteUnsupported: finished.remoteUnsupported ?? 0,
       localMissing: finished.localMissing ?? 0,
+  remoteKept: finished.remoteKept ?? 0,
       filesChecked: finished.filesChecked ?? 0,
       remoteReused: finished.remoteReused ?? 0,
     }
@@ -238,6 +241,7 @@ const stats = computed<RunStats>(() => {
     remoteFailedUnique: live.remoteFailedUnique,
     remoteUnsupported: live.remoteUnsupported,
     localMissing: live.localMissing,
+  remoteKept: live.remoteKept,
     filesChecked: live.filesChecked,
     remoteReused: live.remoteReused,
   }
@@ -306,6 +310,7 @@ function liveReset(): void {
   live.remoteFailedUnique = 0
   live.remoteUnsupported = 0
   live.localMissing = 0
+  live.remoteKept = 0
   live.filesChecked = 0
   live.settled = 0
   lastReveal.value = null
@@ -414,6 +419,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.remoteFailedUnique -= row.result.remoteFailedUnique ?? 0
     live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
     live.localMissing -= row.result.localMissing ?? 0
+  live.remoteKept -= row.result.remoteKept ?? 0
     scoreStatus(row.result.status, -1)
   } else {
     live.images -= row.images ?? row.total
@@ -433,6 +439,7 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.remoteFailedUnique += result.remoteFailedUnique ?? 0
   live.remoteUnsupported += result.remoteUnsupported ?? 0
   live.localMissing += result.localMissing ?? 0
+  live.remoteKept += result.remoteKept ?? 0
   scoreStatus(result.status, 1)
   if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 

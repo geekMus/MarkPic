@@ -78,6 +78,11 @@ type FileResult struct {
 	// RemoteFailedUnique 是这些失败地址去重后的个数：同一个地址被引用 3 次、
 	// 三次都失败时 RemoteFailed 是 3，可真正没拿回来的只有 1 个地址。
 	RemoteFailedUnique int `json:"remoteFailedUnique"`
+	// RemoteKept 是「本来就是网络图片、这一轮原样没动」的引用数。
+	// remote=ignore（默认）时全部落在这里。它不算问题，但一篇只有远程图的文档
+	// 会报「没有可处理的图片」，读起来像文档里没有图片 —— 说一句「另有 N 处
+	// 远程图原样保留」，别人才知道该加 --remote check 还是当它不存在。
+	RemoteKept int `json:"remoteKept"`
 	// LocalMissing 是「只做检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
 	// 这两个模式不碰本地图（用户在意的正是反方向），可缺图照样是文档坏了：
 	// 以前这类引用直接从报告里消失，一篇缺图的文档读起来跟完全正常一样。
@@ -127,6 +132,8 @@ type Summary struct {
 	RemoteFailed int `json:"remoteFailed"`
 	// RemoteFailedUnique 是没拿回来的地址去重后的个数（按地址算，不按引用处算）。
 	RemoteFailedUnique int `json:"remoteFailedUnique"`
+	// RemoteKept 是「网络图片、这一轮原样保留」的引用数（remote=ignore 时全部在内）。
+	RemoteKept int `json:"remoteKept"`
 	// LocalMissing 是「只检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
 	LocalMissing int `json:"localMissing"`
 	// FilesChecked 是「只做检测、没改写文档」的文件数。

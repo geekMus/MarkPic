@@ -65,3 +65,19 @@ func TestCheckDescMentionsMissingLocalImages(t *testing.T) {
 		}
 	}
 }
+
+// 默认模式下远程图原样保留，一篇只有远程图的文档会落到「无图」里 ——
+// 不说一句，读起来像这张文档一张图都没有。
+func TestNoImagesLineMentionsKeptRemoteImages(t *testing.T) {
+	p := &printer{width: 4}
+	res := &conv.FileResult{Status: conv.FileNoImages, Name: "a.md", RemoteKept: 2}
+	got := p.fileLine(res)
+	want := "  [无图]  a.md  没有可处理的图片（另有 2 处远程图原样保留）"
+	if got != want {
+		t.Fatalf("期望 %q，实际 %q", want, got)
+	}
+	plain := p.fileLine(&conv.FileResult{Status: conv.FileNoImages, Name: "a.md"})
+	if plain != "  [无图]  a.md  没有可处理的图片" {
+		t.Fatalf("没有远程图时不该多话，实际 %q", plain)
+	}
+}
