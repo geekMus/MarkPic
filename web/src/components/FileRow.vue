@@ -406,9 +406,11 @@ function replaced(status: ImageStatus): boolean {
         </span>
 
         <span class="item__id">
-          <span class="item__name">{{ row.name }}</span>
-          <!-- 目录行和文件行长得一样，光看名字分不出这是「一篇文档」还是「一个目录」 -->
-          <span v-if="row.isDir" class="item__tag">{{ t('row.dirTag') }}</span>
+          <span class="item__title">
+            <!-- 目录行和文件行长得一样，光看名字分不出这是「一篇文档」还是「一个目录」 -->
+            <AppIcon v-if="row.isDir" name="folder" :size="13" class="item__folder" />
+            <span class="item__name">{{ row.name }}</span>
+          </span>
           <span class="item__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
       </button>
@@ -607,6 +609,8 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .item__name {
+  /* 图标与名字在同一行 flex 里，名字得允许缩到比内容窄，省略号才出得来 */
+  min-width: 0;
   overflow: hidden;
   color: var(--ink);
   font-size: var(--fs-3);
@@ -615,19 +619,19 @@ function replaced(status: ImageStatus): boolean {
   white-space: nowrap;
 }
 
-.item__tag {
-  /* 纵向 flex 的交叉轴默认 stretch，徽标会被拉成整列宽 —— 得自己收回文字宽 */
-  align-self: flex-start;
-  flex: none;
-  padding: 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink-3);
-  font-size: 11px;
-  line-height: 15px;
-  letter-spacing: 0.02em;
+.item__title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
 }
 
+.item__folder {
+  /* 目录标记用一颗图标，不用描边小标签：两套主题下 --line 与面板只差 1.1:1，
+     描出来的边框几乎看不见；实底小片在浅色面板上又太淡。 */
+  flex: none;
+  color: var(--ink-3);
+}
 .item__dir {
   overflow: hidden;
   color: var(--ink-3);

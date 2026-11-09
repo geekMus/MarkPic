@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 type IconName =
   | 'file-plus'
+  | 'folder'
   | 'folder-plus'
   | 'folder-open'
   | 'terminal'
@@ -31,7 +32,9 @@ const ICONS: Record<IconName, string[]> = {
     'M12 12.5v5',
     'M9.5 15h5',
   ],
-  'folder-plus': [
+  'folder': [
+    'M3 8.6V6.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v9.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  ],  'folder-plus': [
     'M3 8.6V6.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v9.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
     'M12 12.4v5.2',
     'M9.4 15h5.2',
