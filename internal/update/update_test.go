@@ -108,6 +108,20 @@ func TestCheckAcceptsOnlyRealUpgrades(t *testing.T) {
 		}
 	})
 
+	t.Run("清单带 BOM 也要读得出来", func(t *testing.T) {
+		// PowerShell 的 Set-Content -Encoding UTF8 会留下 EF BB BF，
+		// 发布脚本或者手改清单很容易带上；不该因此判成「清单格式不对」。
+		srv := manifestServer(t, "\uFEFF"+manifestWith("1.2.0", "amd64", "http://example.invalid/a.exe", sha), http.StatusOK)
+		t.Setenv(ManifestEnv, srv.URL)
+		rel, err := Check(context.Background(), "1.0.0", "amd64", i18n.ZH)
+		if err != nil {
+			t.Fatalf("带 BOM 的清单该读得出来，报错：%v", err)
+		}
+		if !rel.HasUpdate || rel.Latest != "1.2.0" {
+			t.Fatalf("带 BOM 的清单没认出更新：%+v", rel)
+		}
+	})
+
 	t.Run("校验值长度不对也算没有", func(t *testing.T) {
 		srv := manifestServer(t, manifestWith("1.2.0", "amd64", "http://example.invalid/a.exe", "abc"), http.StatusOK)
 		t.Setenv(ManifestEnv, srv.URL)

@@ -14,6 +14,7 @@
 package update
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,9 +104,17 @@ func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release,
 		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateManifestStatus), resp.Status)
 	}
 
+	// BOM 得先吃掉：Windows 上用 PowerShell 存一次 JSON 就带上 EF BB BF，
+	// 而 json.Decoder 见到它会直接报 "invalid character '\ufeff'"，读起来像是
+	// 整个清单坏了，其实只是存的时候多了一个标记。
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxManifestBytes))
+	if readErr != nil {
+		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateManifestInvalid), readErr)
+	}
+	body = bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})
+
 	var m manifest
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxManifestBytes))
-	if err := decoder.Decode(&m); err != nil {
+	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateManifestInvalid), err)
 	}
 	if strings.TrimSpace(m.Version) == "" {

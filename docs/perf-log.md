@@ -3624,3 +3624,52 @@ after : {"width":816,"height":560}          ← 记录没被全屏尺寸覆盖
 顺手验了下载侧：12 个有效地址全部落盘，后缀按真实内容补齐 —— `1.png`、`583231.png`（GitHub 头像）、`jpeg.jpg`、`svg.svg`、`webp.webp`、`googlelogo_color_92x30dp.png`、`redirect-to.png`（跳转后的 png），文档里的链接逐个换成本地路径。
 
 这一轮之前修的三件东西在这里同时生效：报上自己的 User-Agent（维基共享资源按名字关门）、HEAD 的 404 不再当终审（`picsum.photos` 不实现 HEAD）、同一台主机一旦 HEAD 说过假话就只问 GET。没有那三条，这 19 个地址里会有 3 个被误报成失效。
+
+## 把自动更新完整走一遍：1.0.0 → 9.9.9
+
+自动更新是这个程序里最危险的一段代码：它要在程序自己还跑着的时候，把正在运行的那个 exe 换掉。
+平时没人会去点它，所以更得自己走一遍。
+
+做法是搭一个「假发布」：另编一个版本号 9.9.9 的 exe（`-ldflags -X …/version.Version=9.9.9`），
+用本机 `python -m http.server` 提供 `manifest.json` 与那个 exe，再让 1.0.0 通过
+`CMP_UPDATE_MANIFEST` 指向这个清单跑起来：
+
+```
+compile 9.9.9  →  sha256 = ac6f82a5…
+manifest.json  →  { "version": "9.9.9", "windows": { "amd64": { url, sha256, size } } }
+1.0.0 启动     →  /api/update/check  →  state=available, latest=9.9.9
+                   /api/update/install →  state=downloading
+6 秒后         →  /api/health 报 version=9.9.9，端口还是 17870，目录里只剩新 exe
+```
+
+细节对得上的地方：
+
+- 端口没变。旧进程退出前把监听交给新进程（`--handover-port`），所以 `/api/health` 在
+  替换那几秒里也没有断过，前端刷新的逻辑才有意义。
+- `.old` 没留下。运行中的映像只能改名不能删，新进程起来后顺手把 `.old` 清掉，目录里干干净净。
+- 替换后的 exe 就是 9.9.9 本尊：`convert-md-picture.exe -v` 输出 `9.9.9`。
+
+### 顺手抓到的：清单带 BOM 时读不出来
+
+负向测试本来只想验证「校验值不对必须拒绝安装」，为了让清单坏得彻底，用
+`Set-Content -Encoding UTF8` 又存了一遍 —— 结果那份 JSON 开头多了 `EF BB BF`，
+`/api/update/check` 直接报：
+
+```
+版本清单格式不对：invalid character '\ufeff' looking for beginning of value
+```
+
+这不是「校验值不对」，是「整个清单读不出来」，而两者的后果完全不同：前者拒绝安装，
+后者所有人都收不到更新。真实世界里这条路径太容易踩到了 —— `version.json` 是人手也会改的
+文件，Windows 上的编辑器与 `Set-Content -Encoding UTF8` 默认就带 BOM。
+
+改法是在解析前把 BOM 摘掉（`bytes.TrimPrefix(body, []byte{0xEF, 0xBB, 0xBF})`，顺带把
+`json.NewDecoder(io.LimitReader(...))` 换成先 `io.ReadAll` 再 `json.Unmarshal`，反正清单
+本来就有 1 MiB 上限）。回归 `TestCheckAcceptsOnlyRealUpgrades/清单带_BOM_也要读得出来`，
+承载验证：把 `TrimPrefix` 的目标换成空前缀，这条立刻红。
+
+校验值那条也确认过了：清单里的 sha256 换成 64 个 0 之后，`/api/update/install` 返回
+`{"error":{"code":"bad_request","message":"请先检查更新"}}`，运行目录里的 exe 哈希一个字节没变。
+
+教训：**「人也会手改的 JSON」要容忍 BOM**。自己写的写入端当然不带 BOM，但清单是发布流程、
+编辑器、PowerShell 三方都可能碰的文件，读的一侧宽松一点，比在错误信息里教用户「检查清单格式」有用得多。
