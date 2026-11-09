@@ -487,7 +487,7 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 			s.mu.Unlock()
 			cancel()
 		}()
-		runner := conv.NewRunner(cfg, lang, runID, s.track(runID)).AttachUploadCache(appdata.UploadCachePath())
+		runner := conv.NewRunner(cfg, lang, runID, s.track(runID)).AttachUploadCache(appdata.UploadCachePath()).AttachRemoteCache(appdata.RemoteCachePath())
 		runner.Run(ctx, req.Paths)
 	}()
 

@@ -102,6 +102,7 @@ convert-md-picture .\docs --dry-run
 
 `download` 的几个细节：
 
+- 上次已经下过、文件还在且大小一致的图**不再重新下载**（记录在 `data/remote-cache.json`）
 - 图片存到 `<文档所在目录>/<remoteDir>/`（`-o directory` 模式下是**输出目录**旁边，因为文档被写到了那里），文件名沿用远程地址的最后一段；没后缀或后缀不像图片时按真实内容补（`image/png` → `.png`）。
 - 同一张图被多篇文章引用时只下载一次，其它文章复用（不同目录会复制一份过去）。
 - 已经下载过、大小也一致的文件不会被重写。
@@ -192,6 +193,7 @@ convert-md-picture.exe
 data/
   settings.json     界面里改的设置（原子写入，损坏时自动回退默认值）
   upload-cache.json 上次上传拿到的图片地址，重复运行就不用再传一遍（删掉只是会重传）
+remote-cache.json 上次下载远程图的记录，重复运行就不用再下一次（删掉只是会重下）
   webview2/         内嵌浏览器的缓存，删掉会自动重建
 ```
 

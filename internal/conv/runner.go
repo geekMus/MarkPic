@@ -18,6 +18,7 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/mdscan"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
 	"github.com/geekMus/convert-md-picture/internal/platform"
+	"github.com/geekMus/convert-md-picture/internal/remotecache"
 	"github.com/geekMus/convert-md-picture/internal/remoteimg"
 	"github.com/geekMus/convert-md-picture/internal/settings"
 	"github.com/geekMus/convert-md-picture/internal/textenc"
@@ -97,6 +98,9 @@ type Runner struct {
 	remoteMu    sync.Mutex
 	remoteFiles map[string]*remoteFile
 	remoteNames map[string]string
+	// remoteCache 是跨运行的下载记录：上次已经下过、文件还在且大小对得上，
+	// 就不再打一次网络。为 nil 或路径为空时等于关掉。
+	remoteCache *remotecache.Cache
 }
 
 // abortsAfterFailures 是「认定图床不可用」的连续失败张数。
@@ -136,6 +140,24 @@ func (r *Runner) SaveUploadCache() {
 	if r.uploads.Enabled() {
 		_ = r.uploads.Save()
 	}
+}
+
+// AttachRemoteCache 打开「远程图下载记录」。缓存丢了只是重新下载一遍，不是用户数据。
+func (r *Runner) AttachRemoteCache(path string) *Runner {
+	r.remoteCache = remotecache.Open(path)
+	return r
+}
+
+// SaveRemoteCache 把这一轮的下载记录写回磁盘（没命中过就不写）。
+func (r *Runner) SaveRemoteCache() {
+	if r.remoteCache.Enabled() {
+		_ = r.remoteCache.Save()
+	}
+}
+
+// remoteCacheHits 返回这一轮省下了几次下载。
+func (r *Runner) remoteCacheHits() int {
+	return r.remoteCache.Hits()
 }
 
 // skipDir 返回扫描时要整体跳过的目录。
@@ -226,6 +248,7 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 
 		remote:      remoteimg.New(remoteimg.DefaultTimeout),
 		remoteFiles: make(map[string]*remoteFile),
+		remoteCache: remotecache.Open(""),
 		remoteNames: make(map[string]string),
 	}
 } // rememberDoc 记下预扫结果，供正式处理时复用。
@@ -456,7 +479,9 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	// Reused 统计的是「这一轮少传了几张图」——按去重后的图片算，
 	// 和 Uploaded（按引用处算）不是一个口径，界面上分开写。
 	sum.Reused = r.uploads.Hits()
+	sum.RemoteReused = r.remoteCacheHits()
 	r.SaveUploadCache()
+	r.SaveRemoteCache()
 
 	if sum.Cancelled {
 		// 取消事件也带上汇总：图床连不上时这一轮是被我们自己掐掉的，

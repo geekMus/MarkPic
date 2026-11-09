@@ -279,6 +279,14 @@ func (r *Runner) finishRemote(e *remoteFile, out remoteFile) {
 // downloadRemote 把一个地址下载到文档旁边的本地目录，返回写回文档的相对路径。
 func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel string, size int64, abs string, err error) {
 	dir := filepath.Join(docDir, filepath.FromSlash(strings.TrimSpace(r.cfg.RemoteDir)))
+	// 上次已经下过、本地文件还在、大小也对得上：连网络都不碰。
+	// 改一篇文章再跑一遍是最常见的用法，这时候绝大多数图都没变。
+	if name, cached, ok := r.remoteCache.Lookup(rawURL, dir); ok {
+		abs = filepath.Join(dir, name)
+		if st, serr := os.Stat(abs); serr == nil && st.Size() == cached {
+			return r.relFor(docDir, abs), cached, abs, nil
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", 0, "", err
 	}
@@ -313,12 +321,14 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 		if rerr := os.Remove(tmpName); rerr == nil {
 			keep = true // 已经删掉了，defer 别再删一次
 		}
+		r.remoteCache.Store(rawURL, dir, name, res.Size)
 		return r.relFor(docDir, abs), res.Size, abs, nil
 	}
 	if rerr := os.Rename(tmpName, abs); rerr != nil {
 		return "", 0, "", rerr
 	}
 	keep = true
+	r.remoteCache.Store(rawURL, dir, name, res.Size)
 	return r.relFor(docDir, abs), res.Size, abs, nil
 }
 
@@ -348,6 +358,7 @@ func (r *Runner) placeRemoteFile(docDir, rawURL, srcAbs string, size int64) (str
 	if err := copyFile(srcAbs, dst); err != nil {
 		return "", err
 	}
+	r.remoteCache.Store(rawURL, dir, filepath.Base(dst), size)
 	return r.relFor(docDir, dst), nil
 }
 

@@ -90,6 +90,9 @@ type Summary struct {
 	// FilesChecked 是「只做检测、没改写文档」的文件数。
 	FilesChecked int  `json:"filesChecked"`
 	Cancelled    bool `json:"cancelled"`
+	// RemoteReused 是「这次少下了几张远程图」：上次已经下过、本地文件还在且大小一致。
+	// 和 Reused 一样按去重后的图片算，不是按引用处算。
+	RemoteReused int `json:"remoteReused"`
 	// AbortReason 非空表示这一轮是「被提前掐掉的」而不是跑完的：连续太多张图
 	// 上传失败、期间一张都没成功，基本就是图床连不上，与其让用户一张张等超时，
 	// 不如停在这里并说清原因。

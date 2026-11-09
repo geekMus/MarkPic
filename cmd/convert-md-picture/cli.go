@@ -50,7 +50,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit).AttachUploadCache(appdata.UploadCachePath())
+	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit).AttachUploadCache(appdata.UploadCachePath()).AttachRemoteCache(appdata.RemoteCachePath())
 	sum := runner.Run(ctx, paths)
 
 	if sum.Cancelled {
@@ -300,6 +300,9 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	}
 	if s.Reused > 0 {
 		parts = append(parts, fmt.Sprintf("省下 %d 张重传", s.Reused))
+	}
+	if s.RemoteReused > 0 {
+		parts = append(parts, fmt.Sprintf("省下 %d 张下载", s.RemoteReused))
 	}
 	if s.NoImages > 0 {
 		parts = append(parts, fmt.Sprintf("无图 %d 个", s.NoImages))
