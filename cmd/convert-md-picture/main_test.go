@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -124,7 +126,7 @@ func TestDownloadWordingSaysReused(t *testing.T) {
 		t.Fatalf("一张都没沿用时不许多话，实际 %q", got)
 	}
 
-	p := newPrinter(false)
+	p := newPrinter(false, false)
 	all := p.summaryLine(&conv.Summary{Files: 1, OK: 1, Localized: 2, LocalizedUnique: 2, RemoteReused: 2})
 	if !strings.Contains(all, "沿用上次下载的 2 张图（没有重新下载）") {
 		t.Fatalf("整轮沿用时的汇总说错了：%q", all)
@@ -139,7 +141,7 @@ func TestDownloadWordingSaysReused(t *testing.T) {
 }
 
 func TestAbortedLineSaysAbortedNotCancelled(t *testing.T) {
-	p := newPrinter(true)
+	p := newPrinter(true, false)
 
 	// 图床连不上被提前掐断：和用户按 Ctrl+C 不是一件事。
 	aborted := p.summaryLine(&conv.Summary{
@@ -154,5 +156,70 @@ func TestAbortedLineSaysAbortedNotCancelled(t *testing.T) {
 	plain := p.summaryLine(&conv.Summary{Files: 1, Cancelled: true})
 	if !strings.Contains(plain, "已取消") {
 		t.Fatalf("用户取消该写「已取消」，实际：%s", plain)
+	}
+}
+
+// --json 是给脚本用的：终端里那几段话不能再往 stdout 上混，否则 jq 直接解析失败。
+// 这里钉住三件事：JSON 能解析、逐文件明细在位、死链清单里的地址已经抹掉密码。
+func TestJSONReportCarriesDetailsAndRedactedDeadLinks(t *testing.T) {
+	p := newPrinter(false, true)
+	// 模拟两篇文档：一篇有死链（带账号密码），一篇正常。
+	p.emit(conv.Event{Type: conv.EventFileFinished, Result: &conv.FileResult{
+		Path:    `C:\docs\a.md`,
+		Name:    "a.md",
+		Status:  "checked",
+		Checked: 1,
+		Dead:    1,
+		Items: []conv.Item{{
+			Target: "https://user:secret@example.com/x.png",
+			Line:   3,
+			Status: conv.StatusRemoteBad,
+			Error:  "这张图打不开了",
+		}},
+	}})
+	p.emit(conv.Event{Type: conv.EventFileFinished, Result: &conv.FileResult{
+		Path: `C:\docs\b.md`, Name: "b.md", Status: "ok", Uploaded: 1,
+	}})
+
+	cfg := settings.Default()
+	cfg.Remote = settings.RemoteCheck
+	sum := conv.Summary{Files: 2, RemoteChecked: 1, RemoteDead: 1, FilesChecked: 2}
+
+	var buf bytes.Buffer
+	if err := writeJSONReport(&buf, cfg, sum, p); err != nil {
+		t.Fatalf("写 JSON 失败：%v", err)
+	}
+
+	var got jsonReport
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("输出的不是合法 JSON：%v\n%s", err, buf.String())
+	}
+	if got.Remote != settings.RemoteCheck || got.Output != cfg.Output {
+		t.Errorf("模式字段不对：remote=%q output=%q", got.Remote, got.Output)
+	}
+	if len(got.Files) != 2 {
+		t.Fatalf("逐文件明细该有 2 条，实际 %d", len(got.Files))
+	}
+	if got.Summary.Files != 2 || got.Summary.RemoteDead != 1 {
+		t.Errorf("汇总没带上：%+v", got.Summary)
+	}
+	if len(got.DeadLinks) != 1 {
+		t.Fatalf("死链清单该有 1 条，实际 %d", len(got.DeadLinks))
+	}
+	link := got.DeadLinks[0]
+	if strings.Contains(link.URL, "secret") {
+		t.Errorf("死链地址里的密码没抹掉：%s", link.URL)
+	}
+	if !strings.Contains(link.URL, "***@") {
+		t.Errorf("死链地址该保留 ***@ 的形状，实际 %s", link.URL)
+	}
+	if link.Count != 1 || len(link.Where) != 1 || link.Where[0] != "a.md:3" {
+		t.Errorf("死链的位置信息不对：%+v", link)
+	}
+	if strings.Contains(buf.String(), "secret") {
+		t.Errorf("逐图明细里的 target 也要抹掉密码：\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "convert-md-picture 1.0.0") {
+		t.Errorf("JSON 模式不该再打印人读的抬头：\n%s", buf.String())
 	}
 }

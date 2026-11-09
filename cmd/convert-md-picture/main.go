@@ -58,6 +58,7 @@ type options struct {
 	concurrency int
 	retries     int
 	quiet       bool
+	jsonOut     bool
 	showVersion bool
 	// handoverPort 只由自动更新后的重启自己带上：先等旧实例把端口让出来再启动，
 	// 否则新实例会以为「已有实例在运行」而只去开浏览器。
@@ -130,7 +131,7 @@ func newRootCmd(opt *options) *cobra.Command {
 			if err := cfg.Normalize(); err != nil {
 				return &exitError{code: 2, msg: "参数有误：" + err.Error()}
 			}
-			if code := runCLI(cfg, args, opt.quiet); code != 0 {
+			if code := runCLI(cfg, args, opt.quiet, opt.jsonOut); code != 0 {
 				return &exitError{code: code}
 			}
 			return nil
@@ -165,6 +166,7 @@ func newRootCmd(opt *options) *cobra.Command {
 		settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency))
 	f.IntVar(&opt.retries, "retries", -1, "上传失败重试次数")
 	f.BoolVarP(&opt.quiet, "quiet", "q", false, "只输出汇总")
+	f.BoolVarP(&opt.jsonOut, "json", "j", false, "只输出一份 JSON（给脚本用）")
 	f.BoolVarP(&opt.showVersion, "version", "v", false, "显示版本")
 	// 自动更新后的重启会带上它，普通用户不需要知道。
 	f.IntVar(&opt.handoverPort, "handover-port", 0, "内部使用")
@@ -386,6 +388,7 @@ const usageTemplate = `convert-md-picture — 把 Markdown 里的本地图片上
   -c, --concurrency int  同时处理的文件数，也是同时上传的图片数 %d-%d（默认 %d）
       --retries int      上传失败重试次数 %d-%d（默认 %d）
   -q, --quiet            只输出结果汇总
+  -j, --json             只输出一份 JSON（汇总 + 逐文件结果 + 去重后的死链清单）
   -v, --version          显示版本
   -h, --help             显示帮助
 

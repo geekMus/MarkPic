@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,7 +32,7 @@ func needsPicGo(cfg settings.Settings) bool {
 }
 
 // runCLI 在命令行完成一轮转换，返回进程退出码。
-func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
+func runCLI(cfg settings.Settings, paths []string, quiet, jsonOut bool) int {
 	// 只检测 / 下载回本地这两种模式压根不上传本地图片，PicGo 没开也能用。
 	// （以前这里无条件先 Ping，用户想查一下远程链接死没死，还得先把 PicGo 打开。）
 	if needsPicGo(cfg) {
@@ -45,7 +47,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 		}
 	}
 
-	p := newPrinter(quiet)
+	p := newPrinter(quiet, jsonOut)
 	p.header(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -54,7 +56,15 @@ func runCLI(cfg settings.Settings, paths []string, quiet bool) int {
 	runner := conv.NewRunner(cfg, i18n.ZH, "cli", p.emit).AttachUploadCache(appdata.UploadCachePath()).AttachRemoteCache(appdata.RemoteCachePath())
 	sum := runner.Run(ctx, paths)
 
-	if sum.Cancelled {
+	if jsonOut {
+		// -q 只影响「人读的输出」，-j 干脆把整份结果换成一个对象：脚本要的是字段，
+		// 不是对齐过的表格。这份 JSON 里既有汇总也有逐文件明细与去重后的死链清单，
+		// 与终端里那几段说的是同一件事，只是换了载体。
+		if err := writeJSONReport(os.Stdout, cfg, sum, p); err != nil {
+			fmt.Fprintf(os.Stderr, "写出 JSON 失败：%v\n", err)
+			return 1
+		}
+	} else if sum.Cancelled {
 		// 「已取消」是用户按了 Ctrl+C；图床连不上被中途掐断是另一回事，
 		// 两件事都说成「已取消」，看日志的人会以为自己手滑了。
 		if sum.AbortReason != "" {
@@ -90,6 +100,9 @@ type printer struct {
 	mu    sync.Mutex
 	quiet bool
 	width int
+	// jsonOut 时终端不再说话，结果全收在这里、最后一次交给 writeJSONReport。
+	jsonOut bool
+	results []conv.FileResult
 	// remote 记住这次是哪种远程模式：下载模式下「失败」指的是下载不下来，
 	// 说成「上传失败」会让用户以为是自己把图传丢了。
 	remote string
@@ -114,14 +127,17 @@ const maxDeadLinks = 20
 // maxDeadWhere 是每个地址最多回指几处引用。
 const maxDeadWhere = 3
 
-func newPrinter(quiet bool) *printer {
-	return &printer{quiet: quiet, width: 20, dead: make(map[string]*deadLink)}
+func newPrinter(quiet, jsonOut bool) *printer {
+	return &printer{quiet: quiet, jsonOut: jsonOut, width: 20, dead: make(map[string]*deadLink)}
 }
 
 func (p *printer) header(cfg settings.Settings) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.remote = cfg.Remote
+	if p.jsonOut {
+		return
+	}
 	fmt.Printf("convert-md-picture %s\n", version.String())
 	fmt.Printf("PicGo %s\n", cfg.Endpoint)
 	fmt.Printf("模式 %s · 并发 %d%s%s\n\n", modeLabel(cfg.Output), cfg.Concurrency, dryRunLabel(cfg.DryRun), remoteLabel(cfg.Remote))
@@ -139,6 +155,17 @@ func remoteLabel(mode string) string {
 }
 
 func (p *printer) emit(ev conv.Event) {
+	// JSON 模式把终端让给最后那一份对象：逐文件、汇总、死链清单都要原样留着，
+	// 所以这里只负责收集，不负责说话。
+	if p.jsonOut {
+		if ev.Type == conv.EventFileFinished && ev.Result != nil {
+			p.mu.Lock()
+			p.noteDead(ev.Result)
+			p.results = append(p.results, *ev.Result)
+			p.mu.Unlock()
+		}
+		return
+	}
 	if p.quiet {
 		return
 	}
@@ -649,4 +676,70 @@ func padRight(s string, width int) string {
 		return s + strings.Repeat(" ", width-w)
 	}
 	return s
+}
+
+// jsonReport 是 --json 输出的整份结果：汇总、逐文件明细、去重后的死链清单。
+//
+// 字段名都照 conv 里现成的 json tag 来（FileResult/Summary 本来就要发给界面），
+// 加一层外壳只为把三样东西放在一个对象里，脚本直接按 jq 取就行。
+type jsonReport struct {
+	Version   string            `json:"version"`
+	Output    string            `json:"output"`
+	Remote    string            `json:"remote"`
+	DryRun    bool              `json:"dryRun"`
+	Summary   conv.Summary      `json:"summary"`
+	Files     []conv.FileResult `json:"files"`
+	DeadLinks []jsonDeadLink    `json:"deadLinks"`
+}
+
+type jsonDeadLink struct {
+	URL    string   `json:"url"`
+	Reason string   `json:"reason"`
+	Count  int      `json:"count"`
+	Where  []string `json:"where,omitempty"`
+}
+
+// writeJSONReport 把这一轮的结果写成一份 JSON。
+//
+// 死链地址照终端清单的规矩抹掉账号密码（remoteimg.Redact）：这份 JSON 多半会被
+// 粘进 issue 或者 CI 日志，密码跟着跑出去就没法收回了。
+func writeJSONReport(w io.Writer, cfg settings.Settings, sum conv.Summary, p *printer) error {
+	p.mu.Lock()
+	files := make([]conv.FileResult, len(p.results))
+	for i, res := range p.results {
+		// 逐图明细里的 target 是文档原文，可能带着图床的账号密码。终端那边
+		// 一直是抹掉再打印的，JSON 也不能例外：这份东西多半会被粘进 issue、
+		// 贴进 CI 日志。文档本身当然一个字节都不改，抹的只是这份报告。
+		if len(res.Items) > 0 {
+			res.Items = append([]conv.Item(nil), res.Items...)
+			for j := range res.Items {
+				res.Items[j].Target = remoteimg.Redact(res.Items[j].Target)
+				res.Items[j].Error = remoteimg.RedactText(res.Items[j].Error)
+			}
+		}
+		files[i] = res
+	}
+	report := jsonReport{
+		Version: version.String(),
+		Output:  cfg.Output,
+		Remote:  cfg.Remote,
+		DryRun:  cfg.DryRun,
+		Summary: sum,
+		Files:   files,
+	}
+	report.DeadLinks = make([]jsonDeadLink, 0, len(p.deadRank))
+	for _, url := range p.deadRank {
+		e := p.dead[url]
+		report.DeadLinks = append(report.DeadLinks, jsonDeadLink{
+			URL:    remoteimg.Redact(url),
+			Reason: e.reason,
+			Count:  e.count,
+			Where:  append([]string(nil), e.where...),
+		})
+	}
+	p.mu.Unlock()
+
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
 }
