@@ -198,9 +198,14 @@ const stats = computed<RunStats>(() => {
   }
 })
 
-const revealTarget = computed<string | null>(
-  () => lastReveal.value ?? rows.value[0]?.dir ?? null,
-)
+const revealTarget = computed<string | null>(() => {
+  if (lastReveal.value !== null) return lastReveal.value
+  // 只检测的那一轮一个文件都没写：这时候还挂着「打开输出目录」，点开的是源目录，
+  // 名字和行为对不上（用户会以为转换结果就放在那儿）。
+  const now = stats.value
+  if (now.filesChecked > 0 && now.uploaded === 0 && now.localized === 0) return null
+  return rows.value[0]?.dir ?? null
+})
 
 function pathKey(value: string): string {
   return value.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase()
