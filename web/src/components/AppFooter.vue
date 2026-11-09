@@ -97,10 +97,28 @@ const parts = computed<Part[]>(() => {
           : t('footer.remoteChecked', { count: stats.remoteChecked })
       list.push({ text: checkedText, tone: 'plain' })
       if (stats.remoteDead > 0) {
-        list.push({ text: t('footer.remoteDead', { count: stats.remoteDead }), tone: 'bad' })
+        // 失效那一侧同样有「按地址算」和「按引用处算」两个数：一个死链被引用
+        // 3 次时，只说「其中失效 3」会和结尾清单里的「1 个地址」打架。
+        const deadText =
+          stats.remoteDeadUnique > 0 && stats.remoteDeadUnique < stats.remoteDead
+            ? t('footer.remoteDeadRefs', {
+                unique: stats.remoteDeadUnique,
+                count: stats.remoteDead,
+              })
+            : t('footer.remoteDead', { count: stats.remoteDead })
+        list.push({ text: deadText, tone: 'bad' })
       }
-    } else if (stats.remoteDead > 0) {
-      list.push({ text: t('footer.remoteDeadDownloaded', { count: stats.remoteDead }), tone: 'bad' })
+    } else if (stats.remoteDead > 0 || stats.remoteFailed > 0) {
+      // 下载模式：地址本身坏掉的、和这次没下来的，在用户眼里都是「没拿回来」。
+      // 合成一句才和结尾那份清单（按地址去重）对得上；早先只算 dead，
+      // 于是汇总说「1 个地址」、清单说「2 个」，自己跟自己打架。
+      const total = stats.remoteDead + stats.remoteFailed
+      const unique = stats.remoteDeadUnique + stats.remoteFailedUnique
+      const deadText =
+        unique > 0 && unique < total
+          ? t('footer.remoteDeadDownloadedRefs', { unique, count: total })
+          : t('footer.remoteDeadDownloaded', { count: total })
+      list.push({ text: deadText, tone: 'bad' })
     } else if (stats.filesChecked > 0) {
       list.push({ text: t('footer.checked', { count: stats.filesChecked }), tone: 'plain' })
     }

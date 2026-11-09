@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
-import type { FileStatus, ImageItem, ImageStatus } from '../types'
+import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n, type MessageKey } from '../i18n'
 
@@ -82,13 +82,21 @@ const reason = computed(() => {
     // 「没下载回来」和「本地图片读不出来」是两回事：都写成「未处理」的话，
     // 用户不知道是去改文档里的地址，还是去看磁盘。
     const remote = result.remoteFailed ?? 0
-    if (remote > 0 && remote === result.failed) {
-      return t('row.reason.remoteFailed', { count: remote })
+    if (remote > 0) {
+      // 下载模式下，「地址本来坏了」和「这次没下来」在用户眼里是同一件事：
+      // 都算「没下载回来」。按地址去重，和页脚、清单同一个口径 ——
+      // 早先这里只数下载失败的，于是行里说 1 个、页脚说 2 个。
+      const total = deadCount(result)
+      return t('row.reason.remoteFailed', { count: total })
     }
     return t('row.reason.failed', { count: result.failed })
   }
   const dead = result.dead ?? 0
-  if (dead > 0) return t('row.reason.dead', { count: dead })
+  if (dead > 0) {
+    // 同一个死链被引用多次时只报地址数：行里说「3 个地址打不开」而清单里
+    // 只有 1 个地址，读的人会以为坏了三张图。
+    return t('row.reason.dead', { count: deadCount(result) })
+  }
   // 检测/下载模式不碰本地图，但缺图是文档自己的毛病，不单列会看着像一切正常。
   if (localMissingCount.value > 0) {
     return t('row.reason.localMissing', { count: localMissingCount.value })
@@ -149,6 +157,21 @@ const localizedUniqueCount = computed(() => {
  * 「本地保留」里有一部分其实找不到：检测/下载模式不碰本地图，但引用坏掉的
  * 文件名还是要数出来，否则一行「本地保留 3」看着像三张图都在。
  */
+/**
+ * 这一行里「有几个坏掉的地址」。
+ *
+ * 同一个死链被引用 3 次时 dead 是 3、deadUnique 是 1：行里说「3 个地址打不开」
+ * 而清单里只有 1 个，读的人会以为坏了三张图。下载模式还要把「这次没下来」的
+ * 一起算上 —— 对用户来说那是同一件事：「这张图没拿到」。
+ */
+function deadCount(result: FileResult): number {
+  const dead = result.dead ?? 0
+  const failed = result.remoteFailed ?? 0
+  const total = dead + failed
+  const unique = (result.deadUnique ?? 0) + (result.remoteFailedUnique ?? 0)
+  return unique > 0 && unique < total ? unique : total
+}
+
 const localMissingCount = computed(() => items.value.filter(item => item.status === 'local-kept' && item.error).length)
 
 /** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */

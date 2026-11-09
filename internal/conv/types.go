@@ -59,6 +59,10 @@ type FileResult struct {
 	// 界面上就能写成「下载 1 张（20 处引用）」。
 	LocalizedUnique int `json:"localizedUnique"`
 	Dead            int `json:"dead"`
+	// DeadUnique 是失效地址里去重后的个数：同一个死链被引用 3 次时 Dead 是 3，
+	// 可真正打不开的只有 1 个地址。报告里两个数都得说清楚，否则「失效 3 张」
+	// 和结尾那份「失效的远程地址（1 个）」会当场打架。
+	DeadUnique int `json:"deadUnique"`
 	// CheckedUnique 是去重之后真正探活了几次：同一张图被引用 10 次时 Checked 是 10，
 	// 实际只发了一个请求。和 LocalizedUnique 一个道理，只报 10 会显得我们敲了十次门。
 	CheckedUnique int `json:"checkedUnique"`
@@ -71,6 +75,9 @@ type FileResult struct {
 	// 超时、连不上）。它同时算在 Failed 里——文件确实是「部分完成」——但界面要按
 	// 地址去重地列一份「没下载回来」的清单，光看 Failed 会混进本地图片的失败。
 	RemoteFailed int `json:"remoteFailed"`
+	// RemoteFailedUnique 是这些失败地址去重后的个数：同一个地址被引用 3 次、
+	// 三次都失败时 RemoteFailed 是 3，可真正没拿回来的只有 1 个地址。
+	RemoteFailedUnique int `json:"remoteFailedUnique"`
 	// LocalMissing 是「只做检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
 	// 这两个模式不碰本地图（用户在意的正是反方向），可缺图照样是文档坏了：
 	// 以前这类引用直接从报告里消失，一篇缺图的文档读起来跟完全正常一样。
@@ -112,8 +119,14 @@ type Summary struct {
 	// RemoteCheckedUnique 是去重后真正探活过的地址数（同一张图引用 10 次只算 1）。
 	RemoteCheckedUnique int `json:"remoteCheckedUnique"`
 	RemoteDead          int `json:"remoteDead"`
+	// RemoteDeadUnique 是失效地址去重后的个数（同一个死链引用 3 次只算 1 个）。
+	RemoteDeadUnique int `json:"remoteDeadUnique"`
 	// RemoteUnsupported 是碰不了的远程地址数（ftp://、data: 之类）。
 	RemoteUnsupported int `json:"remoteUnsupported"`
+	// RemoteFailed 是下载模式下没拿回来的引用数（下载失败、超时、连不上）。
+	RemoteFailed int `json:"remoteFailed"`
+	// RemoteFailedUnique 是没拿回来的地址去重后的个数（按地址算，不按引用处算）。
+	RemoteFailedUnique int `json:"remoteFailedUnique"`
 	// LocalMissing 是「只检测/下载」那一档里引用了、但磁盘上找不到的本地图片数。
 	LocalMissing int `json:"localMissing"`
 	// FilesChecked 是「只做检测、没改写文档」的文件数。

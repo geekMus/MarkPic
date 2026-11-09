@@ -2987,3 +2987,86 @@ if kind == imgpath.Local && remoteMode != settings.RemoteIgnore {
 | `![c][r3]` + `[r3]: …`（无标题） | `![c](images/ok2.png)` |
 
 回归：`TestReferenceTitleIsRead`（六组输入，含「标题没闭合」）、`TestReferenceStyleImagesAreConverted` 的期望值改成带标题。前者做过承载验证：把 `parseRefTitle` 临时改成直接返回空串，四条用例立刻红。
+
+## 「失效 3 张」，可清单里只有 1 个地址
+
+上一节刚把「探活次数」和「引用处数」分开，同一份报告里立刻冒出另一处自相矛盾。夹具是一篇文档、四条引用：
+
+```markdown
+![死链](http://127.0.0.1:36999/dead.png)
+![死链](http://127.0.0.1:36999/dead.png)
+![死链](http://127.0.0.1:36999/dead.png)
+![好的](http://127.0.0.1:36733/ok.png)
+```
+
+```
+  [检测]  doc.md        远程图 2 张（4 处引用），失效 3 张
+共 1 个文件 · 检测 1 个文件 · 远程图 2 张（4 处引用） · 其中失效 3 张 · 用时 0.0s
+失效的远程地址（1 个，共 3 处引用）：
+```
+
+同一个地址被引用三次，结尾清单按地址去重说「1 个」，上面两行却按引用处数说「失效 3 张」。读完这两句，没人知道到底坏了几个东西 —— 是三个地址断了，还是同一个断链被提了三次？用户拿着这份报告去改文档，多半会把那三条都当成不同的图。
+
+改法跟上一节对称：`FileResult` 加 `DeadUnique`、`Summary` 加 `RemoteDeadUnique`，统计循环里再开一个 `deadURLs` 集合：
+
+```go
+if it.Status == StatusRemoteBad {
+    res.Dead++
+    if deadURLs == nil {
+        deadURLs = make(map[string]struct{}, 4)
+    }
+    if _, seen := deadURLs[key]; !seen {
+        deadURLs[key] = struct{}{}
+        res.DeadUnique++
+    }
+}
+```
+
+措辞收进一个函数，三个地方（逐文件一行、汇总、清单标题）共用同一套判断：
+
+```go
+func deadCount(dead, deadUnique int) string {
+    if deadUnique > 0 && deadUnique < dead {
+        return fmt.Sprintf("%d 个地址（%d 处引用）", deadUnique, dead)
+    }
+    return fmt.Sprintf("%d 张", dead)
+}
+```
+
+```
+  [检测]  doc.md        远程图 2 张（4 处引用），失效 1 个地址（3 处引用）
+共 1 个文件 · 检测 1 个文件 · 远程图 2 张（4 处引用） · 其中失效 1 个地址（3 处引用） · 用时 0.0s
+失效的远程地址（1 个，共 3 处引用）：
+```
+
+### 下载模式里还有一份对不上的数
+
+同一轮顺手拿下载模式试：一张能下、同一张 404 引用两次、一个连不上的端口。
+
+```
+共 1 个文件 · 远程图 1 张（2 处引用） · 没下载回来 1 个地址（2 处引用） · 失败 1 处
+没下载回来的远程地址（2 个，共 3 处引用）：
+```
+
+汇总说 1 个地址，清单说 2 个 —— 因为汇总的「没下载回来」只数了探测判死的（`RemoteDead`），把下载时才失败的（`RemoteFailed`）漏在外面。对用户来说这两件事是同一件：「这张图没下来」。于是：
+
+- `FileResult` / `Summary` 各加 `RemoteFailedUnique`，`Summary` 补上 `RemoteFailed` 字段（之前只在文件级存在）。
+- 下载模式的汇总与逐文件那行改成两者相加：`没下载回来 %d 个地址（%d 处引用）`，与清单同口径。
+- 一张都没下来时不再写「0 张图片」——那句读起来像「文档里本来就没图」。改成只留「没下载回来 …」；就地输出模式没改写文档时也不挂一个空的 `→`。
+- 下载模式下不再额外补「失败 1 处」：失败已经算进「没下载回来」了，再补一句只会让人去数「2 个地址没下来，怎么又冒出 1 处失败」。
+
+```
+  [部分]  doc.md        没下载回来 2 个地址（3 处引用）
+共 1 个文件 · 远程图 1 张（2 处引用） · 没下载回来 2 个地址（3 处引用） · 本地图找不到 1 张 · 用时 0.0s
+没下载回来的远程地址（2 个，共 3 处引用）：
+```
+
+### 回归
+
+- `TestRemoteCheckCountsUniqueDeadApart`：一个连不上的端口引用 3 次 → `Dead == 3`、`DeadUnique == 1`、`Checked == 3`、`CheckedUnique == 1`，汇总同步。
+- `TestRemoteDownloadCountsUniqueFailedApart`：同一张下不来的图引用 3 次 + 一张能下的 → `RemoteFailed == 3`、`RemoteFailedUnique == 1`，汇总同步。
+
+### 教训
+
+一条报告里，同一个概念只能有一个口径。上一节修的是「敲了几次门」，这一节修的是「坏了几张图」——它们和结尾那份按地址去重的清单必须说同一件事。写报告的人在两个地方各算各的，读报告的人就得替我们调和矛盾，而用户通常不会：他会挑一个自己信的数字。
+

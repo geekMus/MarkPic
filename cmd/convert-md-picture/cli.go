@@ -194,6 +194,24 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		return fmt.Sprintf("  [完成]  %s  %s  → %s", name, changedDesc(r), shorten(r.OutputPath))
 	case conv.FilePartial:
 		// 「部分」有两种来源：上传/下载失败的，以及检测出来失效的远程图。
+		//
+		// 下载模式下哪怕一张都没下来（Localized 为 0），也得按下载说，不能
+		// 退回检测那套措辞 —— 那会让「我没下来」读成「我只查了查」。
+		if r.RemoteFailed > 0 {
+			total := r.Dead + r.RemoteFailed
+			unique := r.DeadUnique + r.RemoteFailedUnique
+			// 一张都没下来时别写「0 张图片」：那句看着像「文档里本来就没图」，
+			// 而事实是有两张、只是都没拿到。就地输出模式下没改写文档，箭头也不该挂空。
+			line := fmt.Sprintf("  [部分]  %s  ", name)
+			if r.Localized > 0 {
+				line += changedDesc(r) + "，"
+			}
+			line += "没下载回来 " + deadCount(total, unique)
+			if r.OutputPath != "" {
+				line += "  → " + shorten(r.OutputPath)
+			}
+			return line
+		}
 		if r.Uploaded == 0 && r.Localized == 0 {
 			return fmt.Sprintf("  [部分]  %s  %s", name, checkDesc(r))
 		}
@@ -201,9 +219,9 @@ func (p *printer) fileLine(r *conv.FileResult) string {
 		// 就坏了（重跑也没用）。混成一句「0 张失败」会让人以为已经收拾干净了。
 		switch {
 		case r.Failed > 0 && r.Dead > 0:
-			return fmt.Sprintf("  [部分]  %s  %s，%d 张失败、%d 张地址已失效  → %s", name, changedDesc(r), r.Failed, r.Dead, shorten(r.OutputPath))
+			return fmt.Sprintf("  [部分]  %s  %s，%d 张失败、地址已失效 %s  → %s", name, changedDesc(r), r.Failed, deadCount(r.Dead, r.DeadUnique), shorten(r.OutputPath))
 		case r.Dead > 0:
-			return fmt.Sprintf("  [部分]  %s  %s，%d 张地址已失效  → %s", name, changedDesc(r), r.Dead, shorten(r.OutputPath))
+			return fmt.Sprintf("  [部分]  %s  %s，地址已失效 %s  → %s", name, changedDesc(r), deadCount(r.Dead, r.DeadUnique), shorten(r.OutputPath))
 		}
 		return fmt.Sprintf("  [部分]  %s  %s，%d 张失败  → %s", name, changedDesc(r), r.Failed, shorten(r.OutputPath))
 	case conv.FileNoImages:
@@ -239,6 +257,16 @@ func changedDesc(r *conv.FileResult) string {
 	}
 }
 
+// deadCount 说「失效了几个」：同一个死链被引用 3 次时 Dead 是 3、DeadUnique 是 1，
+// 而报告结尾那份清单写的是「失效的远程地址（1 个）」。只说「失效 3 张」两句话
+// 会当场打架，所以两个数不等时把「地址数」摆在前面，引用处数放进括号。
+func deadCount(dead, deadUnique int) string {
+	if deadUnique > 0 && deadUnique < dead {
+		return fmt.Sprintf("%d 个地址（%d 处引用）", deadUnique, dead)
+	}
+	return fmt.Sprintf("%d 张", dead)
+}
+
 // checkDesc 说明检测结果。
 func checkDesc(r *conv.FileResult) string {
 	if r.Checked == 0 {
@@ -257,7 +285,7 @@ func checkDesc(r *conv.FileResult) string {
 	} else {
 		desc = fmt.Sprintf("远程图 %d 张", r.Checked)
 	}
-	desc += fmt.Sprintf("，失效 %d 张", r.Dead)
+	desc += "，失效 " + deadCount(r.Dead, r.DeadUnique)
 	if n := unsupportedCount(r); n > 0 {
 		desc += fmt.Sprintf("，另有 %d 处没法检测", n)
 	}
@@ -392,12 +420,15 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 			parts = append(parts, fmt.Sprintf("远程图 %d 张", s.RemoteChecked))
 		}
 	}
-	if s.RemoteDead > 0 {
-		if s.Localized > 0 {
-			parts = append(parts, fmt.Sprintf("没下载回来 %d 张", s.RemoteDead))
-		} else {
-			parts = append(parts, fmt.Sprintf("其中失效 %d 张", s.RemoteDead))
+	if s.Localized > 0 || s.RemoteFailed > 0 {
+		// 下载模式：坏掉的地址和这次没下来的地址，在用户眼里都是「没拿回来」。
+		// 合成一句才和结尾那份清单（按地址去重）对得上。
+		if n := s.RemoteDead + s.RemoteFailed; n > 0 {
+			parts = append(parts, "没下载回来 "+
+				deadCount(n, s.RemoteDeadUnique+s.RemoteFailedUnique))
 		}
+	} else if s.RemoteDead > 0 {
+		parts = append(parts, "其中失效 "+deadCount(s.RemoteDead, s.RemoteDeadUnique))
 	}
 	if s.RemoteUnsupported > 0 {
 		// ftp://、data: 这类地址既不算检测过也不算失效，不单列就没人知道它们存在。
@@ -407,7 +438,9 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 		// 检测/下载模式都不碰本地图，缺图却是文档自己的毛病，不单列同样会消失。
 		parts = append(parts, fmt.Sprintf("本地图找不到 %d 张", s.LocalMissing))
 	}
-	if s.FailedImages > 0 {
+	if s.FailedImages > 0 && s.Localized == 0 && s.RemoteFailed == 0 {
+		// 下载模式已经用「没下载回来」把失败算过一遍了，再补一句「失败 1 处」
+		// 只会让人去数：2 个地址没下来，怎么又冒出 1 处失败。
 		parts = append(parts, fmt.Sprintf("失败 %d 处", s.FailedImages))
 	}
 	if s.Reused > 0 {

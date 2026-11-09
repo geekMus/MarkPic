@@ -68,13 +68,17 @@ type FileResult = {
   localized?: number    // download 模式：这一篇里有几张远程图落到了本地
   dead?: number         // check 模式：这一篇里有几个远程地址打不开（或不是图片）
   checked?: number      // check 模式：这一篇里一共检测了几个远程地址
-  remoteUnsupported?: number
+  deadUnique?: number   // 失效地址里去重后的个数：同一个死链被引用 3 次时 dead 是 3、
+                        // deadUnique 是 1。命令行与界面的「失效 N 个地址（M 处引用）」
+                        // 靠这两个数说清，不然会和结尾那份按地址去重的清单打架  remoteUnsupported?: number
                         // 这一篇里有几处地址根本碰不了（ftp:// / data: / mailto:），
                         // 既不算 checked 也不算 dead；文档里照原样留着
   remoteFailed?: number // download 模式：几处远程地址没拿到图（连不上、超时）。
                         // 同时也算在 failed 里；界面的「复制清单」靠它把远程失败
                         // 和本地图片读不出来分开
-  failed: number
+  remoteFailedUnique?: number
+                        // 这些失败地址去重后的个数（remoteFailed 按引用处算）；
+                        // 日志里「没下载回来 1 个地址（3 处引用）」用的是它  failed: number
   skipped: number
   outputPath?: string
   error?: string
@@ -98,7 +102,11 @@ type RunSummary = {
   remoteChecked?: number  // check 模式：检测了几处远程引用（同一张图引用多次按处数算）
   remoteCheckedUnique?: number // 去重后真正探活过的地址数（引用 10 次也只算 1）
   remoteDead?: number     // check 模式：其中几个打不开
-  filesChecked?: number   // check 模式：几个文件只是被检测（没写输出）
+  remoteDeadUnique?: number
+                          // 失效地址去重后的个数（remoteDead 按引用处算）
+  remoteFailed?: number   // download 模式：没拿回来的引用数（下载失败、超时、连不上）
+  remoteFailedUnique?: number
+                          // 上面那些地址去重后的个数：「没下载回来 2 个地址（3 处引用）」  filesChecked?: number   // check 模式：几个文件只是被检测（没写输出）
   remoteReused?: number   // 上次已下过、这次没再下载的远程图张数
   cancelled: boolean
   // 这一轮被提前掐掉的原因（目前只有「图床成片失败」一种）。

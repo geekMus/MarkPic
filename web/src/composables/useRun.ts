@@ -67,6 +67,9 @@ export interface RunStats {
   /** 去重后真正探活过的地址数。 */
   remoteCheckedUnique: number
   remoteDead: number
+  remoteDeadUnique: number
+  remoteFailed: number
+  remoteFailedUnique: number
   /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
   remoteUnsupported: number
   /** 检测/下载模式里引用了、但磁盘上找不到的本地图片总数。 */
@@ -137,6 +140,9 @@ const live = reactive({
   remoteChecked: 0,
   remoteCheckedUnique: 0,
   remoteDead: 0,
+  remoteDeadUnique: 0,
+  remoteFailed: 0,
+  remoteFailedUnique: 0,
   remoteUnsupported: 0,
   localMissing: 0,
   filesChecked: 0,
@@ -189,6 +195,9 @@ const stats = computed<RunStats>(() => {
       remoteChecked: finished.remoteChecked ?? 0,
     remoteCheckedUnique: finished.remoteCheckedUnique ?? 0,
       remoteDead: finished.remoteDead ?? 0,
+    remoteDeadUnique: finished.remoteDeadUnique ?? 0,
+    remoteFailed: finished.remoteFailed ?? 0,
+    remoteFailedUnique: finished.remoteFailedUnique ?? 0,
       remoteUnsupported: finished.remoteUnsupported ?? 0,
       localMissing: finished.localMissing ?? 0,
       filesChecked: finished.filesChecked ?? 0,
@@ -211,6 +220,9 @@ const stats = computed<RunStats>(() => {
     remoteChecked: live.remoteChecked,
     remoteCheckedUnique: live.remoteCheckedUnique,
     remoteDead: live.remoteDead,
+    remoteDeadUnique: live.remoteDeadUnique,
+    remoteFailed: live.remoteFailed,
+    remoteFailedUnique: live.remoteFailedUnique,
     remoteUnsupported: live.remoteUnsupported,
     localMissing: live.localMissing,
     filesChecked: live.filesChecked,
@@ -276,6 +288,9 @@ function liveReset(): void {
   live.remoteChecked = 0
   live.remoteCheckedUnique = 0
   live.remoteDead = 0
+  live.remoteDeadUnique = 0
+  live.remoteFailed = 0
+  live.remoteFailedUnique = 0
   live.remoteUnsupported = 0
   live.localMissing = 0
   live.filesChecked = 0
@@ -381,6 +396,9 @@ function absorbResult(row: RunRow, result: FileResult): void {
     live.remoteChecked -= row.result.checked ?? 0
     live.remoteCheckedUnique -= row.result.checkedUnique ?? 0
     live.remoteDead -= row.result.dead ?? 0
+    live.remoteDeadUnique -= row.result.deadUnique ?? 0
+    live.remoteFailed -= row.result.remoteFailed ?? 0
+    live.remoteFailedUnique -= row.result.remoteFailedUnique ?? 0
     live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
     live.localMissing -= row.result.localMissing ?? 0
     scoreStatus(row.result.status, -1)
@@ -397,6 +415,9 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.remoteChecked += result.checked ?? 0
   live.remoteCheckedUnique += result.checkedUnique ?? 0
   live.remoteDead += result.dead ?? 0
+  live.remoteDeadUnique += result.deadUnique ?? 0
+  live.remoteFailed += result.remoteFailed ?? 0
+  live.remoteFailedUnique += result.remoteFailedUnique ?? 0
   live.remoteUnsupported += result.remoteUnsupported ?? 0
   live.localMissing += result.localMissing ?? 0
   scoreStatus(result.status, 1)

@@ -85,12 +85,16 @@ export type FileResult = {
   localizedUnique?: number
   /** check 模式：这一篇里有几个远程地址打不开（或不是图片）。 */
   dead?: number
+  /** 失效地址里去重后的个数（dead 按引用处算）。 */
+  deadUnique?: number
   /** check 模式：这一篇里一共检测了几个远程地址。 */
   checked?: number
   /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
   remoteUnsupported?: number
   /** download 模式：远程地址这次没拿到图（连不上、超时）。同时也算在 failed 里。 */
   remoteFailed?: number
+  /** 这些失败地址去重后的个数（remoteFailed 按引用处算）。 */
+  remoteFailedUnique?: number
   /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
   localMissing?: number
   /** 去重后真正探活过的地址数（同一张图引用多次只算 1）。 */
@@ -128,10 +132,14 @@ export type RunSummary = {
   /** 去重后真正探活过的地址数：同一张图被引用多次只发 1 个请求。 */
   remoteCheckedUnique?: number
   remoteDead?: number
+  /** 失效地址里去重后的个数：同一个死链引用 3 次只算 1 个。 */
+  remoteDeadUnique?: number
   /** 碰不了的远程地址（ftp://、data: 之类）：既不算检测过，也不算失效。 */
   remoteUnsupported?: number
   /** download 模式：远程地址这次没拿到图（连不上、超时）。同时也算在 failed 里。 */
   remoteFailed?: number
+  /** 这些失败地址去重后的个数（remoteFailed 按引用处算）。 */
+  remoteFailedUnique?: number
   /** 检测/下载模式下引用了、但磁盘上找不到的本地图片数。 */
   localMissing?: number
   /** 去重后真正探活过的地址数（同一张图引用多次只算 1）。 */

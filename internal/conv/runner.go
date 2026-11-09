@@ -465,6 +465,9 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 		sum.RemoteChecked += res.Checked
 		sum.RemoteCheckedUnique += res.CheckedUnique
 		sum.RemoteDead += res.Dead
+		sum.RemoteDeadUnique += res.DeadUnique
+		sum.RemoteFailed += res.RemoteFailed
+		sum.RemoteFailedUnique += res.RemoteFailedUnique
 		sum.RemoteUnsupported += res.RemoteUnsupported
 		sum.LocalMissing += res.LocalMissing
 		sum.FailedImages += res.Failed
@@ -650,6 +653,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	var localizedNames map[string]struct{}
 	// 检测侧同理：引用 10 次只发 1 个请求，报告里得说得出这两个数的区别。
 	var remoteURLs map[string]struct{}
+	// 失效那一侧也要去重，否则「失效 3 张」会和「失效的远程地址（1 个）」打架。
+	var deadURLs map[string]struct{}
+	// 下载失败的地址同样按地址去重：清单按地址列，报告里的数也得按地址说。
+	var failedURLs map[string]struct{}
 	for _, it := range items {
 		switch it.Status {
 		case StatusUploaded:
@@ -688,6 +695,15 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			}
 			if it.Status == StatusRemoteBad {
 				res.Dead++
+				// 失效这一侧同样要去重：一个死链被引用 3 次时，「失效 3 张」
+				// 和结尾那句「失效的远程地址（1 个）」会当场打架。
+				if deadURLs == nil {
+					deadURLs = make(map[string]struct{}, 4)
+				}
+				if _, seen := deadURLs[key]; !seen {
+					deadURLs[key] = struct{}{}
+					res.DeadUnique++
+				}
 			}
 		case StatusRemote:
 			// 碰不了的地址（ftp://、data:）单独计数：它们既不是「检测过」也不是
@@ -703,6 +719,16 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 			// 文档里的地址，后者要看磁盘。界面上的「复制清单」只该列前者。
 			if isRemoteURL(it.Target) {
 				res.RemoteFailed++
+				// 同一个地址在多处引用时只算一个：报告里那句「没下载回来 N 个地址」
+				// 和结尾清单里的地址数必须是同一个数，否则两句话会打架。
+				key := remoteimg.Key(it.Target)
+				if failedURLs == nil {
+					failedURLs = make(map[string]struct{}, 4)
+				}
+				if _, seen := failedURLs[key]; !seen {
+					failedURLs[key] = struct{}{}
+					res.RemoteFailedUnique++
+				}
 			}
 		case StatusCancelled:
 			// 取消造成的「没传」不是失败，别把它算进失败数里吓人。

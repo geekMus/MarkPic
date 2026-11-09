@@ -1497,3 +1497,76 @@ func TestRemoteCheckCountsUniqueProbesApart(t *testing.T) {
 		t.Fatalf("汇总不对: checked=%d unique=%d", sum.RemoteChecked, sum.RemoteCheckedUnique)
 	}
 }
+
+// TestRemoteCheckCountsUniqueDeadApart 守住失效那一侧的两个数：同一个死链被引用
+// 3 次时，报告若只写「失效 3 张」，就和结尾清单里的「失效的远程地址（1 个）」
+// 当场打架 —— 用户会以为坏了三张图。
+func TestRemoteCheckCountsUniqueDeadApart(t *testing.T) {
+	// 找一个确定没人听的端口：监听再关掉，地址就空出来了。
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("找空闲端口失败：%v", err)
+	}
+	dead := "http://" + ln.Addr().String() + "/dead.png"
+	ln.Close()
+
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("# 标题\n\n")
+	for i := 0; i < 3; i++ {
+		b.WriteString("![死链](" + dead + ")\n\n")
+	}
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, b.String())
+
+	cfg := remoteCfg("http://127.0.0.1:1/picgo", settings.RemoteCheck)
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Dead != 3 || res.DeadUnique != 1 {
+		t.Fatalf("失效引用 3 处、地址 1 个，实际 dead=%d unique=%d", res.Dead, res.DeadUnique)
+	}
+	if res.Checked != 3 || res.CheckedUnique != 1 {
+		t.Fatalf("检测计数也要对上：checked=%d unique=%d", res.Checked, res.CheckedUnique)
+	}
+	if sum.RemoteDead != 3 || sum.RemoteDeadUnique != 1 {
+		t.Fatalf("汇总不对: dead=%d unique=%d", sum.RemoteDead, sum.RemoteDeadUnique)
+	}
+}
+
+// TestRemoteDownloadCountsUniqueFailedApart 守住下载失败那一侧的两个数：
+// 同一个连不上的地址被引用 3 次时，清单里只有 1 个地址，报告里也得说 1 个，
+// 否则「没下载回来 3 个地址」和清单的「1 个」会当场打架。
+func TestRemoteDownloadCountsUniqueFailedApart(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("找空闲端口失败：%v", err)
+	}
+	dead := "http://" + ln.Addr().String() + "/gone.png"
+	ln.Close()
+
+	host, _ := fakeImageHost(t)
+	dir := t.TempDir()
+	var b strings.Builder
+	b.WriteString("# 标题\n\n")
+	b.WriteString("![能下](" + host.URL + "/ok.png)\n\n")
+	for i := 0; i < 3; i++ {
+		b.WriteString("![下不来](" + dead + ")\n\n")
+	}
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, b.String())
+
+	cfg := remoteCfg(host.URL+"/picgo", settings.RemoteDownload)
+	cfg.Output = settings.OutputSidecar
+	r := NewRunner(cfg, i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.RemoteFailed != 3 || res.RemoteFailedUnique != 1 {
+		t.Fatalf("失败引用 3 处、地址 1 个，实际 failed=%d unique=%d", res.RemoteFailed, res.RemoteFailedUnique)
+	}
+	if sum.RemoteFailed != 3 || sum.RemoteFailedUnique != 1 {
+		t.Fatalf("汇总不对: failed=%d unique=%d", sum.RemoteFailed, sum.RemoteFailedUnique)
+	}
+}
