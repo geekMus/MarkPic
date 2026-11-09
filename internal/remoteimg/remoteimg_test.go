@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -430,6 +431,121 @@ func TestDownloadRejectsEmptyBody(t *testing.T) {
 	var buf bytes.Buffer
 	if _, err := c.DownloadTo(context.Background(), srv.URL+"/empty.png", &buf, 0); !errors.Is(err, ErrEmpty) {
 		t.Fatalf("0 字节的图片应该报 ErrEmpty，拿到 %v", err)
+	}
+}
+
+// 下载也要像检测一样扛住偶发的 503：一次抖动就让这张图永久缺失说不过去，
+// 尤其下载模式的结果是写进用户文档的链接。
+func TestDownloadRetriesServerErrors(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	res, err := New(2*time.Second).DownloadTo(context.Background(), srv.URL+"/x.png", &buf, 0)
+	if err != nil {
+		t.Fatalf("重试之后应该成功：%v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), tinyPNG) {
+		t.Fatalf("写出来的字节不对：%d 字节", buf.Len())
+	}
+	if res.Size != int64(len(tinyPNG)) {
+		t.Fatalf("Size 应该是实际长度：%d", res.Size)
+	}
+	if n := atomic.LoadInt32(&hits); n != 2 {
+		t.Fatalf("503 应该重试一次，实际请求 %d 次", n)
+	}
+}
+
+// 404 是对方的结论，下载也不该反复问。
+func TestDownloadDoesNotRetryDefiniteMisses(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	_, err := New(2*time.Second).DownloadTo(context.Background(), srv.URL+"/gone.png", &buf, 0)
+	if err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatalf("应该报 404，拿到 %v", err)
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Fatalf("404 不该重试，实际请求 %d 次", n)
+	}
+}
+
+// 状态码 200、正文写到一半连接被掐：这是最典型的「再试一次就好了」，
+// 而且必须从干净状态重来 —— 拼上两次的半截内容比下载失败糟得多。
+func TestDownloadRetriesTruncatedBody(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Content-Length", fmt.Sprint(len(tinyPNG)))
+			_, _ = w.Write(tinyPNG[:20])
+			// 声明了长度却只写一半就返回：客户端读正文时会拿到 ErrUnexpectedEOF。
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	// 用真文件当目标：只有能退回开头的东西才允许重试。
+	f, err := os.CreateTemp(t.TempDir(), "dl-*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if _, err := New(2*time.Second).DownloadTo(context.Background(), srv.URL+"/x.png", f, 0); err != nil {
+		t.Fatalf("重试之后应该成功：%v", err)
+	}
+	got, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, tinyPNG) {
+		t.Fatalf("重试之后文件应该是完整的一张图，实际 %d 字节（原图 %d）", len(got), len(tinyPNG))
+	}
+	if n := atomic.LoadInt32(&hits); n != 2 {
+		t.Fatalf("应该正好重试一次，实际请求 %d 次", n)
+	}
+}
+
+// 目标退不回开头（比如 bytes.Buffer）时宁可报错，也不能把两次的内容拼起来。
+func TestDownloadRefusesToRetryUnrewindableTarget(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) == 1 {
+			w.Header().Set("Content-Type", "image/png")
+			w.Header().Set("Content-Length", fmt.Sprint(len(tinyPNG)))
+			_, _ = w.Write(tinyPNG[:20])
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	if _, err := New(2*time.Second).DownloadTo(context.Background(), srv.URL+"/x.png", &buf, 0); err == nil {
+		t.Fatalf("退不回去的目标不该被当成成功，实际写了 %d 字节", buf.Len())
+	}
+	if n := atomic.LoadInt32(&hits); n != 1 {
+		t.Fatalf("退不回去就不该再请求，实际请求 %d 次", n)
+	}
+	if buf.Len() != 20 {
+		t.Fatalf("不该往目标里补写内容，实际 %d 字节", buf.Len())
 	}
 }
 

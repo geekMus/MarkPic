@@ -2292,3 +2292,44 @@ CommonMark 里 `![a](images/4 x.png)` 的地址在第一个空格处就结束了
 `picgo.needed`（`settings.Remote` 不是 `check`/`download` 且非试运行时为真），
 只是前端没用。现在三种状态分开：`online` 绿、`needed && !online` 红、
 `!needed && !online` 灰并写「本次不需要 PicGo」。
+## 下载也要重试：一次 503 不该在文档里留个断链
+
+检测模式第 42 轮一开始就有重试（\probeRetry\：5xx / 429 / 连接被重置再试一次，
+等 400 ms），下载模式却一直是一次判死。两者的代价差得很远：检测错了只是报告上
+多一条红字，点开一看还是好的；下载错了是**文档里留下一个远程地址**——用户得
+自己发现、自己重跑。
+
+所以 \emoteimg.DownloadTo\ 现在也重试，但比检测多做两件事：
+
+1. **最多试 3 次**（400 ms、800 ms 退避），不是 2 次。丢的东西不一样。
+2. **重试前把写入目标退回开头**。下载是边读边写，第一次可能已经写进去半张图；
+   直接重来会把两次的内容拼在一起，得到一个「大小对、打不开」的文件——这比
+   下载失败糟得多。\ewind\ 只认「能截断 + 能定位」的目标（\os.CreateTemp\
+   出来的文件就是）；退不回去的目标（\ytes.Buffer\ 之类）宁可报错也不拼。
+
+判断「值不值得再试」这件事，检测和下载共用 \worthRetrying\，这次把三个分支
+说清楚了：
+
+| 拿到的东西 | 重试 | 为什么 |
+| --- | --- | --- |
+| \statusError\（对方回了状态码） | 只有 5xx / 429 | 403/404/410 是对方的结论，问三次还是那句话 |
+| 状态码 2xx 但读正文时断了 | 是 | 最典型的「再试一次就好」：对方掐连接、代理超时 |
+| 连接阶段就 EOF / 拨号失败 | 否 | 拦截型 DNS 与「域名不存在」同义，白等 |
+| \ErrNotImage\ / \ErrEmpty\ / \ErrTooLarge\ | 否 | 拿到完整答复之后的结论 |
+| 往本地写失败 | 否 | 磁盘满、文件被占用，跟对方没关系 |
+
+真机验证（\%TEMP%\cmp-flaky-srv\ 那个会抖的小服务器，前 2 次回 503）：
+
+- 前 2 次 503、第 3 次正常 → 下载成功，落盘 67 字节，文档写成
+  \![抖两下](images/flaky.png)\，总用时 1.2 s（就是那两次退避）。
+- 第一次 \Content-Length\ 声明完整却只写 20 字节再断开 → 重试后文件是完整的
+  67 字节，不是「20 + 67」拼起来的 87 字节。
+- 健康的 50 张图（\-fail 0\）**44 ms**，重试逻辑不在热路径上。
+
+回归测试：\internal/remoteimg/remoteimg_test.go\ 的
+\TestDownloadRetriesServerErrors\、\TestDownloadDoesNotRetryDefiniteMisses\、
+\TestDownloadRetriesTruncatedBody\、\TestDownloadRefusesToRetryUnrewindableTarget\，
+以及 \internal/conv/remote_test.go\ 的
+\TestRemoteDownloadSurvivesOneTransientFailure\（走完整 Runner 的那条路，
+夹具新增 \/flaky.png\：第一次 503、第二次正常）。把 \downloadAttempts\ 改回 1，
+这五条里四条立刻红——包括 Runner 那条报「所有本地图片都处理失败，未生成文件」。

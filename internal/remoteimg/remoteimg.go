@@ -193,6 +193,17 @@ func (c *Client) probeRetry(ctx context.Context, rawURL string) (Result, error) 
 // worthRetrying 判断这次失败值不值得再问一遍。
 func worthRetrying(res Result, err error) bool {
 	if err != nil {
+		// 本地写不进去（磁盘满、文件被占用）跟对方没关系，重试三次还是写不进去，
+		// 只是把同一个错误再演两遍。
+		var werr *writeError
+		if errors.As(err, &werr) {
+			return false
+		}
+		// 「内容不是图片」「正文是空的」「超过大小上限」都是拿到完整答复之后得出的
+		// 结论，再问一遍对方还是那句话，只会白等。
+		if errors.Is(err, ErrNotImage) || errors.Is(err, ErrEmpty) || errors.Is(err, ErrTooLarge) {
+			return false
+		}
 		// 域名解析不出来是「确定没有这个站」，再问一遍也是一样的结果。
 		// 这一条很要紧：一篇文章里几十条死链时，每条都白等 400ms 会让检查器慢到没人用
 		// （实测 200 条死链从 15.2 秒降到 1.4 秒）。
@@ -208,7 +219,14 @@ func worthRetrying(res Result, err error) bool {
 		if res.Status == 0 && isConnectStage(err) {
 			return false
 		}
-		// 其余传输层错误（超时、读响应时断开）多半是瞬时的。
+		// 拿到状态码的失败：只有「对方这会儿不行」值得再问（5xx、限流）。
+		// 403/404/410 是对方的结论，重试三次只是把同一句话听三遍。
+		var serr *statusError
+		if errors.As(err, &serr) {
+			return serr.Status >= 500 || serr.Status == http.StatusTooManyRequests
+		}
+		// 状态码是 2xx 却出错，说明是**读正文读到一半断了**（对方把连接掐了、
+		// 代理超时）。这种是最典型的「再试一次就好了」，必须重试。
 		return true
 	}
 	return res.Status >= 500 || res.Status == http.StatusTooManyRequests
@@ -359,8 +377,12 @@ func (e *NotImageError) Is(target error) bool { return target == ErrNotImage }
 
 // DownloadTo 把图片读进 w，同时返回检测结果。
 // maxBytes<=0 时用 DefaultMaxBytes；超过上限返回 ErrTooLarge（已写入的部分由调用方丢弃）。
+//
+// 和 Probe 一样会对「可能只是抖了一下」的失败重试，但下载重试有个额外前提：
+// 写入目标得能退回开头（临时文件可以）。已经写进去半张图又退不回去的时候，
+// 宁可把失败报出来，也不能让半截内容和下一次的内容拼在一起。
 func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
-	res, err := c.downloadAt(ctx, Normalize(rawURL), w, maxBytes)
+	res, err := c.downloadRetry(ctx, Normalize(rawURL), w, maxBytes)
 	if err == nil || !isProtocolRelative(rawURL) {
 		return res, err
 	}
@@ -368,24 +390,115 @@ func (c *Client) DownloadTo(ctx context.Context, rawURL string, w io.Writer, max
 	if checkScheme(alt) != nil {
 		return res, err
 	}
-	// 已经写过半截的字节要由调用方丢掉，这里只保证 http 这一次从干净状态开始。
-	return c.downloadAt(ctx, alt, w, maxBytes)
+	return c.downloadRetry(ctx, alt, w, maxBytes)
 }
 
-func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
+// downloadAttempts 是一次下载最多试几次（含第一次）。
+// 检测错了只是报告上多一条红字，下载失败是真丢东西，所以多给两次机会。
+const downloadAttempts = 3
+
+// downloadRetry 在瞬时故障上重试，每次重试前把写入目标退回开头。
+func (c *Client) downloadRetry(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, error) {
+	var res Result
+	var err error
+	for attempt := 0; attempt < downloadAttempts; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return res, err
+			case <-time.After(retryDelay << uint(attempt-1)):
+			}
+		}
+		var written int64
+		res, written, err = c.downloadAt(ctx, rawURL, w, maxBytes)
+		if err == nil || !worthRetrying(res, err) {
+			return res, err
+		}
+		if rerr := rewind(w, written); rerr != nil {
+			return res, err
+		}
+	}
+	return res, err
+}
+
+// errNotRewindable 表示写入目标退不回开头，没法安全重试。
+var errNotRewindable = errors.New("download target is not rewindable")
+
+// rewind 把写入目标退回开头，好让下一次尝试从头写。
+//
+// 只认「能截断 + 能定位」的目标（os.CreateTemp 出来的文件就是）。别的 writer
+// 一律算退不回去 —— 拼半截内容比下载失败糟得多。
+func rewind(w io.Writer, written int64) error {
+	if written == 0 {
+		return nil
+	}
+	truncater, ok := w.(interface{ Truncate(int64) error })
+	if !ok {
+		return errNotRewindable
+	}
+	seeker, ok := w.(interface {
+		Seek(int64, int) (int64, error)
+	})
+	if !ok {
+		return errNotRewindable
+	}
+	if err := truncater.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	return nil
+}
+
+// statusError 是「对方用状态码回答了我们」。
+//
+// 单独立一个类型，是为了让 worthRetrying 能分清「对方说不行」（404、403）和
+// 「读到一半断了」（状态码 200、错误是 EOF）—— 前者重试是白等，后者才值得再试。
+type statusError struct{ Status int }
+
+func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d", e.Status) }
+
+// writeError 标记「错在往本地写」，不是对方的问题：重试没有意义。
+type writeError struct{ err error }
+
+func (e *writeError) Error() string { return e.err.Error() }
+func (e *writeError) Unwrap() error { return e.err }
+
+// stickyWriter 记住第一次写失败的原因。
+//
+// io.Copy 把读错误和写错误都当同一个 error 返回，事后分不清是谁的锅；
+// 而「读失败可以重试、写失败不能重试」这条区别必须留下。
+type stickyWriter struct {
+	w   io.Writer
+	n   int64
+	err error
+}
+
+func (s *stickyWriter) Write(p []byte) (int, error) {
+	n, err := s.w.Write(p)
+	s.n += int64(n)
+	if err != nil && s.err == nil {
+		s.err = err
+	}
+	return n, err
+}
+
+// downloadAt 做一次下载，同时告诉调用方写进去了多少字节（重试要靠它退回开头）。
+func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, maxBytes int64) (Result, int64, error) {
 	if err := checkScheme(rawURL); err != nil {
-		return Result{}, err
+		return Result{}, 0, err
 	}
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBytes
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return Result{}, err
+		return Result{}, 0, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return Result{Size: -1}, err
+		return Result{Size: -1}, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -397,17 +510,17 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	}
 	if res.Status < 200 || res.Status > 299 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
-		return res, fmt.Errorf("HTTP %d", res.Status)
+		return res, 0, &statusError{Status: res.Status}
 	}
 	if res.Size > maxBytes {
-		return res, ErrTooLarge
+		return res, 0, ErrTooLarge
 	}
 
 	// 边读边嗅探：先看开头 512 字节是不是图片，再决定要不要继续往下写。
 	head := make([]byte, sniffPrefix)
 	n, readErr := io.ReadFull(resp.Body, head)
 	if readErr != nil && !errors.Is(readErr, io.ErrUnexpectedEOF) && !errors.Is(readErr, io.EOF) {
-		return res, readErr
+		return res, 0, readErr
 	}
 	if n > 0 {
 		res.Sniffed = http.DetectContentType(head[:n])
@@ -415,28 +528,32 @@ func (c *Client) downloadAt(ctx context.Context, rawURL string, w io.Writer, max
 	// 先看正文是不是空的：空正文配「Content-Type: image/png」是最常见的坏图床，
 	// 报「不是图片」会让人以为是类型问题，其实是根本没内容。
 	if n == 0 {
-		return res, ErrEmpty
+		return res, 0, ErrEmpty
 	}
 	if !res.OK() {
 		kind := res.Sniffed
 		if kind == "" {
 			kind = res.ContentType
 		}
-		return res, &NotImageError{Kind: kind}
+		return res, 0, &NotImageError{Kind: kind}
 	}
-	if _, err := w.Write(head[:n]); err != nil {
-		return res, err
+	sw := &stickyWriter{w: w}
+	if _, err := sw.Write(head[:n]); err != nil {
+		return res, sw.n, &writeError{err}
 	}
-	written, err := io.Copy(w, io.LimitReader(resp.Body, maxBytes-int64(n)+1))
-	if err != nil {
-		return res, err
-	}
+	written, err := io.Copy(sw, io.LimitReader(resp.Body, maxBytes-int64(n)+1))
 	total := int64(n) + written
+	if err != nil {
+		if sw.err != nil {
+			return res, total, &writeError{sw.err}
+		}
+		return res, total, err
+	}
 	if total > maxBytes {
-		return res, ErrTooLarge
+		return res, total, ErrTooLarge
 	}
 	res.Size = total
-	return res, nil
+	return res, total, nil
 }
 
 // Normalize 把地址整理成能直接请求的样子。

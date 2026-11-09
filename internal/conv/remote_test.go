@@ -47,9 +47,16 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 	t.Helper()
 	var mu sync.Mutex
 	hits := map[string]int{}
+	// flaky 只让 /flaky.png 的第一次请求失败：图床偶发 503 是最常见的一种「其实没坏」。
+	flaky := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		hits[r.URL.Path]++
+		first := false
+		if r.URL.Path == "/flaky.png" {
+			flaky++
+			first = flaky == 1
+		}
 		mu.Unlock()
 		switch r.URL.Path {
 		case "/ok.png":
@@ -65,6 +72,13 @@ func fakeImageHost(t *testing.T) (*httptest.Server, func() map[string]int) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write([]byte("<html><body>not an image</body></html>"))
 		case "/noext":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(pngBytes)
+		case "/flaky.png":
+			if first {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write(pngBytes)
 		case "/a/pic.png":
@@ -182,6 +196,38 @@ func TestRemoteDownloadLocalizesImages(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(doc); string(got) != src {
 		t.Fatal("旁挂模式下源文档不该被改")
+	}
+}
+
+// 图床偶发 503 不该让这张图永久缺失：下载模式写进文档的是本地链接，
+// 一次抖动就留下一个断链，用户还得自己发现。
+func TestRemoteDownloadSurvivesOneTransientFailure(t *testing.T) {
+	dir := t.TempDir()
+	host, hitCount := fakeImageHost(t)
+	src := "![抖了一下](" + host.URL + "/flaky.png)\n"
+	doc := filepath.Join(dir, "doc.md")
+	writeFile(t, doc, src)
+
+	picgoSrv, _ := fakePicGo(t, nil)
+	r := NewRunner(remoteCfg(picgoSrv.URL, settings.RemoteDownload), i18n.ZH, "run", nil)
+	results, sum := r.RunCollect(context.Background(), []string{doc})
+
+	res := results[0]
+	if res.Localized != 1 || res.Failed != 0 {
+		t.Fatalf("重试之后应该下载成功，实际 localized=%d failed=%d（错误：%s）", res.Localized, res.Failed, res.Error)
+	}
+	if sum.Localized != 1 {
+		t.Fatalf("汇总里应该记 1 张下载: %+v", sum)
+	}
+	if n := hitCount()["/flaky.png"]; n != 2 {
+		t.Fatalf("应该请求 2 次（第一次 503、第二次成功），实际 %d 次", n)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "images", "flaky.png"))
+	if err != nil {
+		t.Fatalf("图没落盘: %v", err)
+	}
+	if !bytes.Equal(data, pngBytes) {
+		t.Fatalf("落盘的字节不对: %d 字节", len(data))
 	}
 }
 
