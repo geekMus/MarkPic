@@ -73,7 +73,13 @@ const parts = computed<Part[]>(() => {
     if (stats.reused > 0) {
       list.push({ text: t('footer.reused', { count: stats.reused }), tone: 'plain' })
     }
-    if (stats.remoteReused > 0) {
+    // 整轮都命中下载缓存时，一个字节都没下 —— 再说一句「省下 N 张下载」
+    // 会和下面的「下载 N 张」自相矛盾。改成一句「沿用上次」。
+    const allReused =
+      stats.remoteReused > 0 &&
+      stats.localizedUnique > 0 &&
+      stats.remoteReused >= stats.localizedUnique
+    if (stats.remoteReused > 0 && !allReused) {
       list.push({ text: t('footer.remoteReused', { count: stats.remoteReused }), tone: 'plain' })
     }
     if (stats.failed > 0) {
@@ -83,7 +89,12 @@ const parts = computed<Part[]>(() => {
       // 同一张图被引用多次时 localized 是引用处数，可 images/ 里只有一个文件。
       // 只显示引用处数会让人以为其余的没下下来，所以去重后的张数才是主数。
       const unique = stats.localizedUnique > 0 ? stats.localizedUnique : stats.localized
-      if (unique < stats.localized) {
+      if (allReused) {
+        list.push({
+          text: t('footer.localizedAllReused', { count: unique }),
+          tone: 'plain',
+        })
+      } else if (unique < stats.localized) {
         list.push({
           text: t('footer.localizedUnique', { count: unique, refs: stats.localized }),
           tone: 'plain',

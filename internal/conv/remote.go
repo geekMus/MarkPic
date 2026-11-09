@@ -132,10 +132,11 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 					mu.Unlock()
 				} else {
 					g := remotes[u-len(groups)]
-					status, link, msg := r.handleRemote(ctx, docDir, g.url)
+					status, link, msg, reused := r.handleRemote(ctx, docDir, g.url)
 					mu.Lock()
 					for _, idx := range g.refs {
 						items[idx].Status = status
+						items[idx].Reused = reused
 						if link != "" {
 							items[idx].URL = link
 						}
@@ -164,14 +165,17 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 }
 
 // handleRemote 处理一个远程地址：检测或下载，返回状态、要写回文档的链接、给用户的说明。
-func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (status, link, msg string) {
+// handleRemote 处理一个远程地址。reused 表示「这一份没有真的去网上拿」——
+// 上次运行已经下过、或者本轮别的文档先下好了。报告里要能说出这一点，
+// 否则纯命中的那一轮会写成「下载 1 张图」，其实一个字节都没下。
+func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (status, link, msg string, reused bool) {
 	switch remoteimg.ClassifyTarget(rawURL) {
 	case remoteimg.TargetBadScheme:
 		// ftp:// 与 data: 既检测不了也下载不了：原样留着，并说清楚为什么。
-		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteUnsupported), remoteimg.Redact(rawURL))
+		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteUnsupported), remoteimg.Redact(rawURL)), false
 	case remoteimg.TargetMalformed:
 		// 地址是 http 的，只是写坏了。这时说「不支持 http/https」会把人带偏。
-		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteBadURL), remoteimg.Redact(rawURL))
+		return StatusRemote, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteBadURL), remoteimg.Redact(rawURL)), false
 	}
 
 	rf, leader := r.remoteEntry(rawURL)
@@ -179,17 +183,17 @@ func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (statu
 		select {
 		case <-rf.done:
 		case <-ctx.Done():
-			return StatusCancelled, "", ctx.Err().Error()
+			return StatusCancelled, "", ctx.Err().Error(), false
 		}
 		if rf.status == StatusLocalized {
 			// 别的文档已经下过了：同一目录直接用，不同目录就复制一份过去。
 			rel, err := r.placeRemoteFile(docDir, rawURL, rf.abs, rf.size)
 			if err != nil {
-				return StatusFailed, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteDownloadFail), err)
+				return StatusFailed, "", fmt.Sprintf(i18n.T(r.lang, i18n.KeyConvRemoteDownloadFail), err), false
 			}
-			return StatusLocalized, rel, ""
+			return StatusLocalized, rel, "", true
 		}
-		return rf.status, "", rf.msg
+		return rf.status, "", rf.msg, false
 	}
 
 	// 领头的那一个：真的去做。
@@ -201,7 +205,7 @@ func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (statu
 	case r.sem <- struct{}{}:
 	case <-ctx.Done():
 		r.finishRemote(rf, remoteFile{status: StatusCancelled, msg: ctx.Err().Error()})
-		return StatusCancelled, "", ctx.Err().Error()
+		return StatusCancelled, "", ctx.Err().Error(), false
 	}
 	defer func() { <-r.sem }()
 
@@ -210,18 +214,18 @@ func (r *Runner) handleRemote(ctx context.Context, docDir, rawURL string) (statu
 		res, err := r.remote.Probe(ctx, rawURL)
 		r.finishRemote(rf, remoteOutcome(res, err, r.lang))
 	default:
-		rel, size, abs, err := r.downloadRemote(ctx, docDir, rawURL)
+		rel, size, abs, reused, err := r.downloadRemote(ctx, docDir, rawURL)
 		if err != nil {
 			r.finishRemote(rf, remoteOutcomeDownload(ctx, err, r.lang))
 			break
 		}
 		r.finishRemote(rf, remoteFile{abs: abs, size: size, status: StatusLocalized})
-		return StatusLocalized, rel, ""
+		return StatusLocalized, rel, "", reused
 	}
 	if rf.status == StatusLocalized {
-		return rf.status, rf.relPath(rawURL, r.cfg.RemoteDir), ""
+		return rf.status, rf.relPath(rawURL, r.cfg.RemoteDir), "", false
 	}
-	return rf.status, "", rf.msg
+	return rf.status, "", rf.msg, false
 }
 
 // relPath 算出要把哪个相对路径写回文档。
@@ -363,7 +367,7 @@ func (r *Runner) finishRemote(e *remoteFile, out remoteFile) {
 }
 
 // downloadRemote 把一个地址下载到文档旁边的本地目录，返回写回文档的相对路径。
-func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel string, size int64, abs string, err error) {
+func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel string, size int64, abs string, reused bool, err error) {
 	dir := filepath.Join(docDir, filepath.FromSlash(strings.TrimSpace(r.cfg.RemoteDir)))
 	// 上次已经下过、本地文件还在、大小也对得上：连网络都不碰。
 	// 改一篇文章再跑一遍是最常见的用法，这时候绝大多数图都没变。
@@ -373,7 +377,7 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 			// 到这里才算「省下一次下载」：文件真的还在。
 			// Lookup 自己不会记账，文件被删掉时我们还得重新下一张。
 			r.remoteCache.NoteHit()
-			return r.relFor(docDir, abs), cached, abs, nil
+			return r.relFor(docDir, abs), cached, abs, true, nil
 		}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -384,14 +388,14 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 		// blocker 是个文件时，系统报的是 blocker 这个**中间层**的错，只说 dir
 		// 会让人去找一个不存在的目录。所以要往上找到真正挡路的那个。
 		if blocker, ok := firstFileInPath(dir); ok {
-			return "", 0, "", errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, blocker))
+			return "", 0, "", false, errors.New(i18n.T(r.lang, i18n.KeyConvRemoteDirIsFile, blocker))
 		}
-		return "", 0, "", err
+		return "", 0, "", false, err
 	}
 	sweepStaleTemps(dir, remoteTempPrefix)
 	tmp, err := os.CreateTemp(dir, remoteTempPrefix+"*.tmp")
 	if err != nil {
-		return "", 0, "", err
+		return "", 0, "", false, err
 	}
 	tmpName := tmp.Name()
 	keep := false
@@ -404,12 +408,12 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 
 	res, derr := r.remote.DownloadTo(ctx, rawURL, tmp, 0)
 	if derr != nil {
-		return "", 0, "", derr
+		return "", 0, "", false, derr
 	}
 	// 再兜一层：万一哪天又冒出「没有错误、也没有字节」的组合，也别把 0 字节的
 	// 文件改成文档里的链接 —— 那种图点开永远是坏的，而且重跑时还得先当残骸清理。
 	if res.Size <= 0 {
-		return "", 0, "", remoteimg.ErrEmpty
+		return "", 0, "", false, remoteimg.ErrEmpty
 	}
 	// 这里原来有一句 tmp.Sync()，是整条下载路径上最贵的一步：Windows 上一次
 	// fsync 约 2.1 ms，2000 张图就是 4.2 秒（占单张成本的一大半），而它买到的是
@@ -419,7 +423,7 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 	// 却比图片重要得多。真断电了最坏是多一张坏图，重跑一次就补回来；
 	// 而每个用户每一次都稳定付这 2.1 ms。
 	if cerr := tmp.Close(); cerr != nil {
-		return "", 0, "", cerr
+		return "", 0, "", false, cerr
 	}
 
 	name := r.remoteFileName(dir, rawURL, res, tmpName)
@@ -431,15 +435,15 @@ func (r *Runner) downloadRemote(ctx context.Context, docDir, rawURL string) (rel
 				keep = true // 已经删掉了，defer 别再删一次
 			}
 			r.remoteCache.Store(rawURL, dir, name, res.Size)
-			return r.relFor(docDir, abs), res.Size, abs, nil
+			return r.relFor(docDir, abs), res.Size, abs, true, nil
 		}
 	}
 	if rerr := os.Rename(tmpName, abs); rerr != nil {
-		return "", 0, "", rerr
+		return "", 0, "", false, rerr
 	}
 	keep = true
 	r.remoteCache.Store(rawURL, dir, name, res.Size)
-	return r.relFor(docDir, abs), res.Size, abs, nil
+	return r.relFor(docDir, abs), res.Size, abs, false, nil
 }
 
 // relFor 把绝对落盘位置算成「相对文档所在目录」的路径（统一用正斜杠）。

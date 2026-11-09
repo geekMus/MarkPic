@@ -253,13 +253,38 @@ func changedDesc(r *conv.FileResult) string {
 	case r.Localized > 0:
 		// 同一张图被引用多次时，按引用处数会报成「下载 20 张」而 images/ 里只有
 		// 一个文件；去重后的张数才是用户真正关心的那个数。
+		reused := reusedDownloads(r)
+		unique := ""
 		if r.LocalizedUnique > 0 && r.LocalizedUnique < r.Localized {
-			return fmt.Sprintf("下载 %d 张远程图（%d 处引用）", r.LocalizedUnique, r.Localized)
+			unique = fmt.Sprintf("（%d 处引用）", r.Localized)
+		}
+		switch {
+		case reused > 0 && reused == r.Localized:
+			// 一张都没下：上次运行留下的文件还在，这一轮只是把路径写回去。
+			// 写成「下载 N 张」等于谎报了一次网络往来。
+			return fmt.Sprintf("沿用上次下载的 %d 张图%s", r.LocalizedUnique, unique)
+		case reused > 0:
+			return fmt.Sprintf("下载 %d 张远程图%s（其中 %d 张沿用上次）", r.LocalizedUnique, unique, reused)
+		}
+		if unique != "" {
+			return fmt.Sprintf("下载 %d 张远程图%s", r.LocalizedUnique, unique)
 		}
 		return fmt.Sprintf("下载 %d 张远程图", r.Localized)
 	default:
 		return fmt.Sprintf("%d 张图片", r.Uploaded)
 	}
+}
+
+// reusedDownloads 数这一篇里「没有真的去网上拿」的远程图：上次已经下过、
+// 或者本轮别的文档先下好了。它们照样要写进文档，但不该被算成这次下载的。
+func reusedDownloads(r *conv.FileResult) int {
+	n := 0
+	for _, it := range r.Items {
+		if it.Status == conv.StatusLocalized && it.Reused {
+			n++
+		}
+	}
+	return n
 }
 
 // deadCount 说「失效了几个」：同一个死链被引用 3 次时 Dead 是 3、DeadUnique 是 1，
@@ -414,9 +439,16 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	if s.Localized > 0 {
 		// 同一张图被引用 20 次时 Localized 是 20，可 images/ 里只有一个文件。
 		// 只报 20 会让人以为另外 19 张失败了，所以两个数一起说。
-		if s.LocalizedUnique > 0 && s.LocalizedUnique < s.Localized {
+		//
+		// 再叠一层「沿用上次」：整轮都命中缓存时，一个字节都没下，写成
+		// 「下载 2 张 · 省下 2 张」等于同一件事说两遍、还前后矛盾。
+		allReused := s.RemoteReused > 0 && s.LocalizedUnique > 0 && s.RemoteReused >= s.LocalizedUnique
+		switch {
+		case allReused:
+			parts = append(parts, fmt.Sprintf("沿用上次下载的 %d 张图（没有重新下载）", s.LocalizedUnique))
+		case s.LocalizedUnique > 0 && s.LocalizedUnique < s.Localized:
 			parts = append(parts, fmt.Sprintf("下载 %d 张远程图（%d 处引用）", s.LocalizedUnique, s.Localized))
-		} else {
+		default:
 			parts = append(parts, fmt.Sprintf("下载 %d 张远程图", s.Localized))
 		}
 	}
@@ -459,7 +491,7 @@ func (p *printer) summaryLine(s *conv.Summary) string {
 	if s.Reused > 0 {
 		parts = append(parts, fmt.Sprintf("省下 %d 张重传", s.Reused))
 	}
-	if s.RemoteReused > 0 {
+	if s.RemoteReused > 0 && !(s.Localized > 0 && s.LocalizedUnique > 0 && s.RemoteReused >= s.LocalizedUnique) {
 		parts = append(parts, fmt.Sprintf("省下 %d 张下载", s.RemoteReused))
 	}
 	if s.RemoteKept > 0 {

@@ -37,6 +37,10 @@ type Item struct {
 	Status       string `json:"status"`
 	URL          string `json:"url,omitempty"`
 	Error        string `json:"error,omitempty"`
+	// Reused 表示这一份没有真的去网上拿：下载模式下，上次运行已经下过、
+	// 或者本轮别的文档先下好了。报告里要能说出这一点，否则纯命中的那一轮
+	// 会写成「下载 1 张图」，而实际一个字节都没下。
+	Reused bool `json:"reused,omitempty"`
 }
 
 // FileResult 是单个 Markdown 文件的处理结果。

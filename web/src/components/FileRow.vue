@@ -277,6 +277,11 @@ function itemLabel(item: ImageItem): string {
   if (item.status === 'local-kept' && item.error) {
     return t('row.status.localMissing')
   }
+  // 下载模式下「沿用上次」（上次就下好了，这一轮没再碰网络）与「这次下的」
+  // 也是两件事：合并成一个标签，用户会以为这一轮又走了一遍网络。
+  if (item.status === 'localized' && item.reused) {
+    return t('row.status.localReused')
+  }
   return t(IMAGE_STATUS_META[item.status].labelKey)
 }
 

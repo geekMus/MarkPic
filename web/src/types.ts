@@ -50,6 +50,8 @@ export type ImageItem = {
   status: ImageStatus
   url?: string
   error?: string
+  /** 下载模式下这一份没有真的去网上拿：上次下过、或者本轮别的文档先下好了 */
+  reused?: boolean
 }
 
 export type FileStatus =

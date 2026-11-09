@@ -81,3 +81,59 @@ func TestNoImagesLineMentionsKeptRemoteImages(t *testing.T) {
 		t.Fatalf("没有远程图时不该多话，实际 %q", plain)
 	}
 }
+
+// 下载模式下「这张是这次下的」和「上次就下好了、这轮只是把路径写回去」是两件事。
+// 混成一句「下载 2 张」等于谎报了一次网络往来 —— 纯命中的那一轮一个字节都没下。
+func TestDownloadWordingSaysReused(t *testing.T) {
+	full := &conv.FileResult{
+		Status:          conv.FileOK,
+		Localized:       2,
+		LocalizedUnique: 2,
+		Items: []conv.Item{
+			{Status: conv.StatusLocalized, Reused: true},
+			{Status: conv.StatusLocalized, Reused: true},
+		},
+	}
+	if got := changedDesc(full); got != "沿用上次下载的 2 张图" {
+		t.Fatalf("整轮都命中缓存时该说沿用，实际 %q", got)
+	}
+
+	mixed := &conv.FileResult{
+		Status:          conv.FileOK,
+		Localized:       2,
+		LocalizedUnique: 2,
+		Items: []conv.Item{
+			{Status: conv.StatusLocalized, Reused: true},
+			{Status: conv.StatusLocalized},
+		},
+	}
+	if got := changedDesc(mixed); got != "下载 2 张远程图（其中 1 张沿用上次）" {
+		t.Fatalf("只有一张沿用时要分开说，实际 %q", got)
+	}
+
+	fresh := &conv.FileResult{
+		Status:          conv.FileOK,
+		Localized:       2,
+		LocalizedUnique: 2,
+		Items: []conv.Item{
+			{Status: conv.StatusLocalized},
+			{Status: conv.StatusLocalized},
+		},
+	}
+	if got := changedDesc(fresh); got != "下载 2 张远程图" {
+		t.Fatalf("一张都没沿用时不许多话，实际 %q", got)
+	}
+
+	p := newPrinter(false)
+	all := p.summaryLine(&conv.Summary{Files: 1, OK: 1, Localized: 2, LocalizedUnique: 2, RemoteReused: 2})
+	if !strings.Contains(all, "沿用上次下载的 2 张图（没有重新下载）") {
+		t.Fatalf("整轮沿用时的汇总说错了：%q", all)
+	}
+	if strings.Contains(all, "省下") {
+		t.Fatalf("整轮沿用不该再补一句「省下」，同一件事说两遍：%q", all)
+	}
+	partial := p.summaryLine(&conv.Summary{Files: 1, OK: 1, Localized: 3, LocalizedUnique: 3, RemoteReused: 1})
+	if !strings.Contains(partial, "下载 3 张远程图") || !strings.Contains(partial, "省下 1 张下载") {
+		t.Fatalf("部分沿用时两个数都要在：%q", partial)
+	}
+}
