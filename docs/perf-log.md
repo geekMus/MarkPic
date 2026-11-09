@@ -3417,3 +3417,33 @@ $ curl -s  -o NUL -w "%{http_code}`n"   https://picsum.photos/200   → 302（�
 
 **教训**：「这张图坏了」是三个不同的判断叠在一起 —— 地址写错了、对方不肯给、我们问错了问题（HEAD）。
 把它们全报成一句话，用户就得自己去猜；而按报告去改文档的人，改的是好图。
+
+## 同一台图床的 HEAD 说过一次假话，后面的地址就别再问它了
+
+picsum.photos 这种图床压根不实现 HEAD：`HEAD /seed/1/200/200` 回 404，可同一个地址
+`GET` 一下就是 302 → 200 PNG。上一轮已经把「HEAD 的 404 不当作终审、补一次 GET」修进
+去了，好地址不再被报成失效 —— 但代价是**每个地址都要问两趟**，一篇挂了 20 张这种图的
+文档就是 20 趟白问。
+
+HEAD 是不是可信，是**主机**的属性，不是地址的。所以只要在这台主机上撞见过一次
+「HEAD 说不通、GET 说得通」，就把它记下来：
+
+```go
+// hostLimiter 里多一个标记
+skipHead bool
+
+// probeAt 开头
+if c.headLies(rawURL) {
+    return c.probeByGet(ctx, rawURL)
+}
+```
+
+标记的时机在 `probeByGet` 里：这一次的答案是从 GET 拿到 2xx 的，就说明 HEAD 不可信。
+真死链（HEAD 404 + GET 404）不会触发 —— 两台机器的答案一致时没有理由怀疑 HEAD。
+
+回归 `TestProbeStopsAskingHeadOnceHostLies`：模拟「HEAD 一律 404、GET 一律 200」的服务器，
+连探 5 个地址，断言 `HEAD == 1 && GET == 5`。另一条 `TestProbeHeadFallbackIsPerHost`
+守住不能误伤：A 主机不可信之后，B 主机该问的 HEAD 一个不少（`honestHeads == 3`）。
+
+实测（10 个 picsum 地址，`-c 8`）：全部有效，`2.3s`；修前同一场景每个地址两趟往返。
+449 篇 / 380 条真死链的语料没受影响（`0.7–1.0s`，死链两侧答案一致，不会误标）。

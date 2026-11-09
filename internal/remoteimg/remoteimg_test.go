@@ -1231,3 +1231,78 @@ func TestProbeSendsUserAgent(t *testing.T) {
 		t.Fatalf("User-Agent = %q，应该是 convert-md-picture/<版本>", got)
 	}
 }
+
+// HEAD 说过一次假话之后，同一主机后面的地址就该直接 GET：省掉一趟注定没用的往返。
+func TestProbeStopsAskingHeadOnceHostLies(t *testing.T) {
+	var heads, gets int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			atomic.AddInt32(&heads, 1)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		atomic.AddInt32(&gets, 1)
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", fmt.Sprint(len(tinyPNG)))
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer srv.Close()
+
+	c := newClient(t)
+	for i := 0; i < 5; i++ {
+		target := fmt.Sprintf("%s/img/%d.png", srv.URL, i)
+		res, err := c.Probe(context.Background(), target)
+		if err != nil {
+			t.Fatalf("第 %d 个地址探测失败: %v", i, err)
+		}
+		if !res.OK() {
+			t.Fatalf("第 %d 个地址应该判定为可用，实际 %+v", i, res)
+		}
+	}
+	if got := atomic.LoadInt32(&heads); got != 1 {
+		t.Fatalf("HEAD 只该在第一次试一次，实际 %d 次", got)
+	}
+	if got := atomic.LoadInt32(&gets); got != 5 {
+		t.Fatalf("每个地址都要 GET 到，实际 %d 次", got)
+	}
+}
+
+// 「HEAD 不可信」是主机的属性：另一台主机的 HEAD 照旧要用。
+func TestProbeHeadFallbackIsPerHost(t *testing.T) {
+	var lyingHeads, honestHeads int32
+	lying := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			atomic.AddInt32(&lyingHeads, 1)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(tinyPNG)
+	}))
+	defer lying.Close()
+	honest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			atomic.AddInt32(&honestHeads, 1)
+		}
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", fmt.Sprint(len(tinyPNG)))
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write(tinyPNG)
+		}
+	}))
+	defer honest.Close()
+
+	c := newClient(t)
+	if _, err := c.Probe(context.Background(), lying.URL+"/a.png"); err != nil {
+		t.Fatalf("第一个地址探测失败: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := c.Probe(context.Background(), fmt.Sprintf("%s/img/%d.png", honest.URL, i)); err != nil {
+			t.Fatalf("正常主机第 %d 个地址探测失败: %v", i, err)
+		}
+	}
+	if got := atomic.LoadInt32(&honestHeads); got != 3 {
+		t.Fatalf("另一台主机的 HEAD 不该被跳过，实际 %d 次", got)
+	}
+}

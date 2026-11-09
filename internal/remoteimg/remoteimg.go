@@ -79,6 +79,12 @@ type hostLimiter struct {
 	// 16 路同时收到 429 时，若每个都乘 0.5，速率会从 20 掉到下限 1。
 	cooledUntil time.Time
 	nextSlot    time.Time
+	// skipHead 表示「这台主机的 HEAD 说了假话」：要么压根没实现、对什么地址都回
+	// 404，要么回 200 却不给类型。一旦撞见过一次，后面就直连 GET，省掉一趟往返。
+	//
+	// 实测 picsum.photos：HEAD /200 → 404，GET 同一个地址 → 302 → 200 PNG。
+	// 一篇文档里挂 20 张这种图时，省下的是 20 个往返（每个往返 100–300 ms）。
+	skipHead bool
 }
 
 // New 造一个默认客户端。timeout 是「一次探测」的上限（连接、重定向、读完响应头）。
@@ -127,6 +133,28 @@ func (c *Client) limiterFor(rawURL string) *hostLimiter {
 		c.hosts[host] = l
 	}
 	return l
+}
+
+// headLies 报告这台主机是否已经被认定「HEAD 不可信」。
+func (c *Client) headLies(rawURL string) bool {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return false
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	return l.skipHead
+}
+
+// markHeadLies 记下「这台主机的 HEAD 不信了」，之后同一主机的地址直连 GET。
+func (c *Client) markHeadLies(rawURL string) {
+	l := c.limiterFor(rawURL)
+	if l == nil {
+		return
+	}
+	c.hostsMu.Lock()
+	defer c.hostsMu.Unlock()
+	l.skipHead = true
 }
 
 // hostOf 从地址里取主机名（含端口）。主机名不区分大小写，统一折成小写，
@@ -628,6 +656,11 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 		ctx, cancel = context.WithTimeout(ctx, c.timeout)
 		defer cancel()
 	}
+	// 这台主机的 HEAD 之前已经说过假话（对什么地址都回 404，或回 200 但不给类型）：
+	// 直接 GET，省掉一趟注定没用的往返。picsum 那种图床一篇文档挂 20 张图就是 20 趟。
+	if c.headLies(rawURL) {
+		return c.probeByGet(ctx, rawURL)
+	}
 	res, err := c.probeHead(ctx, rawURL)
 	if err != nil {
 		// 连不上（DNS/超时/重置）：GET 也是同样的结局，不值得再等一次。
@@ -659,27 +692,34 @@ func (c *Client) probeAt(ctx context.Context, rawURL string) (Result, error) {
 	// 可 GET 明明能拿到整张图（实测 picsum.photos：HEAD 404、GET 302 → 200 PNG）。
 	// 早先这里把 404/410 当成「确定的没了」直接返回，于是这种图床上的图全被
 	// 报成失效。代价是真死链多一次请求，比把好地址报死划算得多。
-	got, gerr := c.probeGet(ctx, rawURL)
+	got, gerr := c.probeByGet(ctx, rawURL)
 	if gerr != nil {
 		return got, gerr
 	}
-	// GET 也没拿到图片，就把状态码变成错误。
-	//
-	// 这一步不能省：以前这里原样返回 (429, nil)，重试逻辑只认「err != nil」，
-	// 于是限流**一次都没重试过** —— 实测一台 5 次/秒的图床，100 个有效地址里
-	// 85 个被报成「失效」。状态码得走到 worthRetrying 那里才算数。
-	//
-	// 只转非 2xx：2xx 但内容不是图片是「这张图坏了」，由调用方看 OK() 判断，
-	// 不是「这一趟没成」。
-	if got.Status < 200 || got.Status > 299 {
-		// 404/410 仍然是「问过了，确实没了」：不算这一趟出错，交给调用方按
-		// 状态码说「打不开了」。其余 4xx/5xx 才走错误，好让重试预算看见它。
-		if isDefinitelyGone(got.Status) {
-			return got, nil
-		}
-		return got, &statusError{Status: got.Status}
-	}
 	return got, nil
+}
+
+// probeByGet 只走 GET，把「这一趟算不算成」的判定收在一处。
+//
+// 返回 nil 错误表示「问完了」：2xx 拿到图片、或 404/410 确实没了都算问完。
+// 其余 4xx/5xx 变成 statusError，好让重试预算看见它 —— 以前这里原样返回
+// (429, nil)，重试逻辑只认「err != nil」，于是限流一次都没重试过。
+func (c *Client) probeByGet(ctx context.Context, rawURL string) (Result, error) {
+	got, err := c.probeGet(ctx, rawURL)
+	if err != nil {
+		return got, err
+	}
+	if got.Status >= 200 && got.Status <= 299 {
+		// 答案是从 GET 拿到的，说明这台主机的 HEAD 不可信：记住，后面的地址别白问。
+		c.markHeadLies(rawURL)
+		return got, nil
+	}
+	// 404/410 仍然是「问过了，确实没了」：不算这一趟出错，交给调用方按状态码
+	// 说「打不开了」。其余 4xx/5xx 才走错误。
+	if isDefinitelyGone(got.Status) {
+		return got, nil
+	}
+	return got, &statusError{Status: got.Status}
 }
 
 // ErrRedirectLoop 表示这个地址跳来跳去，跳满了上限也没落到一张图上。
