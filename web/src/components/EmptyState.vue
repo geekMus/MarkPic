@@ -2,11 +2,24 @@
 import AppIcon from './AppIcon.vue'
 import { useI18n } from '../i18n'
 
+const props = defineProps<{
+  /** 最近用过的路径（最新的在前）。空数组时整块不出现。 */
+  recent: string[]
+}>()
+
 const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
+  'pick-recent': [path: string]
   manual: []
 }>()
+
+/** 只显示最后一段，整条路径留给 title —— 一排长路径读不出谁是谁。 */
+function baseName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
+  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed
+}
 
 const { t } = useI18n()
 </script>
@@ -34,6 +47,17 @@ const { t } = useI18n()
       </div>
 
       <p class="empty__foot">{{ t('empty.foot') }}</p>
+
+      <div v-if="props.recent.length > 0" class="recent">
+        <span class="recent__label">{{ t('empty.recent') }}</span>
+        <ul class="recent__list">
+          <li v-for="path in props.recent" :key="path">
+            <button type="button" class="recent__item" :title="path" @click="emit('pick-recent', path)">
+              {{ baseName(path) }}
+            </button>
+          </li>
+        </ul>
+      </div>
 
       <section class="spec">
         <h3 class="spec__title">{{ t('empty.spec.title') }}</h3>
@@ -73,6 +97,51 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
+/* 最近用过：一排小片，标签比内容淡一档 */
+.recent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.recent__label {
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  letter-spacing: 0.04em;
+}
+
+.recent__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent__item {
+  max-width: 180px;
+  overflow: hidden;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-3);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms var(--ease), color 120ms var(--ease);
+}
+
+.recent__item:hover {
+  background: var(--panel-2);
+  color: var(--ink);
+}
+
 /* 一列到底，靠字号与留白分节：没有卡片、没有插图。
    第一屏只回答一个问题——「把东西放进来」。 */
 .empty {

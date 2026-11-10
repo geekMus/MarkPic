@@ -162,6 +162,31 @@ async function pick(kind: 'files' | 'folder'): Promise<void> {
   }
 }
 
+/* 最近用过的路径：只记最后六条，队列为空时摆在空状态里点一下就回来。 */
+const RECENT_KEY = 'markpic.recent'
+const RECENT_MAX = 6
+
+function readRecent(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]')
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string').slice(0, RECENT_MAX) : []
+  } catch {
+    return []
+  }
+}
+
+const recentPaths = ref<string[]>(readRecent())
+
+function rememberPaths(paths: string[]): void {
+  const next = [...paths, ...recentPaths.value.filter((old) => !paths.includes(old))].slice(0, RECENT_MAX)
+  recentPaths.value = next
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next))
+  } catch {
+    /* 存不进去就算了，别为了记住路径把转换拦下来 */
+  }
+}
+
 async function enqueue(paths: string[]): Promise<void> {
   const added = addPaths(paths)
   if (added.length === 0) {
@@ -169,6 +194,7 @@ async function enqueue(paths: string[]): Promise<void> {
     return
   }
   manualOpen.value = false
+  rememberPaths(added)
   try {
     applyPreview(await preview(added, settingsSnapshot()), added)
   } catch (error) {
@@ -228,6 +254,17 @@ async function handlePickDir(): Promise<void> {
 
 /** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
+  const mod = event.ctrlKey || event.metaKey
+  if (mod && event.key.toLowerCase() === 'o') {
+    event.preventDefault()
+    void pick(event.shiftKey ? 'folder' : 'files')
+    return
+  }
+  if (mod && event.key === ',') {
+    event.preventDefault()
+    view.value = 'settings'
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     if (paletteOpen.value) return
     event.preventDefault()
@@ -322,8 +359,10 @@ onBeforeUnmount(() => {
           :remote-mode="settings.remote"
           :aborted="stats.abortReason !== ''"
           :selected="selectedId"
+          :recent="recentPaths"
           @pick-files="pick('files')"
           @pick-folder="pick('folder')"
+          @pick-recent="enqueue([$event])"
           @submit-paths="enqueue"
           @remove="removeRow"
           @reveal="revealRow"

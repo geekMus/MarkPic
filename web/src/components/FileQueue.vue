@@ -25,11 +25,14 @@ const props = defineProps<{
   aborted?: boolean
   /** 右栏正在看哪一行；只用来画选中态。 */
   selected?: string | null
+  /** 最近用过的路径，队列为空时摆在空状态里。 */
+  recent?: string[]
 }>()
 
 const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
+  'pick-recent': [path: string]
   'submit-paths': [paths: string[]]
   remove: [id: string]
   reveal: [path: string]
@@ -451,8 +454,10 @@ function onScroll(): void {
 
       <EmptyState
         v-else-if="!manualOpen"
+        :recent="props.recent ?? []"
         @pick-files="emit('pick-files')"
         @pick-folder="emit('pick-folder')"
+        @pick-recent="emit('pick-recent', $event)"
         @manual="emit('update:manualOpen', true)"
       />
     </div>

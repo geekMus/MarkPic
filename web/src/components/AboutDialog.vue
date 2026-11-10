@@ -162,7 +162,8 @@ async function openDataDir(): Promise<void> {
           </div>
         </dl>
 
-        <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>`n        <p v-if="settingsNote" class="about__hint about__hint--bad">{{ settingsNote }}</p>
+        <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>
+        <p v-if="settingsNote" class="about__hint about__hint--bad">{{ settingsNote }}</p>
         <p v-if="dirOpenError" class="about__hint about__hint--bad">{{ dirOpenError }}</p>
 
         <div
@@ -214,32 +215,42 @@ async function openDataDir(): Promise<void> {
 
 <style scoped>
 .about {
-  padding: 14px 18px 16px;
+  padding: 2px 20px 16px;
 }
 
+/* 事实表：一行一条细线，标签窄、值宽；不再是一张卡片里挤五行 */
 .about__facts {
   display: grid;
-  gap: 8px;
+  gap: 0;
   margin: 0;
 }
 
 .about__fact {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 92px minmax(0, 1fr);
   align-items: baseline;
-  gap: 10px;
+  gap: 12px;
+  min-height: 34px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+
+.about__fact:first-child {
+  border-top: 0;
 }
 
 .about__fact dt {
   color: var(--ink-3);
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
+  letter-spacing: 0.04em;
 }
 
 .about__fact dd {
   margin: 0;
   /* 路径这类长内容要能省略号截断，min-width 不能是 auto */
   min-width: 0;
-  font-size: var(--fs-3);
+  color: var(--ink);
+  font-size: var(--fs-2);
   word-break: break-all;
 }
 
@@ -269,6 +280,14 @@ async function openDataDir(): Promise<void> {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--ink-2);
+}
+
+.about__auto {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--fs-2);
 }
 
 .about__hint {

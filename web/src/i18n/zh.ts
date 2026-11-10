@@ -187,6 +187,7 @@ export const zh = {
     '读取 Markdown 里引用的本地图片，经本机 PicGo 上传，再把文档里的地址替换成图床链接。默认另存一份副本，原文件不动。',
   'empty.pickFiles': '选择文件',
   'empty.pickFolder': '选择文件夹',
+  'empty.recent': '最近用过',
   'empty.foot': '可以一次加入多个文件或整个目录，也可以直接把 Windows 绝对路径粘进来。',
   'empty.spec.title': '支持的写法',
   'empty.spec.note': '围栏代码块与行内代码里的图片会被跳过；已经是网络地址的图片原样保留。',

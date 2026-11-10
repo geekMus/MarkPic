@@ -189,6 +189,7 @@ export const en: Record<keyof typeof zh, string> = {
     'Reads the local images referenced by your Markdown, uploads them through the local PicGo, and swaps those paths for image-host links. Writes a copy by default and leaves the originals untouched.',
   'empty.pickFiles': 'Choose files',
   'empty.pickFolder': 'Choose folder',
+  'empty.recent': 'Recent',
   'empty.foot':
     'Add several files or a whole folder at once, or paste Windows absolute paths directly.',
   'empty.spec.title': 'Supported syntax',
