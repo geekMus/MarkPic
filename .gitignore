@@ -23,3 +23,6 @@ web/.vite.config.ts.*.tmpdir/
 
 # 一次性截图/临时消息文件，别跟着代码进仓库
 .tmp-*
+
+# nohup / 后台启动时留下的输出
+nohup.out

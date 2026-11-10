@@ -91,44 +91,44 @@
 
   /* 深色不是纯黑：画布是靛蓝夜色，面板比画布亮一档、带一点蓝，
      中文小字在纯黑上会「发毛」，在靛蓝上反而更稳。 */
-  --canvas: #171d2c;
-  --canvas-2: #1e2739;
-  --panel: #232d42;
-  --panel-2: #1b2334;
-  --border-panel: rgba(150, 172, 208, 0.14);
+  --canvas: #121925;
+  --canvas-2: #18202d;
+  --panel: #1b2432;
+  --panel-2: #151d29;
+  --border-panel: rgba(148, 172, 206, 0.13);
 
   /* 深色只压暗不发光 —— 一圈冷白光是上一版最刺眼的地方。 */
   --edge-glow: rgba(4, 9, 20, 0.62);
 
-  --ink: #eef2fb;
-  --ink-2: #b7c3d9;
-  --ink-3: #8c9ab5;
+  --ink: #e9effb;
+  --ink-2: #b3bfd3;
+  --ink-3: #8894a9;
 
-  --line: rgba(150, 172, 208, 0.1);
-  --line-2: rgba(150, 172, 208, 0.17);
-  --line-3: rgba(150, 172, 208, 0.26);
+  --line: rgba(148, 172, 206, 0.09);
+  --line-2: rgba(148, 172, 206, 0.16);
+  --line-3: rgba(148, 172, 206, 0.24);
 
-  --accent: #67e8d5;
-  --accent-vivid: #8ef2e4;
-  --accent-soft: rgba(103, 232, 213, 0.13);
-  --accent-line: rgba(103, 232, 213, 0.3);
-  --accent-ink: #a9f5ea;
+  --accent: #63ddc9;
+  --accent-vivid: #8bf0e0;
+  --accent-soft: rgba(99, 221, 201, 0.12);
+  --accent-line: rgba(99, 221, 201, 0.26);
+  --accent-ink: #a6f2e7;
 
-  --ok: #5ee0b1;
-  --ok-soft: rgba(94, 224, 177, 0.13);
-  --ok-line: rgba(94, 224, 177, 0.3);
+  --ok: #59dcab;
+  --ok-soft: rgba(89, 220, 171, 0.12);
+  --ok-line: rgba(89, 220, 171, 0.26);
 
-  --warn: #f0c06a;
-  --warn-soft: rgba(240, 192, 106, 0.13);
-  --warn-line: rgba(240, 192, 106, 0.3);
+  --warn: #eec47d;
+  --warn-soft: rgba(238, 196, 125, 0.12);
+  --warn-line: rgba(238, 196, 125, 0.26);
 
-  --bad: #ff9d92;
-  --bad-soft: rgba(255, 157, 146, 0.13);
-  --bad-line: rgba(255, 157, 146, 0.3);
+  --bad: #f79b92;
+  --bad-soft: rgba(247, 155, 146, 0.12);
+  --bad-line: rgba(247, 155, 146, 0.26);
 
-  --ink-solid: #e9f0ff;
+  --ink-solid: #e9effb;
   --ink-solid-hover: #ffffff;
-  --on-solid: #141c2c;
+  --on-solid: #121925;
 
   --focus: #8ef2e4;
   --ring: rgba(142, 242, 228, 0.26);

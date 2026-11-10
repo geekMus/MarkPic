@@ -4,7 +4,6 @@ import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
 import AppRail from './components/AppRail.vue'
-import Inspector from './components/Inspector.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
@@ -69,11 +68,8 @@ const {
 const view = ref<'convert' | 'settings'>('convert')
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
-// 右栏在看哪一行；行被移出队列时自动回到「没选」。
+// 选中哪一行：只用来给那一行描边，明细由行自己展开。
 const selectedId = ref<string | null>(null)
-const selectedRow = computed(
-  () => rowViews.value.find((row) => row.id === selectedId.value) ?? null,
-)
 
 // 侧边栏有两种形态：窄条（只有图标）和展开（图标 + 文字）。
 // 这是「这台机器上我习惯哪种」的偏好，和语言、主题一样存在浏览器里，
@@ -320,20 +316,6 @@ onBeforeUnmount(() => {
         />
       </main>
 
-      <Inspector
-        v-if="view === 'convert'"
-        class="app__aside"
-        :stats="stats"
-        :phase="phase"
-        :row="selectedRow"
-        :completed="completedCount"
-        :total="totalCount"
-        :endpoint="settings.endpoint"
-        :picgo-online="picgo?.online ?? false"
-        :picgo-needed="picgoNeeded"
-        @reveal="revealRow"
-        @remove="removeRow"
-      />
     </div>
 
 
@@ -407,16 +389,15 @@ onBeforeUnmount(() => {
    这一层只负责「放得下」，具体排版交给各视图自己。 */
 .app__body {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 320px;
+  grid-template-columns: 56px minmax(0, 1fr);
   gap: 14px;
   min-height: 0;
   padding-bottom: 2px;
 }
 
-/* 侧边栏展开时把导航文字放出来，中间那一栏相应让位；
-   右栏宽度不变——它是上下文，不是主内容。 */
+/* 侧边栏展开时把导航文字放出来，内容区相应让位。 */
 .app__body--wide {
-  grid-template-columns: 196px minmax(0, 1fr) 320px;
+  grid-template-columns: 196px minmax(0, 1fr);
 }
 
 .app__view {
@@ -429,21 +410,6 @@ onBeforeUnmount(() => {
 .app__view > * {
   flex: 1;
   min-height: 0;
-}
-
-/* 窗口窄到放不下三栏时，先收右栏（它只是上下文，不是必经路径） */
-@media (max-width: 1080px) {
-  .app__body {
-    grid-template-columns: 56px minmax(0, 1fr);
-  }
-
-  .app__body--wide {
-    grid-template-columns: 188px minmax(0, 1fr);
-  }
-
-  .app__aside {
-    display: none;
-  }
 }
 
 @media (max-width: 900px) {

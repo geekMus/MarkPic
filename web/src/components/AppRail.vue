@@ -79,17 +79,13 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
-  border: 1px solid var(--border-panel);
-  border-radius: var(--r-5);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, white 12%), var(--panel) 120px);
-  box-shadow: var(--shadow-panel);
-  overflow: hidden;
+  padding: 4px 0;
+  min-height: 0;
 }
 
 .rail--expanded {
   align-items: stretch;
-  padding: 10px 8px;
+  padding: 4px 2px;
 }
 
 .rail__stack {
@@ -105,8 +101,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 }
 
 .rail__stack--foot {
-  padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  padding-top: 8px;
 }
 
 .rail__btn {
@@ -135,7 +130,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 
 .rail__btn:hover {
   color: var(--ink);
-  background: color-mix(in srgb, var(--panel-2) 72%, transparent);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 
 .rail__btn:focus-visible {
@@ -146,8 +141,8 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 /* 选中的那一项：淡强调底 + 一条 3px 竖条。竖条画在按钮内侧，不给窗口加任何边线。 */
 .rail__btn--on {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent-soft) 88%, transparent);
-  border-color: color-mix(in srgb, var(--accent-line) 72%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: transparent;
 }
 
 .rail__btn--on::before {
@@ -178,11 +173,11 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 
 @media (max-width: 900px) {
   .rail {
-    padding: 8px 0;
+    padding: 2px 0;
   }
 
   .rail--expanded {
-    padding: 8px 6px;
+    padding: 2px 2px;
   }
 
   .rail__btn {

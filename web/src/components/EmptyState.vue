@@ -14,96 +14,25 @@ const { t } = useI18n()
 <template>
   <div class="empty">
     <div class="empty__inner">
-      <div class="empty__hero">
-        <div class="empty__copy">
-          <h2 class="empty__title">{{ t('empty.title') }}</h2>
-          <p class="empty__text">{{ t('empty.text') }}</p>
+      <h2 class="empty__title">{{ t('empty.title') }}</h2>
+      <p class="empty__text">{{ t('empty.text') }}</p>
 
-          <div class="empty__actions">
-            <button type="button" class="btn btn--primary btn--lg" @click="emit('pick-files')">
-              <AppIcon name="file-plus" :size="15" />
-              {{ t('empty.pickFiles') }}
-            </button>
-            <button type="button" class="btn btn--secondary btn--lg" @click="emit('pick-folder')">
-              <AppIcon name="folder-plus" :size="15" />
-              {{ t('empty.pickFolder') }}
-            </button>
-            <button type="button" class="btn btn--ghost btn--lg" @click="emit('manual')">
-              <AppIcon name="terminal" :size="15" />
-              {{ t('queue.manual.toggle') }}
-            </button>
-          </div>
-
-          <p class="empty__foot">
-            {{ t('empty.foot') }}
-          </p>
-        </div>
-
-        <!-- 发丝线插图：左边文档里框着本地图片，右边是上传后的图床 -->
-        <div class="empty__art" aria-hidden="true">
-          <svg viewBox="0 0 260 190" fill="none">
-            <rect x="16" y="24" width="104" height="140" rx="14" fill="var(--panel)" stroke="var(--line-2)" />
-            <path d="M92 24v18a6 6 0 0 0 6 6h18" stroke="var(--line-2)" stroke-linejoin="round" />
-            <rect x="32" y="70" width="54" height="7" rx="3.5" fill="var(--line-2)" />
-            <rect x="32" y="85" width="34" height="7" rx="3.5" fill="var(--line)" />
-
-            <rect
-              x="32"
-              y="104"
-              width="72"
-              height="44"
-              rx="9"
-              fill="var(--accent-soft)"
-              stroke="var(--accent-line)"
-            />
-            <path
-              d="M40 141l12-13.5 8 8.5 7-6 9 11"
-              stroke="var(--accent)"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <circle cx="91" cy="115" r="3.2" stroke="var(--accent)" stroke-width="1.5" />
-
-            <path
-              d="M126 106q22-1 34-16"
-              stroke="var(--accent)"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-dasharray="4 5"
-            />
-            <path d="M152 86l7 6-8.5 2.4z" fill="var(--accent)" />
-
-            <circle cx="196" cy="82" r="47" fill="var(--accent-soft)" opacity="0.72" />
-            <rect
-              x="164"
-              y="50"
-              width="64"
-              height="64"
-              rx="18"
-              fill="var(--panel)"
-              stroke="var(--accent-line)"
-            />
-            <path
-              d="M180.5 92.5a8 8 0 0 1 0.6-15.9 11.5 11.5 0 0 1 21.8 2.4 7 7 0 0 1 1.6 13.5z"
-              stroke="var(--accent)"
-              stroke-width="1.5"
-              stroke-linejoin="round"
-            />
-            <path
-              d="M196 88V72m0 0-6 6m6-6 6 6"
-              stroke="var(--accent)"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-
-            <rect x="169" y="126" width="54" height="6" rx="3" fill="var(--line-2)" />
-            <rect x="173" y="139" width="42" height="6" rx="3" fill="var(--line)" />
-            <rect x="177" y="152" width="28" height="6" rx="3" fill="var(--line)" />
-          </svg>
-        </div>
+      <div class="empty__actions">
+        <button type="button" class="btn btn--primary btn--lg" @click="emit('pick-files')">
+          <AppIcon name="file-plus" :size="15" />
+          {{ t('empty.pickFiles') }}
+        </button>
+        <button type="button" class="btn btn--secondary btn--lg" @click="emit('pick-folder')">
+          <AppIcon name="folder-plus" :size="15" />
+          {{ t('empty.pickFolder') }}
+        </button>
+        <button type="button" class="btn btn--ghost btn--lg" @click="emit('manual')">
+          <AppIcon name="terminal" :size="15" />
+          {{ t('queue.manual.toggle') }}
+        </button>
       </div>
+
+      <p class="empty__foot">{{ t('empty.foot') }}</p>
 
       <!-- 支持的写法：第一次用的人最想知道「我这份文档能不能被认出来」 -->
       <section class="spec">
@@ -113,11 +42,10 @@ const { t } = useI18n()
           <li class="spec__item mono">![](<带 空格.png>)</li>
           <li class="spec__item mono">&lt;img src="a.png" width="60"&gt;</li>
         </ul>
-        <p class="spec__note">
-          {{ t('empty.spec.note') }}
-        </p>
+        <p class="spec__note">{{ t('empty.spec.note') }}</p>
       </section>
 
+      <!-- 三步说明：竖着排。这一页只有一列，读下来就是一条线。 -->
       <ol class="steps">
         <li class="step">
           <span class="step__n num">1</span>
@@ -146,47 +74,37 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-/* 空态贴着面板顶部，步骤条钉在底部：中间那片留白是刻意的，不是没对齐 */
+/* 一列到底：标题、说明、按钮、支持的写法、三步。
+   以前这里是「左边文案 + 右边插图 + 底下三步」，看着像三个独立板块，
+   其实只是一件事情的入口。 */
 .empty {
   display: flex;
   height: 100%;
-  padding: 42px 44px 30px;
+  overflow: auto;
+  padding: 34px 40px 30px;
 }
 
 .empty__inner {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  align-items: flex-start;
+  gap: 12px;
   width: 100%;
-  max-width: 900px;
+  max-width: 560px;
   margin: 0 auto;
 }
 
-.empty__hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 48px;
-}
-
-.empty__copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  min-width: 0;
-}
-
 .empty__title {
+  margin: 0;
   color: var(--ink);
-  font-size: 25px;
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1.3;
 }
 
 .empty__text {
-  max-width: 44ch;
+  margin: 0;
   color: var(--ink-2);
   font-size: var(--fs-3);
   line-height: 1.7;
@@ -197,38 +115,29 @@ const { t } = useI18n()
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  margin-top: 8px;
 }
 
 .empty__foot {
+  margin: 0;
   color: var(--ink-3);
   font-size: var(--fs-1);
 }
 
-.empty__art {
-  flex: none;
-  width: 304px;
-  fill: none;
-}
-
-.empty__art svg {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-/* 支持的写法：把中间那片留白换成第一次用的人真正会问的东西 */
 .spec {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 16px 18px;
+  width: 100%;
+  margin-top: 14px;
+  padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-3);
   background: var(--panel-2);
 }
 
 .spec__title {
+  margin: 0;
   color: var(--ink-3);
   font-size: var(--fs-1);
   font-weight: 600;
@@ -254,19 +163,21 @@ const { t } = useI18n()
 }
 
 .spec__note {
+  margin: 0;
   color: var(--ink-3);
   font-size: var(--fs-1);
   line-height: 1.6;
 }
 
-/* 三步说明：把「空」变成「知道下一步做什么」 */
 .steps {
-  display: grid;
-  margin-top: auto;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  padding-top: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 14px 0 0;
   border-top: 1px solid var(--line);
+  list-style: none;
 }
 
 .step {
@@ -310,59 +221,17 @@ const { t } = useI18n()
   line-height: 1.5;
 }
 
-/* 默认窗口宽 1180：够宽就左右两栏，窄下来再竖排 */
-@media (max-width: 1040px) {
-  .empty__hero {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 20px;
-  }
-
-  .empty__art {
-    display: none;
-  }
-}
-
-/* 窄窗口（820 以下就是窄版）：压缩纵向节奏，让整块内容一屏放得下 */
 @media (max-width: 900px) {
   .empty {
     padding: 22px 20px 18px;
-  }
-
-  .empty__inner {
-    gap: 16px;
-  }
-
-  .empty__hero {
-    gap: 16px;
   }
 
   .empty__title {
     font-size: 21px;
   }
 
-  .empty__text {
-    line-height: 1.6;
-  }
-
-  .spec {
-    padding: 12px 14px;
-  }
-
   .steps {
-    gap: 14px;
     padding-top: 12px;
-  }
-
-  .step {
-    gap: 8px;
-  }
-}
-
-/* 再窄：三步改成竖排，一列一行 */
-@media (max-width: 620px) {
-  .steps {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
   }
 }
 </style>
