@@ -4419,3 +4419,68 @@ img.alpha_composite(overlay)                                  # 真正混合到�
 另外记一笔：这一轮把 `Inspector` 连同它的 20 条 i18n 文案一起删了，
 `zh.ts` 与 `en.ts` 又回到 277 : 277 —— 之前那种「一边删了另一边忘了删」的漂移，
 现在是靠 `en: Record<keyof typeof zh, string>` 在编译期挡住的。
+
+## 整套界面重做：从「一堆卡片」到「一套系统」
+
+这次没有加功能，而是把界面换成一套有纪律的系统：颜色、字号、间距、圆角、动效都收进
+令牌，组件只挑档位，不再各自写数值。
+
+参照的是 Linear 与 Raycast 的做法，能直接搬过来的是四条：
+
+- **用亮度叠层做层级，别用投影。** 投影只有浮层（命令面板、提示条）才配。面板本身
+  靠「画布 → 面板 → 输入区」三档明度差立起来，深色下尤其明显。
+- **一种强调色，只给「现在要做的事」与「正在发生的事」。** 选中、焦点、进行中用它；
+  成功/警告/失败各有自己的色，但都只出现在圆点和小字上，不做底色。
+- **字阶收窄到六档**（11/12/13/15/19/24），界面文字在 11–13 之间密排，只有标题跳一档。
+  同屏出现七八种字号，是「看起来不专业」最常见的来源。
+- **主行动只有一个。** 空状态里三个按钮有明确主次，底栏只有「开始转换」是实心键帽；
+  一起强调等于都没强调。
+
+具体落到文件上：
+
+```css
+/* web/src/assets/main.css */
+--fs-1: 11px; --fs-2: 12px; --fs-3: 13px; --fs-4: 15px; --fs-5: 19px; --fs-6: 24px;
+--r-1: 4px; --r-2: 6px; --r-3: 8px; --r-4: 12px; --r-5: 16px;
+--ease: cubic-bezier(0.2, 0, 0, 1);
+--raised: #ffffff;            /* 浅色 */
+--ink-solid: #12161f;         /* 浅色主按钮：近黑 */
+/* 深色 */
+--raised: #232c3c;
+--ink-solid: #e8ecf4;         /* 主按钮：近白键帽 */
+--on-solid: #10141b;
+```
+
+### 顺手补的三件小事
+
+- **命令面板（Ctrl+K）**：命令按「现在能不能做」列出，跑着的时候没有「开始」，没开始时
+  没有「取消」。过滤只做子串匹配——命令只有十条上下，模糊打分反而让人猜不到排序。
+- **空状态记住最近路径**：`markpic.recent` 存最近六条，空状态里点一下就加回来。队列本身
+  也记在 `markpic.queue`（只记路径），关掉程序再打开还在。
+- **英文复数**：一个文件的时侯不再写「1 files」。`countText()` 按 `count === 1` 选
+  `.one` 后缀的键，缺键在 `en: Record<keyof typeof zh, string>` 下直接编译不过。
+
+### 两个 bug，都是「用推断代替事实」
+
+1. **行点不开明细。** 原来用 `noDetails = Boolean(row.missing) && !row.result`（缺文件的
+   推断）来决定「能不能展开」，可点击发生时的 props 与渲染那一帧已经不同，处理函数里
+   判定为「没有明细」就跳过了展开。改成直接看事实：`canExpand = (row.result?.items?.length ?? 0) > 0`。
+   教训：**能不能做一个动作，要看这个动作需要的那些数据在不在，不要看另一个间接信号。**
+2. **关于对话框里一整句消失。** 模板里有个字面量 `` `n ``（早期 PowerShell here-string
+   写文件留下的），把下一行属性并进了同一个属性值。Vue 编译器不报错，只是那根线断了。
+   模板里的怪字符不会让构建失败，只会让某个界面元素悄悄少一块——所以每次改完都得截图看。
+
+### 验收方式
+
+没有用浏览器预览，而是给真窗口开 WebView2 的调试端口
+（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`），再用
+`tools/cdp/{eval,shot,key}.mjs` 三个脚本读 DOM、截图、发真实键盘事件：
+
+```bash
+node tools/cdp/eval.mjs "getComputedStyle(document.querySelector('.rail')).backgroundColor" 9333
+node tools/cdp/shot.mjs .tmp-dark.png 9333
+node tools/cdp/key.mjs "k" "ctrl" 9333     # 真按 Ctrl+K，不是 dispatchEvent
+```
+
+截图尺寸是 CSS 像素 × 缩放，不是窗口像素——所以判断「按钮有多高」要用
+`getBoundingClientRect().height`，不要用图里的像素数。
