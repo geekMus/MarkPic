@@ -517,7 +517,8 @@ function onScroll(): void {
 .ledger__col {
   color: var(--ink-3);
   font-size: var(--fs-1);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .ledger__col--num {

@@ -209,6 +209,7 @@ export const zh = {
   'footer.reused': '复用 {count}',
   'footer.remoteReused': '省下 {count} 张下载',
   'footer.failedFiles': '失败 {count} 个文件',
+  'footer.failedBoth': '失败 {files} 个文件（{images} 张图）',
   'footer.failedImages': '失败 {count} 张图',
   'footer.aborted': '已中止',
   'footer.cancelled': '已取消',

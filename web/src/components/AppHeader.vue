@@ -202,6 +202,10 @@ function handleDoubleClick(event: MouseEvent): void {
   /* 抵消 .app 的左右留白，让窗口按钮贴到窗口右边缘 */
   margin: 0 calc(var(--gutter) * -1);
   padding: 0 var(--gutter);
+  /* 一层从上沉下来的极淡底色 + 一条 hairline：标题栏才有「框」的厚度。
+     它不是窗口边线，是窗口内部的分区。 */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 46%, transparent), transparent 82%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 76%, transparent);
   user-select: none;
   -webkit-user-select: none;
 }

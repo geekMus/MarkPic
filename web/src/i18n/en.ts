@@ -213,6 +213,7 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.reused': '{count} reused',
   'footer.remoteReused': '{count} not re-downloaded',
   'footer.failedFiles': '{count} files failed',
+  'footer.failedBoth': '{files} file(s) failed ({images} image(s))',
   'footer.failedImages': '{count} images failed',
   'footer.aborted': 'Stopped early',
   'footer.cancelled': 'Cancelled',

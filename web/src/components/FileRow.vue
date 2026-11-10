@@ -558,6 +558,26 @@ function replaced(status: ImageStatus): boolean {
   transition: background var(--t-fast) var(--ease);
 }
 
+/* 悬停时左沿亮起一小段强调色：光标落在哪一行，一眼就有落点。
+   它比整行换底色更「准」，也不打断台账的节奏。 */
+.item::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: '';
+  opacity: 0;
+  transition: opacity var(--t-fast) var(--ease);
+}
+
+.item:hover::before,
+.item:focus-within::before {
+  opacity: 0.85;
+}
+
 .item:last-child {
   border-bottom: 0;
 }
@@ -759,10 +779,18 @@ function replaced(status: ImageStatus): boolean {
 .details__stats {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 16px;
+  align-items: center;
+  gap: 8px;
   padding-bottom: 11px;
   border-bottom: 1px solid var(--line-2);
+}
+
+/* 一眼看数：数字在前、单位在后，底下一层极淡的片，三档并列时不至于挤成一行字 */
+.details__stats .stat {
+  padding: 3px 9px 4px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
 }
 
 .stat {

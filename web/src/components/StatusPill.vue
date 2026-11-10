@@ -26,10 +26,36 @@ withDefaults(
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  padding: 3px 9px 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   color: var(--ink-2);
   font-size: var(--fs-2);
   font-weight: 500;
   white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+
+/* 有结论的行给一层很淡的底：状态是「读到的结果」，薄底让它从正文里浮出来一点，
+   又不至于变成彩色标签墙。neutral（还在跑/没开始）保持透明。 */
+.pill[data-tone='accent'] {
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--accent-soft) 72%, transparent);
+}
+
+.pill[data-tone='success'] {
+  border-color: color-mix(in srgb, var(--ok) 26%, transparent);
+  background: color-mix(in srgb, var(--ok-soft) 60%, transparent);
+}
+
+.pill[data-tone='warning'] {
+  border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+  background: color-mix(in srgb, var(--warn-soft) 58%, transparent);
+}
+
+.pill[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+  background: color-mix(in srgb, var(--bad-soft) 62%, transparent);
 }
 
 .pill--compact {

@@ -21,61 +21,65 @@
      所以这个值只能从这里改。 */
   --gutter: 20px;
 
-  --canvas: #e9ecf0;
-  --canvas-2: #f3f5f8;
-  --panel: #ffffff;
-  --panel-2: #f5f7f9;
-  --border-panel: #e2e7ee;
+  /* 浅色不是「白纸上摆白卡片」：画布是雾蓝，面板偏冷白，
+     两者差得开，面板才浮得起来；纯白留给「正在发生」的高光。 */
+  --canvas: #d3dded;
+  --canvas-2: #e3eaf5;
+  --panel: #f7f9fd;
+  --panel-2: #e9eff8;
+  --border-panel: #d7e0ee;
 
-  /* 窗口四边的「收边」：不是画一条线，而是从边往内极浅地压暗一点，
-     让人一眼看出窗口到哪里为止（浅色桌面上一整片白，以前根本找不到边）。
-     宽度给得比内边距小，压暗只落在画布上，不会盖住面板里的字。 */
-  --edge-glow: rgba(13, 17, 23, 0.2);
-  --edge-light: rgba(255, 255, 255, 0.35);
+  /* 窗口四边：往里压暗一圈，不是画线。以前这里是「冷白光」，
+     在深色主题上就是一圈发白的边 —— 现在两种主题都只压暗。 */
+  --edge-glow: rgba(21, 35, 58, 0.3);
 
-  --ink: #0d1117;
-  --ink-2: #4d5765;
-  --ink-3: #5f6877;
+  --ink: #101a2b;
+  --ink-2: #43516a;
+  --ink-3: #4e5c73;
 
-  --line: #edf0f4;
-  --line-2: #dbe1e9;
-  --line-3: #c3ccd8;
+  --line: #e2e8f3;
+  --line-2: #d1dbea;
+  --line-3: #b8c6db;
 
-  --accent: #0e7490;
-  --accent-vivid: #06b6d4;
-  --accent-soft: #ecf9fc;
-  --accent-line: #b5e4ee;
-  --accent-ink: #0a5c6b;
+  --accent: #0b7285;
+  --accent-vivid: #0aa9c2;
+  --accent-soft: #e2f4fa;
+  --accent-line: #a8dcee;
+  --accent-ink: #07596b;
 
   --ok: #0f7b4f;
-  --ok-soft: #e9f7f0;
-  --ok-line: #bfe5d2;
+  --ok-soft: #e6f6ee;
+  --ok-line: #b9e2cd;
 
   --warn: #a15c07;
-  --warn-soft: #fdf4e4;
-  --warn-line: #eedcb4;
+  --warn-soft: #fbf2e0;
+  --warn-line: #ebd7ac;
 
   --bad: #b32318;
-  --bad-soft: #fdecea;
-  --bad-line: #f2c8c4;
+  --bad-soft: #fbe9e7;
+  --bad-line: #f0c3bf;
 
-  --ink-solid: #111827;
-  --ink-solid-hover: #1d2a44;
+  --ink-solid: #16233a;
+  --ink-solid-hover: #1e3151;
   --on-solid: #ffffff;
 
-  --focus: #0e7490;
-  --ring: rgba(14, 116, 144, 0.22);
+  --focus: #0b7285;
+  --ring: rgba(11, 114, 133, 0.24);
 
-  --shadow-panel: 0 1px 1px rgba(13, 17, 23, 0.03), 0 18px 44px -26px rgba(13, 17, 23, 0.4);
-  --shadow-pop: 0 8px 24px -10px rgba(13, 17, 23, 0.3), 0 2px 6px rgba(13, 17, 23, 0.06);
+  --shadow-panel:
+    0 1px 1px rgba(16, 30, 54, 0.05),
+    0 2px 6px -2px rgba(16, 30, 54, 0.08),
+    0 26px 56px -30px rgba(16, 30, 54, 0.5);
+  --shadow-pop: 0 10px 28px -12px rgba(16, 30, 54, 0.34), 0 2px 6px rgba(16, 30, 54, 0.07);
 
-  --mark: #10161f;
+  --mark: #101b2c;
   --mark-ink: #4fd1e0;
 
   --r-1: 6px;
   --r-2: 9px;
   --r-3: 12px;
   --r-4: 16px;
+  --r-5: 18px;
   --r-pill: 999px;
 
   --t-fast: 110ms;
@@ -87,54 +91,58 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --canvas: #08090b;
-  --canvas-2: #101318;
-  --panel: #14171d;
-  --panel-2: #1a1e25;
-  --border-panel: #232830;
+  /* 深色不是纯黑：画布是靛蓝夜色，面板比画布亮一档、带一点蓝，
+     中文小字在纯黑上会「发毛」，在靛蓝上反而更稳。 */
+  --canvas: #171d2c;
+  --canvas-2: #1e2739;
+  --panel: #232d42;
+  --panel-2: #1b2334;
+  --border-panel: rgba(150, 172, 208, 0.14);
 
-  /* 深色窗口本来就是一片黑，靠压暗找不到边：反过来用一层极淡的冷光收边。 */
-  --edge-glow: rgba(226, 232, 240, 0.45);
-  --edge-light: rgba(226, 232, 240, 0.12);
+  /* 深色只压暗不发光 —— 一圈冷白光是上一版最刺眼的地方。 */
+  --edge-glow: rgba(4, 9, 20, 0.62);
 
-  --ink: #e9edf3;
-  --ink-2: #a6b0be;
-  --ink-3: #7d8794;
+  --ink: #eef2fb;
+  --ink-2: #b7c3d9;
+  --ink-3: #8c9ab5;
 
-  --line: #21262e;
-  --line-2: #313843;
-  --line-3: #3d4550;
+  --line: rgba(150, 172, 208, 0.1);
+  --line-2: rgba(150, 172, 208, 0.17);
+  --line-3: rgba(150, 172, 208, 0.26);
 
-  --accent: #38bdd3;
-  --accent-vivid: #5cd6e8;
-  --accent-soft: #0d2b32;
-  --accent-line: #1a4650;
-  --accent-ink: #7fe0ee;
+  --accent: #67e8d5;
+  --accent-vivid: #8ef2e4;
+  --accent-soft: rgba(103, 232, 213, 0.13);
+  --accent-line: rgba(103, 232, 213, 0.3);
+  --accent-ink: #a9f5ea;
 
-  --ok: #4ad19b;
-  --ok-soft: #10291f;
-  --ok-line: #245140;
+  --ok: #5ee0b1;
+  --ok-soft: rgba(94, 224, 177, 0.13);
+  --ok-line: rgba(94, 224, 177, 0.3);
 
-  --warn: #e6b060;
-  --warn-soft: #2b2113;
-  --warn-line: #4a3a1c;
+  --warn: #f0c06a;
+  --warn-soft: rgba(240, 192, 106, 0.13);
+  --warn-line: rgba(240, 192, 106, 0.3);
 
-  --bad: #f68b7e;
-  --bad-soft: #2f1a1a;
-  --bad-line: #552c2b;
+  --bad: #ff9d92;
+  --bad-soft: rgba(255, 157, 146, 0.13);
+  --bad-line: rgba(255, 157, 146, 0.3);
 
-  --ink-solid: #eef2f7;
+  --ink-solid: #e9f0ff;
   --ink-solid-hover: #ffffff;
-  --on-solid: #0b0e13;
+  --on-solid: #141c2c;
 
-  --focus: #5cd6e8;
-  --ring: rgba(92, 214, 232, 0.24);
+  --focus: #8ef2e4;
+  --ring: rgba(142, 242, 228, 0.26);
 
-  --shadow-panel: 0 0 0 1px rgba(255, 255, 255, 0.02), 0 22px 48px -28px rgba(0, 0, 0, 0.9);
-  --shadow-pop: 0 12px 32px -12px rgba(0, 0, 0, 0.85), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-panel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 2px 10px -4px rgba(2, 6, 18, 0.7),
+    0 30px 60px -34px rgba(2, 6, 18, 0.95);
+  --shadow-pop: 0 16px 40px -14px rgba(2, 6, 18, 0.9), 0 2px 10px rgba(2, 6, 18, 0.55);
 
-  --mark: #060a0e;
-  --mark-ink: #5cd6e8;
+  --mark: #0f1624;
+  --mark-ink: #8ef2e4;
 }
 
 /* ------------------------------------------------------------------ 基础 */
@@ -157,8 +165,17 @@ body {
   font-family: var(--font);
   font-size: var(--fs-3);
   line-height: 1.5;
-  background: linear-gradient(180deg, var(--canvas-2), var(--canvas) 46%);
+  /* 不是一块纯色：左上偏青、右上偏靛，底下再压一层从亮到暗的渐变。
+     光很淡，但一块平的画布和一块有方向的画布，观感差很远。 */
+  background:
+    radial-gradient(120% 78% at 6% -18%, color-mix(in srgb, var(--accent-vivid) 12%, transparent), transparent 62%),
+    radial-gradient(88% 64% at 104% -8%, rgba(122, 148, 255, 0.12), transparent 58%),
+    /* 极淡的点阵：只在画布露出来的那圈留白里看得见，作用是让「桌面」有材质，
+       不是一块平滑的塑料。面板盖住的地方看不见，不会脏。 */
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink) 7%, transparent) 1px, transparent 0),
+    linear-gradient(180deg, var(--canvas-2), var(--canvas) 44%);
   background-attachment: fixed;
+  background-size: auto, auto, 22px 22px, auto;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   /* 纵向永远不滚（界面自己管滚动），横向只在窗口窄到放不下界面时才出来 */
@@ -167,15 +184,19 @@ body {
 
 body::before {
   position: fixed;
-  inset: -20% -10% auto -10%;
-  height: 520px;
-  background: radial-gradient(46% 60% at 24% 32%, rgba(6, 182, 212, 0.14), transparent 72%);
+  inset: -24% -12% auto -12%;
+  height: 620px;
+  background:
+    radial-gradient(42% 56% at 26% 30%, color-mix(in srgb, var(--accent-vivid) 18%, transparent), transparent 70%),
+    radial-gradient(38% 48% at 76% 8%, rgba(138, 158, 255, 0.16), transparent 72%);
   content: '';
   pointer-events: none;
 }
 
 :root[data-theme='dark'] body::before {
-  background: radial-gradient(46% 60% at 24% 30%, rgba(56, 189, 211, 0.12), transparent 72%);
+  background:
+    radial-gradient(42% 56% at 26% 28%, rgba(103, 232, 213, 0.16), transparent 72%),
+    radial-gradient(40% 50% at 78% 4%, rgba(126, 146, 255, 0.18), transparent 74%);
 }
 
 /* 窗口边界的「收边」。
@@ -191,16 +212,13 @@ body::after {
   position: fixed;
   inset: 0;
   z-index: 30;
+  /* 只有压暗，没有任何亮色：上一版在这层叠了一条白色渐变当「受光」，
+     深色主题上就是一圈发白的边。收边靠明暗差就够，不需要发光。 */
   box-shadow:
-    inset 0 0 26px -3px var(--edge-glow),
-    inset 0 0 0 1px transparent;
+    inset 0 0 30px -2px var(--edge-glow),
+    inset 0 0 90px -40px var(--edge-glow);
   content: '';
   pointer-events: none;
-}
-
-/* 顶边再给一道更亮的光：窗口像是从桌面上浮起来，上沿才有厚度。 */
-body::after {
-  background: linear-gradient(to bottom, var(--edge-light), transparent 20px);
 }
 
 h1,
@@ -315,13 +333,16 @@ select {
 }
 
 .btn--primary {
-  background: var(--ink-solid);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink-solid) 84%, white 16%), var(--ink-solid));
   color: var(--on-solid);
-  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.24), 0 10px 22px -14px rgba(13, 17, 23, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 5px -2px rgba(13, 17, 23, 0.4),
+    0 14px 28px -16px rgba(13, 17, 23, 0.75);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: var(--ink-solid-hover);
+  background: linear-gradient(180deg, var(--ink-solid-hover), var(--ink-solid));
 }
 
 .btn--primary:disabled {
@@ -538,9 +559,13 @@ select {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border-panel);
-  border-radius: var(--r-4);
-  background: var(--panel);
-  box-shadow: var(--shadow-panel);
+  border-radius: var(--r-5);
+  /* 面板不是一块平色：上沿略亮、往下回到本色，再压一圈极淡的冷色 ring。
+     一块平色 + 一圈描边，看起来像贴纸；有一点点光是「板」。 */
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, white 12%) 0, var(--panel) 110px),
+    var(--panel);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 .panel__head {
@@ -560,17 +585,30 @@ select {
 }
 
 .panel__title h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-size: var(--fs-4);
   font-weight: 600;
   letter-spacing: -0.005em;
 }
 
+/* 标题前那一小段竖条：整块界面里唯一的「纯装饰」，
+   给标题一个起点，也把 accent 从「只有状态色」变成「品牌色」。 */
+.panel__title h2::before {
+  width: 3px;
+  height: 15px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--accent-vivid), var(--accent));
+  content: '';
+}
+
 .panel__count {
-  padding: 0 7px;
-  border: 1px solid var(--line);
+  padding: 0 8px;
+  border: 1px solid var(--accent-line);
   border-radius: var(--r-pill);
-  background: var(--panel-2);
-  color: var(--ink-2);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
   font-size: var(--fs-1);
   font-weight: 600;
   line-height: 18px;

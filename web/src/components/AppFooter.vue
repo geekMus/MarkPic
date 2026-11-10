@@ -103,10 +103,15 @@ const parts = computed<Part[]>(() => {
     }
     // 「失败」有两个口径：几个文件没写成、几张图没成。只写图片数时，
     // 「文档没写成但一张图都没失败」的场合页脚会干脆不提失败（CLI 那边报「失败 1 个」）。
-    if (stats.failedFiles > 0) {
+    if (stats.failedFiles > 0 && stats.failed > 0) {
+      // 两个数说的是两件事，但并排写两遍「失败」像复读；合成一句就都保住了。
+      list.push({
+        text: t('footer.failedBoth', { files: stats.failedFiles, images: stats.failed }),
+        tone: 'bad',
+      })
+    } else if (stats.failedFiles > 0) {
       list.push({ text: t('footer.failedFiles', { count: stats.failedFiles }), tone: 'bad' })
-    }
-    if (stats.failed > 0) {
+    } else if (stats.failed > 0) {
       list.push({ text: t('footer.failedImages', { count: stats.failed }), tone: 'bad' })
     }
     if (stats.localized > 0) {
@@ -274,12 +279,32 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 </template>
 
 <style scoped>
+/* 底栏是浮在画布上的一块 dock：有边界、有阴影、有内边距。
+   以前它是平贴在窗口底部的一条，和队列面板之间没有关系，整屏看起来像
+   「一张卡片 + 一条横线」。dock 化之后，上下两块是同一种东西。 */
 .foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
+  height: 54px;
+  margin: 10px 0 14px;
+  padding: 0 14px 0 16px;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--r-4);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, white 10%), var(--panel));
+  box-shadow: var(--shadow-panel);
+}
+
+@media (max-width: 900px) {
+  .foot {
+    height: auto;
+    min-height: 54px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    row-gap: 6px;
+  }
 }
 
 .foot__stats {

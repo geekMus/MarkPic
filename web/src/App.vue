@@ -325,7 +325,9 @@ onBeforeUnmount(() => {
 .app {
   position: relative;
   display: grid;
-  grid-template-rows: 44px minmax(0, 1fr) 64px;
+  /* 底栏是一块浮起来的 dock（有自己的内边距与圆角），高度交给内容决定；
+     写死 64px 会让它贴死在窗口底部，像一条状态栏。 */
+  grid-template-rows: 44px minmax(0, 1fr) auto;
   height: 100vh;
   /* 桌面窗口的最小宽度由后端 WM_GETMINMAXINFO 兜着（760 逻辑像素）；
      这里再留一道底线，浏览器里拖到更窄就出现横向滚动条，而不是把版面压垮。 */
