@@ -302,6 +302,11 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 			info.ptMinTrackSize.y = int32(math.Round(float64(minWindowHeight) * scale))
 		}
 		return 0
+	case wmWake:
+		// 第二个实例点开程序时，由它发来这条消息：把已有窗口提到最前面。
+		procShowWindow.Call(uintptr(hwnd), swRestore)
+		procSetForeground.Call(uintptr(hwnd))
+		return 0
 	case wmDpiChanged:
 		// 窗口换到另一个缩放比例的显示器时，系统会给出建议矩形，照着它调整，
 		// 界面在两种缩放的屏幕之间移动时才不会忽然变大或变小。

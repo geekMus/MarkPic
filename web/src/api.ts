@@ -11,14 +11,32 @@ import type {
 import { langHeader, t } from './i18n'
 
 /**
- * 本地服务地址：仅用于错误文案，请求本身走同源 /api。
- * exe 在 17860 被占用时会自动换端口，所以不能硬编码端口，取当前页面 origin。
+ * 界面与 Go 之间的通道。
+ *
+ * 这是个纯桌面程序：没有本地 HTTP 服务，所有调用都走窗口自带的 bridge
+ * （Go 侧 `w.Bind("markpic", …)` 把调用转成 `app.Dispatch`）。参数按约定编成
+ * 一个 JSON 字符串再传 —— WebView2 会对每个参数单独 json.Unmarshal，直接传对象
+ * 到不了 Go 那一侧的 json.RawMessage。
  */
-export function serviceOrigin(): string {
-  return window.location.origin
+
+/** Go 侧统一回的信封。 */
+type Reply = {
+  ok: boolean
+  data?: unknown
+  code?: string
+  message?: string
 }
 
-/** 统一的 API 错误：保留 HTTP 状态码与服务端 error.code。 */
+declare global {
+  interface Window {
+    /** go-webview2 的 Bind 是 Promise 形式的 RPC：调用返回的是结果，不是「发出去就算」。 */
+    markpic?: (method: string, params: string) => Promise<Reply>
+    /** Go 侧推事件用的入口，由 useRun 挂上（见 cmd/markpic/window_windows.go）。 */
+    __markpicEvents?: (payload: unknown) => void
+  }
+}
+
+/** 统一的 API 错误：保留服务端的错误码与服务端给的文案。 */
 export class ApiError extends Error {
   readonly status: number
   readonly code: string
@@ -31,64 +49,39 @@ export class ApiError extends Error {
   }
 }
 
-type RequestInitLite = {
-  method?: 'GET' | 'POST' | 'PUT'
-  body?: unknown
+/** 旧文案里会提到「本地服务」；现在没有服务了，保留这个函数只为兼容调用点。 */
+export function serviceOrigin(): string {
+  return 'MarkPic'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function isApiErrorBody(value: unknown): value is { error: { code: string; message: string } } {
-  if (!isRecord(value) || !isRecord(value.error)) return false
-  return typeof value.error.code === 'string' && typeof value.error.message === 'string'
+/** 把 bridge 返回的失败信封翻成 ApiError。 */
+function toError(reply: Reply): ApiError {
+  const code = reply.code ?? 'unknown'
+  const message = (reply.message ?? '').trim()
+  return new ApiError(0, code, message || t('error.bridge'))
 }
 
-async function request<T>(path: string, init: RequestInitLite = {}): Promise<T> {
-  const hasBody = init.body !== undefined
-  let response: Response
+/** 调一个 Go 侧方法，成功时返回 data。 */
+async function call<T>(method: string, params: unknown = {}): Promise<T> {
+  const bridge = window.markpic
+  if (!bridge) {
+    // 在浏览器里直接开 Vite 页面调试时没有 bridge，给一句能看懂的提示。
+    throw new ApiError(0, 'no-bridge', t('error.noBridge'))
+  }
+  let reply: Reply
   try {
-    response = await fetch(path, {
-      method: init.method ?? 'GET',
-      // Accept-Language：服务端返回的文字（逐图失败原因、PicGo 提示、更新错误）
-      // 也要跟着界面语言走，所以每个请求都带上当前语言。
-      headers: hasBody
-        ? {
-            Accept: 'application/json',
-            'Content-Type': 'application/json; charset=utf-8',
-            'Accept-Language': langHeader(),
-          }
-        : { Accept: 'application/json', 'Accept-Language': langHeader() },
-      body: hasBody ? JSON.stringify(init.body) : undefined,
-    })
-  } catch {
-    throw new ApiError(0, 'network', t('error.network', { origin: serviceOrigin() }))
+    reply = await bridge(method, JSON.stringify({ ...(isRecord(params) ? params : {}), lang: langHeader() }))
+  } catch (error) {
+    throw new ApiError(0, 'bridge-failed', error instanceof Error ? error.message : String(error))
   }
-
-  const raw = await response.text()
-  let payload: unknown = null
-  if (raw.length > 0) {
-    try {
-      payload = JSON.parse(raw) as unknown
-    } catch {
-      payload = raw
-    }
+  if (!reply || !reply.ok) {
+    throw toError(reply ?? { ok: false, code: 'empty', message: '' })
   }
-
-  if (!response.ok) {
-    if (isApiErrorBody(payload)) {
-      throw new ApiError(response.status, payload.error.code, payload.error.message)
-    }
-    const text = typeof payload === 'string' ? payload.trim().slice(0, 200) : ''
-    throw new ApiError(
-      response.status,
-      `http-${response.status}`,
-      text || t('error.http', { status: response.status }),
-    )
-  }
-
-  return payload as T
+  return reply.data as T
 }
 
 /** 把任意异常收敛成一句可展示的文案。 */
@@ -98,78 +91,88 @@ export function describeError(error: unknown, fallback: string): string {
   return fallback
 }
 
-/** 原生对话框不可用（契约规定 501）。 */
+/** 原生对话框不可用（当前平台上没有系统文件对话框）。 */
 export function isDialogUnsupported(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 501
+  return error instanceof ApiError && error.code === 'unsupported'
+}
+
+/** 应用与数据目录的基本信息（语言由参数带上，Go 侧据此回本地化文案）。 */
+export type Hello = {
+  version: string
+  dataDir: string
+  dataNote: string
+  lang: string
+}
+
+export function hello(lang: string): Promise<Hello> {
+  return call<Hello>('app.hello', { lang })
+}
+
+export function setLang(lang: string): Promise<{ lang: string }> {
+  return call<{ lang: string }>('i18n.set', { lang })
 }
 
 export function getHealth(): Promise<Health> {
-  return request<Health>('/api/health')
+  return call<Health>('health')
 }
 
 export function getSettings(): Promise<Settings> {
-  return request<Settings>('/api/settings')
+  return call<Settings>('settings.get')
 }
 
-export function putSettings(settings: Settings): Promise<Settings> {
-  return request<Settings>('/api/settings', { method: 'PUT', body: settings })
+export function putSettings(settings: Partial<Settings>): Promise<Settings> {
+  return call<Settings>('settings.put', settings)
 }
 
 export async function pickFiles(): Promise<string[]> {
-  const data = await request<DialogResult>('/api/dialog/files', { method: 'POST' })
+  const data = await call<DialogResult>('dialog.files')
   return data.paths
 }
 
 export async function pickFolder(): Promise<string[]> {
-  const data = await request<DialogResult>('/api/dialog/folder', { method: 'POST' })
+  const data = await call<DialogResult>('dialog.folder')
   return data.paths
 }
 
 export function preview(paths: string[], settings?: Partial<Settings>): Promise<PreviewResult> {
-  return request<PreviewResult>('/api/preview', {
-    method: 'POST',
-    body: { paths, settings },
-  })
+  return call<PreviewResult>('preview', { paths, settings })
 }
 
 export function startRun(paths: string[], settings?: Partial<Settings>): Promise<RunStartResult> {
-  return request<RunStartResult>('/api/run', {
-    method: 'POST',
-    body: { paths, settings },
-  })
+  return call<RunStartResult>('run.start', { paths, settings })
 }
 
 export function cancelRun(runId: string): Promise<OkResult> {
-  return request<OkResult>('/api/run/cancel', { method: 'POST', body: { runId } })
+  return call<OkResult>('run.cancel', { runId })
 }
 
-/** 服务端现在在跑哪一轮、已经出了哪些结果（刷新页面后靠它把界面接回来）。 */
+/** Go 侧现在在跑哪一轮、已经出了哪些结果（界面重载后靠它接回来）。 */
 export function getCurrentRun(): Promise<CurrentRun> {
-  return request<CurrentRun>('/api/run/current')
+  return call<CurrentRun>('run.current')
 }
 
 export function revealPath(path: string): Promise<OkResult> {
-  return request<OkResult>('/api/reveal', { method: 'POST', body: { path } })
+  return call<OkResult>('reveal', { path })
 }
 
 export function openTarget(target: string): Promise<OkResult> {
-  return request<OkResult>('/api/open', { method: 'POST', body: { target } })
+  return call<OkResult>('open', { target })
 }
 
-/** 当前更新状态（不联网，读的是服务端记住的那份）。 */
+/** 当前更新状态（不联网，读的是 Go 侧记住的那份）。 */
 export function getUpdateStatus(): Promise<UpdateStatus> {
-  return request<UpdateStatus>('/api/update/status')
+  return call<UpdateStatus>('update.status')
 }
 
 /**
- * 检查更新。检查失败不会变成 HTTP 错误：服务端把原因写进 status.error，
+ * 检查更新。检查失败不会抛异常：Go 侧把原因写进 status.error，
  * 这样对话框可以把它当成一种状态展示，而不是一个红色的请求失败。
  */
 export function checkUpdate(): Promise<UpdateStatus> {
-  return request<UpdateStatus>('/api/update/check', { method: 'POST' })
+  return call<UpdateStatus>('update.check')
 }
 
 /** 下载、校验、替换并重启。之后用 getUpdateStatus 轮询进度。 */
 export function installUpdate(): Promise<UpdateStatus> {
-  return request<UpdateStatus>('/api/update/install', { method: 'POST' })
+  return call<UpdateStatus>('update.install')
 }

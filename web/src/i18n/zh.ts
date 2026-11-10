@@ -300,6 +300,8 @@ export const zh = {
 
   // 错误
   'error.unknown': '未知错误',
+  'error.bridge': '界面和数据没能对上话（{ code }）',
+  'error.noBridge': '现在是在浏览器里预览界面，桌面窗口才能真的转换文件',
   'error.pickPath': '选择路径失败：{detail}',
   'error.pickDir': '选择目录失败：{detail}',
   'error.preview': '读取图片数量失败：{detail}',

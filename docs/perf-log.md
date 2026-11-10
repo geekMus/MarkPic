@@ -4316,3 +4316,55 @@ img.alpha_composite(overlay)                                  # 真正混合到�
 
 三处必须同一套几何：标题栏 SVG、favicon 的 data URI、`assets/icon.ico`（再由 syso 进 exe）。
 改一处要同步另外两处，否则任务栏、Alt-Tab、标签页会各显示一个不同的标志。
+
+## 从「浏览器里的网页」变成「桌面窗口里的界面」
+
+要求很直接：纯桌面程序，不要 Web 服务，不要命令行。所以这一轮把 `net/http` 那一层整个拆了，
+连带把 cobra 那一套也拆了 —— 程序现在只有一条路：双击，开窗口，干活。
+
+**后端**：`internal/server`（1048 行路由 + SSE hub）换成了 `internal/app`。
+方法名就是以前的路径：`settings.get`、`preview`、`run.start`、`update.install`……
+`Dispatch(method, params json.RawMessage) Reply` 一个入口，`Reply{ok, data, code, message}` 一个信封。
+事件还在合批（40ms 窗口、按文件槽合并、终止事件不等窗口），只是出口从 `text/event-stream`
+换成了 `window.__markpicEvents(payload)`。
+
+**前端**：`web/src/api.ts` 175 行 fetch 封装换成一层 `call(method, params)`，底下是
+`window.markpic(method, json)`。`useRun.ts` 里那个 `new EventSource('/api/events')` 换成
+挂一个全局函数。除了这两处，界面代码一行没动 —— 这也是当初把网络收在一个文件里的回报。
+
+**资源**：不再起本地服务，前端产物摊到 `<数据目录>/ui/<指纹>/`，窗口 `Navigate("file:///…")`。
+用 `NavigateToString` 会更省事，但那样的页面 origin 是 opaque，`localStorage` 直接抛 SecurityError，
+主题/语言/侧边栏三处持久化全废。
+
+三件事花掉了这一轮大半时间，都值得记下来。
+
+**一、`file://` 下 `<script type="module">` 会被 CORS 拦，而且不报错。**
+页面 origin 是 `null`，模块请求直接被拒，控制台干净得像什么都没发生：白屏，无异常，无警告。
+改法是让 Vite 出 iife（`rollupOptions.output = { format: 'iife', inlineDynamicImports: true }`），
+再用一个小插件把 `<script type="module" crossorigin …>` 换成经典脚本。
+
+**二、经典脚本不能放在 `<head>` 里同步执行。**
+换掉 module 之后第一版是 `<script src=…>`，浏览器解析到 `<head>` 就执行，
+这时 `#app` 还没被解析出来，`app.mount('#app')` 只是 `console.warn` 一句就返回 ——
+界面空白，构建成功，测试全绿。加上 `defer` 才对。
+
+**三、go-webview2 的 `Bind` 是 RPC，不是「发出去就算」。**
+`window.markpic(method, params)` 返回的是 **Promise**，解析出来才是 `Reply`。
+第一版写成了 `reply = bridge(...)` 然后读 `reply.ok` —— 读到的永远是 `undefined`，
+于是每个调用都走进「没能对上话」。改成 `await` 之后，`app.hello`、`settings.put`、
+`preview`、`run.start` 一次全通。
+
+**顺带修掉一个自己挖的坑**：三栏外壳的断点是 `max-width: 1180px`，而默认窗口正好是 1180 宽 ——
+也就是说**默认尺寸下右栏永远不会出现**（实测 `grid-template-columns: 56px 1070px`，
+`.app__aside` 在 DOM 里但 `display: none`）。断点降到 1080，默认 1180 下成了 `56px 736px 320px`。
+
+验证靠 CDP：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 之后，
+`node tools/cdp/eval.mjs "<表达式>"` 就能在真窗口里跑 JS（支持 await），
+`node tools/cdp/shot.mjs out.png` 直接截窗口。不用 Playwright，也不用任何 HTTP。
+
+端到端那一轮：拖一个目录进窗口 → 点「开始转换」→ 页脚「1 个文件 · 3 张图 · 检测 2 个远程地址 ·
+其中失效 1」，行「已检测 其中 1 个地址打不开」，文档一个字节没改（sidecar + 试运行）。
+
+教训：**「没有报错」不等于「跑对了」。** 这一轮两个 bug（白屏、每个调用都失败）
+在控制台里都干干净净 —— 一个是 CORS 静默拒绝，一个是 Vue 的 `warn` 级别。
+界面类改动必须看一眼真窗口里的 DOM 与文本，构建日志和单元测试都证明不了它。

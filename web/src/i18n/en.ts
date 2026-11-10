@@ -306,6 +306,8 @@ export const en: Record<keyof typeof zh, string> = {
 
   // Errors
   'error.unknown': 'Unknown error',
+  'error.bridge': 'The window and the backend lost track of each other',
+  'error.noBridge': 'This is the interface previewed in a browser; conversion only works in the desktop window',
   'error.pickPath': 'Could not choose paths: {detail}',
   'error.pickDir': 'Could not choose a folder: {detail}',
   'error.preview': 'Could not read the image count: {detail}',

@@ -5,7 +5,7 @@
 .DESCRIPTION
   流程：前端（可选）→ 测试（可选）→ 图标资源（缺了才生成）→ 编译 exe（注入版本号）。
 
-  默认只构建 Go 部分：前端产物已经提交在 internal/webui/dist，构建 exe 不需要 Node。
+  默认只构建 Go 部分：前端产物已经提交在 internal/ui/dist，构建 exe 不需要 Node。
   改了前端界面再加 -Web，脚本会用 pnpm 重建前端再编译。
 
 .PARAMETER Web
@@ -52,7 +52,7 @@ try {
     $goExe = Resolve-GoCommand -Hint $Go
 
     if ($Web) {
-        Write-Host '==> 构建前端（Vue 3 + Vite → internal/webui/dist）' -ForegroundColor Cyan
+        Write-Host '==> 构建前端（Vue 3 + Vite → internal/ui/dist）' -ForegroundColor Cyan
         $pnpmExe = Resolve-PnpmCommand -Hint $Pnpm
         Push-Location (Join-Path $root 'web')
         try {

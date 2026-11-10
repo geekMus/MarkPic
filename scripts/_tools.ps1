@@ -92,60 +92,8 @@ function Resolve-PnpmCommand {
     throw '找不到 pnpm 命令。请安装 Node.js 与 pnpm（npm i -g pnpm），或把 pnpm 加入 PATH。'
 }
 
-# 探一次本地服务：返回 $true 表示「这个端口上跑的是本项目」。
-# 用 curl.exe 而不是 Invoke-WebRequest，是为了绕开系统代理设置。
-function Test-ApiHealth {
-    [CmdletBinding()]
-    param([int]$Port)
 
-    $url = "http://127.0.0.1:$Port/api/health"
-    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-        $body = & curl.exe -s --noproxy '*' --max-time 2 $url 2>$null
-        if ($LASTEXITCODE -eq 0 -and $body -match 'markpic') { return $true }
-        return $false
-    }
-    try {
-        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
-        return ($resp.Content -match 'markpic')
-    }
-    catch { return $false }
-}
-
-# 轮询等待服务就绪。
-function Wait-ApiHealth {
-    [CmdletBinding()]
-    param(
-        [int]$Port,
-        [int]$TimeoutSeconds = 30
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    while ((Get-Date) -lt $deadline) {
-        if (Test-ApiHealth -Port $Port) { return $true }
-        Start-Sleep -Milliseconds 300
-    }
-    return $false
-}
-
-# 读一次 /api/health 并解析成对象（拿不到就返回 $null）。
-function Get-ApiHealth {
-    [CmdletBinding()]
-    param([int]$Port)
-
-    try {
-        if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
-            $body = & curl.exe -s --noproxy '*' --max-time 2 "http://127.0.0.1:$Port/api/health" 2>$null
-        }
-        else {
-            $body = (Invoke-WebRequest -Uri "http://127.0.0.1:$Port/api/health" -UseBasicParsing -TimeoutSec 2).Content
-        }
-        if (-not $body) { return $null }
-        return ($body | ConvertFrom-Json)
-    }
-    catch { return $null }
-}
-
-# 等一个 TCP 端口有人监听（Vite 没有 /api/health 之类的探针，只能连端口）。
+# 等一个 TCP 端口有人监听（开发时用来确认 Vite 已经起来）。
 function Wait-TcpPort {
     [CmdletBinding()]
     param(
@@ -167,24 +115,4 @@ function Wait-TcpPort {
         }
     }
     return $false
-}
-
-# 用系统默认浏览器打开一个网址。
-# 不用 Start-Process：Windows PowerShell 5.1 在本机可能因为环境变量里同时存在
-# NO_PROXY / no_proxy 而抛 ArgumentException；交给 cmd 的 start 更稳。
-function Open-Url {
-    [CmdletBinding()]
-    param([string]$Url)
-
-    try {
-        & cmd.exe /c start '' $Url 2>$null | Out-Null
-        return $true
-    }
-    catch {
-        try {
-            Start-Process $Url | Out-Null
-            return $true
-        }
-        catch { return $false }
-    }
 }

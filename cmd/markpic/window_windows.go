@@ -3,7 +3,9 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"os"
@@ -12,7 +14,9 @@ import (
 
 	webview2 "github.com/jchv/go-webview2"
 
+	"github.com/geekMus/markpic/internal/app"
 	"github.com/geekMus/markpic/internal/appdata"
+	"github.com/geekMus/markpic/internal/conv"
 )
 
 // 图形界面的窗口尺寸：按界面「左台账 + 右设置轨」的舒适宽度取，窄于 900 会切成上下堆叠。
@@ -21,7 +25,7 @@ const (
 	windowHeight = 820
 )
 
-// errNoWebView2 表示本机拿不到 WebView2 运行时，此时退回用系统浏览器打开。
+// errNoWebView2 表示本机拿不到 WebView2 运行时。
 var errNoWebView2 = errors.New("本机没有可用的 WebView2 运行时")
 
 var (
@@ -33,8 +37,8 @@ var (
 )
 
 // openAppWindow 在原生窗口里打开界面，并在传给 stop 的通道收到信号时关掉窗口。
-// 窗口被用户关闭后返回 nil；拿不到 WebView2 时返回 errNoWebView2，交由调用方改用浏览器。
-func openAppWindow(url, title string, stop <-chan os.Signal) error {
+// 窗口被用户关闭后返回 nil；拿不到 WebView2 时返回 errNoWebView2。
+func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Signal) error {
 	hideOwnedConsole()
 
 	// 尺寸与内边距都是按 96 DPI 设计的，窗口要按显示器缩放折算成物理像素，
@@ -72,6 +76,10 @@ func openAppWindow(url, title string, stop <-chan os.Signal) error {
 	installWindowChrome(w)
 	bindWindowCommands(w)
 
+	if err := bindBridge(w, desktop); err != nil {
+		return err
+	}
+
 	if stop != nil {
 		go func() {
 			<-stop
@@ -80,14 +88,40 @@ func openAppWindow(url, title string, stop <-chan os.Signal) error {
 		}()
 	}
 
-	w.Navigate(url)
+	w.Navigate(indexURL)
 	w.Run()
 	return nil
 }
 
+// bindBridge 把 App 的 Dispatch 挂成 window.markpic，并把转换事件推给前端。
+//
+// 参数统一用一个 JSON 字符串传：窗口 bridge 的参数走 json.Unmarshal，直接把对象
+// 解码成 json.RawMessage 是不行的（会当成 base64 的字节串），所以前端约定
+// JSON.stringify 之后再传，这边对这段字符串按原样交给 json.Unmarshal。
+func bindBridge(w webview2.WebView, desktop *app.App) error {
+	if err := w.Bind("markpic", func(method, params string) app.Reply {
+		return desktop.Dispatch(method, json.RawMessage(params))
+	}); err != nil {
+		return fmt.Errorf("绑定 bridge 失败：%w", err)
+	}
+
+	// 事件攒批之后再推：5000 篇文档逐条推会把界面卡死，攒批见 internal/app/events.go。
+	batch := app.NewBatcher(func(events []conv.Event) {
+		data, err := json.Marshal(events)
+		if err != nil {
+			return
+		}
+		payload := string(data)
+		w.Dispatch(func() {
+			w.Eval("window.__markpicEvents && window.__markpicEvents(" + payload + ")")
+		})
+	})
+	desktop.SetSink(batch.Push)
+	return nil
+}
+
 // bindWindowCommands 把自绘标题栏要用的窗口命令暴露给前端。
-// 前端只有在检测到 window.cmpWinDrag 存在时才显示最小化 / 最大化 / 关闭按钮，
-// 所以在浏览器里打开同一个界面时这些按钮会自动消失。
+// 前端只有在检测到 window.cmpWinDrag 存在时才显示最小化 / 最大化 / 关闭按钮。
 func bindWindowCommands(w webview2.WebView) {
 	binds := []struct {
 		name string
@@ -108,9 +142,6 @@ func bindWindowCommands(w webview2.WebView) {
 	}
 }
 
-// windowSupported 表示当前平台支持原生窗口。
-func windowSupported() bool { return true }
-
 // webviewDataPath 返回 WebView2 的用户数据目录，放在程序数据目录下的 webview2 里，
 // 这样整个 data 目录就是程序留下的全部痕迹；建不出来就交给运行时自己决定。
 func webviewDataPath() string {
@@ -130,5 +161,5 @@ func hideOwnedConsole() {
 	if n != 1 {
 		return
 	}
-	_, _, _ = procShowWindow.Call(hwnd, 0) // SW_HIDE
+	procShowWindow.Call(hwnd, 0) // SW_HIDE
 }

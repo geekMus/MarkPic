@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   打一个版本：编译 exe、算出校验值、更新 version.json。
 

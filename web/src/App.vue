@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
 }
 
 /* 窗口窄到放不下三栏时，先收右栏（它只是上下文，不是必经路径） */
-@media (max-width: 1180px) {
+@media (max-width: 1080px) {
   .app__body {
     grid-template-columns: 56px minmax(0, 1fr);
   }

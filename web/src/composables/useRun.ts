@@ -175,10 +175,8 @@ const live = reactive({
 let lastRevealIndex = -1
 const lastReveal = ref<string | null>(null)
 
-let source: EventSource | null = null
+let sinkActive = false
 let reconnectTimer: number | null = null
-let reconnectDelay = 800
-let intentionalClose = false
 // 一轮只播报一次结局：服务端在「自己掐掉」时会先发 run.cancelled 再发 run.finished，
 // 两条都带 summary.abortReason，不拦一下就会弹出两条一模一样的气泡。
 let outcomeAnnounced = false
@@ -683,24 +681,8 @@ function enqueue(event: RunEvent): void {
   }
 }
 
-function handleRaw(raw: string): void {
-  if (raw.length === 0) return
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw) as unknown
-  } catch {
-    console.warn('[events] 无法解析的事件负载')
-    return
-  }
-  if (!isRunEvent(parsed)) {
-    console.warn('[events] 忽略未知事件')
-    return
-  }
-  enqueue(parsed)
-}
-
 /**
- * 把服务端记着的「这一轮」接管过来。
+ * 把 Go 侧记着的「这一轮」接管过来。
  *
  * 用在两种时刻：页面刚打开（刷新过，内存里的 runId 已经没了）、以及断线重连之后
  * （断的那段时间里 file.finished 全丢了）。文件清单来自快照，已完成的结果直接贴回
@@ -760,69 +742,38 @@ async function resync(): Promise<void> {
 }
 
 function connect(): void {
-  if (source !== null) return
-  intentionalClose = false
+  if (sinkActive) return
+  sinkActive = true
 
-  const es = new EventSource('/api/events')
-  source = es
-
-  es.onopen = () => {
-    connected.value = true
-    reconnectDelay = 800
-    if (reconnecting.value) {
-      reconnecting.value = false
-      success(t('toast.reconnected'))
+  // 事件不再走 SSE：Go 侧把攒好的批次直接调到这里（见 cmd/markpic/window_windows.go
+  // 的 bindBridge）。一批是一个数组，元素仍是原来那些事件对象。
+  window.__markpicEvents = (payload: unknown) => {
+    const list = Array.isArray(payload) ? payload : [payload]
+    for (const item of list) {
+      if (!isRunEvent(item)) {
+        console.warn('[events] 忽略未知事件')
+        continue
+      }
+      enqueue(item)
     }
-    // 连上（含重连）就先对一次现状：漏掉的事件靠这次补齐。
-    void resync()
   }
 
-  // 后端每条 SSE 都带具名事件行（event: run.started …），具名事件不会触发
-  // onmessage，必须按类型逐个注册监听；onmessage 仅作为无名事件的兜底。
-  for (const type of KNOWN_EVENT_TYPES) {
-    es.addEventListener(type, event => {
-      handleRaw((event as MessageEvent).data)
-    })
+  connected.value = true
+  if (reconnecting.value) {
+    reconnecting.value = false
+    success(t('toast.reconnected'))
   }
-
-  es.onmessage = event => {
-    handleRaw(event.data)
-  }
-
-  es.onerror = () => {
-    connected.value = false
-    if (source === es) {
-      es.close()
-      source = null
-    }
-    if (!intentionalClose) scheduleReconnect()
-  }
-}
-
-function scheduleReconnect(): void {
-  if (reconnectTimer !== null) return
-  if (!reconnecting.value) {
-    reconnecting.value = true
-    warning(t('toast.reconnecting'))
-  }
-  const delay = reconnectDelay
-  reconnectDelay = Math.min(8000, reconnectDelay * 2)
-  reconnectTimer = window.setTimeout(() => {
-    reconnectTimer = null
-    connect()
-  }, delay)
+  // 连上（含重载）就先对一次现状：漏掉的事件靠这次补齐。
+  void resync()
 }
 
 function disconnect(): void {
-  intentionalClose = true
   if (reconnectTimer !== null) {
     window.clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
-  if (source !== null) {
-    source.close()
-    source = null
-  }
+  sinkActive = false
+  window.__markpicEvents = undefined
   connected.value = false
   reconnecting.value = false
 }
