@@ -4267,3 +4267,52 @@ Go 侧的 `appTitle`、cobra 的 `Use`、`usageText()` 里的 6 条示例、两�
 
 改名之后有一件事要人工做一次：如果之前把窗口钉在任务栏上，得先取消固定再重钉——
 `AppUserModelID` 换了，Windows 认为这是一个新程序。
+
+## 侧边栏收起来了，就再也放不出来
+
+三栏外壳做完之后，左侧导航只有图标一条（56px）。用户要的是两种形态：想安静的时候收成窄条，
+想看得懂的时候放成「图标 + 文字」——结果当时只做了前一半，收起之后无处可去。
+
+改法不复杂，但有一个决定要写下来：**形态存在浏览器里，不进 settings.json**。
+侧边栏是该 dock 还是该展开，是「这台机器上我怎么用」的个人习惯，和语言、主题同类；
+写进配置文件之后，拷一份 data 目录到另一台机器，就会被别人的习惯绑住。
+
+```ts
+const RAIL_KEY = 'markpic.rail'
+const railMode = ref<'compact' | 'expanded'>(readRailMode())
+// 窄条 56px / 展开 196px；1180 收右栏时 188px，900 收细时 176px
+```
+
+宽度分三档是因为右栏（本轮账 + 选中文件）先被收掉：它只是上下文，不是必经路径。
+窄到 900 以下导航仍然在，只是从 196 收到 176——**任何宽度下都不消失**，这正是「一直是侧边栏」的意思。
+
+展开态的文字不能挤掉图标，也不能把按钮撑成整行：`.rail--expanded .rail__btn` 是
+`justify-content: flex-start; gap: 10px; padding: 0 10px`，标签用 `min-width: 0` +
+`text-overflow: ellipsis`，长语言（英文 "Collapse the sidebar"）也不会把布局顶歪。
+
+同一个按钮管两个方向：展开时是 `chevrons-left`（收起），收起时是 `chevrons-right`（展开），
+`aria-expanded` 跟着形态走。
+
+## 图标换了：从「画框里有山」到「山就是 M」
+
+老标记是一个画框里装山和太阳，读起来像「图片」这个类别，但不像任何具体产品。
+新的把两件事叠在一起：**山脊的两个峰就是 MarkPic 的 M**，右上一颗暖色太阳是「这是一张照片」的提示。
+远看是风景，近看是字——这是图标能承载的最小叙事。
+
+画法上踩了一个 Pillow 的坑：`ImageDraw` 是**写入**不是**混合**，直接往 RGBA 图层上画
+`(255,255,255,24)` 的描边，会把底下的方块打成「半透明 + 白」，看起来像一圈白线。正确做法是
+画在独立图层上，再 `alpha_composite`：
+
+```python
+overlay = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+od = ImageDraw.Draw(overlay)
+od.rounded_rectangle(..., outline=INNER_STROKE, width=...)   # 低 alpha 的白
+img.alpha_composite(overlay)                                  # 真正混合到方块上
+```
+
+山脊要「有厚度」又不能糊：先在 8 倍尺寸上画多边形渐变（`#1b8ea6 → #3fd4e8 → #c8f8ff`），
+再用 LANCZOS 缩到 16/20/24/32/40/48/64/128/256 九档。16px 直接画会变成一坨青色，
+超采样之后两个峰才立得住。
+
+三处必须同一套几何：标题栏 SVG、favicon 的 data URI、`assets/icon.ico`（再由 syso 进 exe）。
+改一处要同步另外两处，否则任务栏、Alt-Tab、标签页会各显示一个不同的标志。

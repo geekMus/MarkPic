@@ -91,6 +91,8 @@ export const en: Record<keyof typeof zh, string> = {
   'nav.convert': 'Convert',
   'nav.settings': 'Settings',
   'nav.about': 'About',
+  'nav.expand': 'Expand the sidebar',
+  'nav.collapse': 'Collapse the sidebar',
   'queue.title': 'Queue',
   'queue.progress': '{done}/{total} done',
   'queue.pickFiles': 'Choose Markdown files',

@@ -2,14 +2,17 @@
 import AppIcon from './AppIcon.vue'
 import { useI18n, type MessageKey } from '../i18n'
 
-defineProps<{
+const props = defineProps<{
   /** 当前在哪个视图：转换（队列）或设置。 */
   view: 'convert' | 'settings'
+  /** 侧边栏形态：只有图标的窄条，或图标 + 文字的导航。 */
+  mode: 'compact' | 'expanded'
 }>()
 
 const emit = defineEmits<{
   navigate: [view: 'convert' | 'settings']
   about: []
+  toggle: []
 }>()
 
 const { t } = useI18n()
@@ -23,7 +26,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 </script>
 
 <template>
-  <nav class="rail" :aria-label="t('nav.label')">
+  <nav class="rail" :class="{ 'rail--expanded': props.mode === 'expanded' }" :aria-label="t('nav.label')">
     <div class="rail__stack">
       <button
         v-for="item in items"
@@ -37,6 +40,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
         @click="emit('navigate', item.id)"
       >
         <AppIcon :name="item.icon" :size="18" />
+        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t(item.key) }}</span>
       </button>
     </div>
 
@@ -49,6 +53,20 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
         @click="emit('about')"
       >
         <AppIcon name="info" :size="17" />
+        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t('nav.about') }}</span>
+      </button>
+
+      <!-- 展开 / 收起：一个按钮两个方向，图标跟着当前形态走 -->
+      <button
+        type="button"
+        class="rail__btn rail__btn--toggle"
+        :title="props.mode === 'expanded' ? t('nav.collapse') : t('nav.expand')"
+        :aria-label="props.mode === 'expanded' ? t('nav.collapse') : t('nav.expand')"
+        :aria-expanded="props.mode === 'expanded'"
+        @click="emit('toggle')"
+      >
+        <AppIcon :name="props.mode === 'expanded' ? 'chevrons-left' : 'chevrons-right'" :size="17" />
+        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t('nav.collapse') }}</span>
       </button>
     </div>
   </nav>
@@ -66,6 +84,12 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
   border-radius: var(--r-5);
   background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, white 12%), var(--panel) 120px);
   box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+
+.rail--expanded {
+  align-items: stretch;
+  padding: 10px 8px;
 }
 
 .rail__stack {
@@ -74,6 +98,10 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
   gap: 6px;
   align-items: center;
   width: 100%;
+}
+
+.rail--expanded .rail__stack {
+  align-items: stretch;
 }
 
 .rail__stack--foot {
@@ -86,8 +114,10 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 10px;
   width: 38px;
   height: 38px;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--r-3);
   color: var(--ink-3);
@@ -95,6 +125,12 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
     color var(--t-fast) var(--ease),
     background var(--t-fast) var(--ease),
     border-color var(--t-fast) var(--ease);
+}
+
+.rail--expanded .rail__btn {
+  width: auto;
+  justify-content: flex-start;
+  padding: 0 10px;
 }
 
 .rail__btn:hover {
@@ -126,14 +162,37 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
   background: linear-gradient(180deg, var(--accent-vivid), var(--accent));
 }
 
+.rail__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2);
+  line-height: 1;
+}
+
+/* 收起/展开本身不是「当前在哪」，不跟着选中态变色 */
+.rail__btn--toggle {
+  color: var(--ink-3);
+}
+
 @media (max-width: 900px) {
   .rail {
     padding: 8px 0;
   }
 
+  .rail--expanded {
+    padding: 8px 6px;
+  }
+
   .rail__btn {
     width: 34px;
     height: 34px;
+  }
+
+  .rail--expanded .rail__btn {
+    width: auto;
+    padding: 0 8px;
   }
 }
 </style>

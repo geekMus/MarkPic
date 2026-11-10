@@ -75,6 +75,30 @@ const selectedRow = computed(
   () => rowViews.value.find((row) => row.id === selectedId.value) ?? null,
 )
 
+// 侧边栏有两种形态：窄条（只有图标）和展开（图标 + 文字）。
+// 这是「这台机器上我习惯哪种」的偏好，和语言、主题一样存在浏览器里，
+// 不写进 settings.json —— 换台机器想要另一种形态，不该被配置文件绑住。
+const RAIL_KEY = 'markpic.rail'
+
+function readRailMode(): 'compact' | 'expanded' {
+  try {
+    return localStorage.getItem(RAIL_KEY) === 'expanded' ? 'expanded' : 'compact'
+  } catch {
+    return 'compact'
+  }
+}
+
+const railMode = ref<'compact' | 'expanded'>(readRailMode())
+
+function toggleRail(): void {
+  railMode.value = railMode.value === 'compact' ? 'expanded' : 'compact'
+  try {
+    localStorage.setItem(RAIL_KEY, railMode.value)
+  } catch {
+    /* 存不进去也没关系，这一轮里照样能切 */
+  }
+}
+
 function toggleSettings(): void {
   view.value = view.value === 'settings' ? 'convert' : 'settings'
 }
@@ -249,8 +273,14 @@ onBeforeUnmount(() => {
       @toggle-settings="toggleSettings"
     />
 
-    <div class="app__body">
-      <AppRail :view="view" @navigate="view = $event" @about="aboutOpen = true" />
+    <div class="app__body" :class="{ 'app__body--wide': railMode === 'expanded' }">
+      <AppRail
+        :view="view"
+        :mode="railMode"
+        @navigate="view = $event"
+        @about="aboutOpen = true"
+        @toggle="toggleRail"
+      />
 
       <main class="app__view">
         <FileQueue
@@ -383,6 +413,12 @@ onBeforeUnmount(() => {
   padding-bottom: 2px;
 }
 
+/* 侧边栏展开时把导航文字放出来，中间那一栏相应让位；
+   右栏宽度不变——它是上下文，不是主内容。 */
+.app__body--wide {
+  grid-template-columns: 196px minmax(0, 1fr) 320px;
+}
+
 .app__view {
   display: flex;
   flex-direction: column;
@@ -401,6 +437,10 @@ onBeforeUnmount(() => {
     grid-template-columns: 56px minmax(0, 1fr);
   }
 
+  .app__body--wide {
+    grid-template-columns: 188px minmax(0, 1fr);
+  }
+
   .app__aside {
     display: none;
   }
@@ -415,6 +455,10 @@ onBeforeUnmount(() => {
     grid-template-columns: 48px minmax(0, 1fr);
     gap: 10px;
     padding-bottom: 8px;
+  }
+
+  .app__body--wide {
+    grid-template-columns: 176px minmax(0, 1fr);
   }
 }
 

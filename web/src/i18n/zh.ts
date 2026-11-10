@@ -89,6 +89,8 @@ export const zh = {
   'nav.convert': '转换',
   'nav.settings': '设置',
   'nav.about': '关于',
+  'nav.expand': '展开侧边栏',
+  'nav.collapse': '收起侧边栏',
   'queue.title': '队列',
   'queue.progress': '{done}/{total} 已完成',
   'queue.pickFiles': '选择 Markdown 文件',

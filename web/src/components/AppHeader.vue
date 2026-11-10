@@ -90,29 +90,28 @@ function handleDoubleClick(event: MouseEvent): void {
   <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
     <div class="tb__brand">
       <span class="tb__mark" aria-hidden="true">
-        <!-- 标记：画框里有山有太阳。和 assets/icon.ico、favicon 是同一套几何
-             （rect 1.5..22.5 / 框 5.4-6.8-18.6-17.2 / 太阳 9.0,10.2,1.25 / 山五点折线）。 -->
+        <!-- 标记：深蓝圆角方块里一座「M 形山」+ 一颗暖色太阳。山脊的两个峰同时是
+             MarkPic 的 M；和 assets/icon.ico、web/index.html 的 favicon 是同一套几何
+             （方块 1.25..22.75 r6.2 / 山 3.4-19.3 起 / 太阳 17.15,6.95,1.62），改一处要同步三处。 -->
         <svg viewBox="0 0 24 24" fill="none">
-          <rect x="1.5" y="1.5" width="21" height="21" rx="6.5" fill="var(--mark)" />
-          <rect
-            x="5.4"
-            y="6.8"
-            width="13.2"
-            height="10.4"
-            rx="2.6"
-            stroke="var(--mark-ink)"
-            stroke-width="1.55"
-            fill="none"
-          />
-          <circle cx="9" cy="10.2" r="1.25" fill="var(--mark-ink)" />
-          <path
-            d="M7 15.7 10.1 12.5 11.9 14.2 13.3 12.8 16.8 15.8"
-            stroke="var(--mark-ink)"
-            stroke-width="1.55"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            fill="none"
-          />
+          <defs>
+            <linearGradient id="mark-bg" x1="3" y1="1" x2="21" y2="23" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#22304d" />
+              <stop offset=".58" stop-color="#131c30" />
+              <stop offset="1" stop-color="#0a0f1c" />
+            </linearGradient>
+            <linearGradient id="mark-ridge" x1="4" y1="19" x2="20" y2="9" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#1b8ea6" />
+              <stop offset=".55" stop-color="#3fd4e8" />
+              <stop offset="1" stop-color="#c8f8ff" />
+            </linearGradient>
+          </defs>
+          <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="6.2" fill="url(#mark-bg)" />
+          <ellipse cx="11.6" cy="16.4" rx="9" ry="5.4" fill="#2fd0e4" opacity=".18" />
+          <circle cx="17.15" cy="6.95" r="1.62" fill="#ffd9a8" />
+          <path d="M3.4 19.3 7.6 11 12 15.4 16.6 10.6 20.6 19.3Z" fill="url(#mark-ridge)" opacity=".92" />
+          <path d="M3.4 19.3h17.2" stroke="#fff" stroke-opacity=".16" stroke-width="1.15" stroke-linecap="round" />
+          <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="6.2" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width=".9" />
         </svg>
       </span>
       <!-- 字标：名字还是命令行里那个，但不带连字符 —— 连字符在 13px 下会读成三个碎词，

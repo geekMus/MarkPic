@@ -9,6 +9,8 @@ type IconName =
   | 'terminal'
   | 'trash'
   | 'chevron-down'
+  | 'chevrons-left'
+  | 'chevrons-right'
   | 'sun'
   | 'moon'
   | 'monitor'
@@ -62,6 +64,14 @@ const ICONS: Record<IconName, string[]> = {
     'M17.24 17.24l1.56 1.56',
     'M18.8 5.2l-1.56 1.56',
     'M6.76 17.24L5.2 18.8',
+  ],
+  'chevrons-left': [
+    "M11.2 16.8 6.4 12l4.8-4.8",
+    "M17.6 16.8 12.8 12l4.8-4.8",
+  ],
+  'chevrons-right': [
+    "M6.4 16.8 11.2 12 6.4 7.2",
+    "M12.8 16.8 17.6 12l-4.8-4.8",
   ],
   moon: ['M20.2 14.4A8.6 8.6 0 0 1 9.6 3.8a8.6 8.6 0 1 0 10.6 10.6z'],
   /* 跟随系统时用显示器，和太阳 / 月亮区分开 */
