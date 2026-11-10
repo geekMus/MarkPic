@@ -122,6 +122,7 @@ var (
 	procIsZoomed         = user32Chrome.NewProc("IsZoomed")
 	procGetCursorPos     = user32Chrome.NewProc("GetCursorPos")
 	procGetSystemMetrics = user32Chrome.NewProc("GetSystemMetrics")
+	procFlashWindowEx    = user32Chrome.NewProc("FlashWindowEx")
 	procLoadImage        = user32Chrome.NewProc("LoadImageW")
 	procDwmSetAttribute  = dwmapiChrome.NewProc("DwmSetWindowAttribute")
 
@@ -467,4 +468,35 @@ func closeWindow() {
 func windowMaximized() bool {
 	hwnd := hwndValue()
 	return hwnd != 0 && zoomed(hwnd)
+}
+
+// flashTaskbar 让任务栏图标闪起来，直到用户点回窗口为止。
+//
+// 只有一轮在后台跑完时才这么做：用户盯着窗口看的时候闪一下纯属噪音，
+// 所以窗口在前台时由前端自己判断，不调用这里。
+func flashTaskbar() {
+	hwnd := hwndValue()
+	if hwnd == 0 {
+		return
+	}
+	const (
+		flashwAll       = 0x00000003
+		flashwTimerNoFG = 0x0000000C
+	)
+	info := flashWinInfo{
+		size:    uint32(unsafe.Sizeof(flashWinInfo{})),
+		hwnd:    hwnd,
+		flags:   flashwAll | flashwTimerNoFG,
+		count:   0,
+		timeout: 0,
+	}
+	procFlashWindowEx.Call(uintptr(unsafe.Pointer(&info)))
+}
+
+type flashWinInfo struct {
+	size    uint32
+	hwnd    uintptr
+	flags   uint32
+	count   uint32
+	timeout uint32
 }

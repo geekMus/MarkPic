@@ -180,6 +180,13 @@ let reconnectTimer: number | null = null
 // 一轮只播报一次结局：服务端在「自己掐掉」时会先发 run.cancelled 再发 run.finished，
 // 两条都带 summary.abortReason，不拦一下就会弹出两条一模一样的气泡。
 let outcomeAnnounced = false
+
+/** 一轮在后台跑完时让任务栏闪一下：人切去干别的了，总得有个机会注意到。 */
+function flashIfAway(): void {
+  if (document.hasFocus()) return
+  const bridge = window as unknown as { cmpWinFlash?: () => Promise<unknown> }
+  void bridge.cmpWinFlash?.()
+}
 let cancelTimer: number | null = null
 let localSeq = 0
 
@@ -590,6 +597,7 @@ function onSignal(event: RunEvent): void {
     case 'run.finished': {
       if (!matches(event.runId)) return
       if (outcomeAnnounced) { runId.value = null; phase.value = 'cancelled'; return }
+      flashIfAway()
       clearCancelTimer()
       summary.value = event.summary
       phase.value = event.summary.cancelled ? 'cancelled' : 'done'
@@ -636,6 +644,7 @@ function onSignal(event: RunEvent): void {
       runId.value = null
       if (outcomeAnnounced) return
       outcomeAnnounced = true
+      flashIfAway()
       if (event.summary?.abortReason) danger(event.summary.abortReason)
       else warning(t('toast.runCancelled'))
       return

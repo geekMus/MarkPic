@@ -27,6 +27,7 @@ interface WindowBridge {
   cmpWinDrag?: (x: number, y: number) => Promise<unknown>
   cmpWinResize?: (edge: ResizeEdge) => Promise<unknown>
   cmpWinSetDark?: (dark: boolean) => Promise<unknown>
+  cmpWinFlash?: () => Promise<unknown>
 }
 
 /**

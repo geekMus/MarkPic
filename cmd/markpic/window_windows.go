@@ -134,6 +134,7 @@ func bindWindowCommands(w webview2.WebView) {
 		{"cmpWinDrag", func(x, y int) { beginCaptionDrag(x, y) }},
 		{"cmpWinResize", func(edge string) { beginResize(edge) }},
 		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
+		{"cmpWinFlash", func() { flashTaskbar() }},
 	}
 	for _, b := range binds {
 		if err := w.Bind(b.name, b.fn); err != nil {

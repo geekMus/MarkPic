@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
-import { computed } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { OUTPUT_MODES, REMOTE_MODES } from '../composables/useSettings'
 import { useTheme, type ThemeChoice } from '../composables/useTheme'
 import { useI18n, type Lang, type MessageKey } from '../i18n'
@@ -31,6 +31,14 @@ function onBackdrop(): void {
   if (props.inline) return
   emit('close')
 }
+
+/* 切到设置视图时把焦点搬进来：键盘用户按 Ctrl+, 之后 Tab 应该从这里开始 */
+const panel = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  if (!props.inline) return
+  void nextTick(() => panel.value?.focus())
+})
 
 const { t, lang, setLang } = useI18n()
 const { choice: themeChoice, setChoice: setTheme } = useTheme()
@@ -75,6 +83,8 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
   <!-- 设置是弹窗，不再挤占队列的宽度；遮罩避开标题栏，窗口仍可拖动 -->
   <div :class="inline ? 'settings-view' : 'dlg'" @mousedown.self="onBackdrop">
     <section
+      ref="panel"
+      tabindex="-1"
       :class="['dlg__panel', inline ? 'dlg__panel--inline' : '']"
       :role="inline ? 'region' : 'dialog'"
       :aria-modal="inline ? undefined : 'true'"

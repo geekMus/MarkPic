@@ -33,6 +33,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
         :key="item.id"
         type="button"
         class="rail__btn"
+        :data-nav="item.id"
         :class="{ 'rail__btn--on': view === item.id }"
         :aria-pressed="view === item.id"
         :title="t(item.key)"

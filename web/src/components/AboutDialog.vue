@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { describeError, revealPath } from '../api'
 import { useUpdate } from '../composables/useUpdate'
@@ -17,6 +17,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ close: [] }>()
+
+/* 打开就把焦点搬进对话框：键盘操作不该落在背后的页面上 */
+const panel = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  void nextTick(() => panel.value?.focus())
+})
 
 const { t } = useI18n()
 
@@ -109,6 +116,8 @@ async function openDataDir(): Promise<void> {
   <!-- 关于 / 更新：版本号从标题栏挪到这里，点底栏的版本号就能打开 -->
   <div class="dlg" @mousedown.self="emit('close')">
     <section
+      ref="panel"
+      tabindex="-1"
       class="dlg__panel"
       role="dialog"
       aria-modal="true"

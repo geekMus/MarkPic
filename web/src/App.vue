@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
@@ -154,7 +154,7 @@ const paletteCommands = computed<PaletteCommand[]>(() => {
   if (!busy.value && rowViews.value.length > 0) {
     commands.push({ id: 'clear', label: t('palette.cmd.clear'), icon: 'trash', run: clearQueue })
   }
-  commands.push({ id: 'settings', label: t('palette.cmd.settings'), icon: 'settings', run: () => { view.value = 'settings' } })
+  commands.push({ id: 'settings', label: t('palette.cmd.settings'), icon: 'settings', run: () => { goView('settings') } })
   commands.push({ id: 'theme', label: t('palette.cmd.theme'), icon: theme.value === 'dark' ? 'moon' : 'sun', run: toggleTheme })
   commands.push({ id: 'about', label: t('palette.cmd.about'), icon: 'info', run: () => { aboutOpen.value = true } })
   return commands
@@ -296,6 +296,12 @@ async function handlePickDir(): Promise<void> {
   }
 }
 
+/** 换视图时把键盘焦点跟着搬过去：否则 Esc 回到队列后，Tab 还是从页面开头走。 */
+function goView(next: 'convert' | 'settings'): void {
+  view.value = next
+  void nextTick(() => document.querySelector<HTMLElement>(`.rail__btn[data-nav="${next}"]`)?.focus())
+}
+
 /** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
   const mod = event.ctrlKey || event.metaKey
@@ -306,7 +312,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if (mod && event.key === ',') {
     event.preventDefault()
-    view.value = 'settings'
+    goView('settings')
     return
   }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
@@ -325,7 +331,7 @@ function handleKeydown(event: KeyboardEvent): void {
       return
     }
     if (view.value === 'settings') {
-      view.value = 'convert'
+      goView('convert')
       return
     }
     if (manualOpen.value) {
@@ -400,7 +406,7 @@ onBeforeUnmount(() => {
       <AppRail
         :view="view"
         :mode="railMode"
-        @navigate="view = $event"
+        @navigate="goView($event)"
         @about="aboutOpen = true"
         @toggle="toggleRail"
       />
@@ -440,7 +446,7 @@ onBeforeUnmount(() => {
           @save="handleSaveSettings"
           @discard="discardSettings"
           @retry="loadSettings"
-          @close="view = 'convert'"
+          @close="goView('convert')"
           @pick-dir="handlePickDir"
         />
 

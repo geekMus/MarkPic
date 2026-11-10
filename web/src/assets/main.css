@@ -663,6 +663,10 @@ select {
 }
 
 /* 关于对话框窄一些：内容只有两列读数与一段更新说明 */
+.dlg__panel:focus {
+  outline: none;
+}
+
 .dlg__panel--about {
   width: min(440px, 100%);
 }
