@@ -20,9 +20,11 @@ const props = defineProps<{
   remoteMode?: 'ignore' | 'check' | 'download'
   /** 这一轮是不是被提前掐断的（图床连不上）。只影响「取消」那行的说法。 */
   aborted?: boolean
+  /** 右栏是不是正在看这一行。 */
+  selected?: boolean
 }>()
 
-const emit = defineEmits<{ remove: [id: string]; reveal: [path: string] }>()
+const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
 
 /** 已跑完的行给的是副本，其它情况给原文档 —— 想干活的总是这两者之一。 */
 const revealTarget = computed<string>(() => {
@@ -373,6 +375,12 @@ function onItemsScroll(event: Event): void {
   if (el.clientHeight > 0) itemsViewport.value = el.clientHeight
 }
 
+/** 点行就是「选中它」：右栏跟着换内容；有明细的行顺带展开，保持原来的手感。 */
+function onRowClick(): void {
+  emit('select', props.row.id)
+  if (!noDetails) toggleExpanded()
+}
+
 function toggleExpanded(): void {
   expanded.value = !expanded.value
   if (expanded.value) {
@@ -398,7 +406,7 @@ function replaced(status: ImageStatus): boolean {
 </script>
 
 <template>
-  <li class="item" :data-tone="statusMeta.tone">
+  <li class="item" :data-tone="statusMeta.tone" :data-selected="props.selected ? 'yes' : null">
     <div class="item__main">
       <button
         type="button"
@@ -407,7 +415,7 @@ function replaced(status: ImageStatus): boolean {
         :aria-expanded="noDetails ? undefined : expanded"
         :aria-controls="noDetails ? undefined : detailsId"
         :title="noDetails ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
-        @click="toggleExpanded"
+        @click="onRowClick"
       >
         <span
           v-if="!noDetails"

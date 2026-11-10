@@ -13,6 +13,8 @@ const props = defineProps<{
   loading: boolean
   saving: boolean
   loadError: string | null
+  /** 作为主视图嵌在页面里时不再当弹窗：不铺遮罩、不居中、不限宽。 */
+  inline?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -23,6 +25,12 @@ const emit = defineEmits<{
   close: []
   'pick-dir': []
 }>()
+
+// 嵌在页面里时点空白处什么都不做：那时没有遮罩，点到的其实是页面本身。
+function onBackdrop(): void {
+  if (props.inline) return
+  emit('close')
+}
 
 const { t, lang, setLang } = useI18n()
 const { choice: themeChoice, setChoice: setTheme } = useTheme()
@@ -65,11 +73,11 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 
 <template>
   <!-- 设置是弹窗，不再挤占队列的宽度；遮罩避开标题栏，窗口仍可拖动 -->
-  <div class="dlg" @mousedown.self="emit('close')">
+  <div :class="inline ? 'settings-view' : 'dlg'" @mousedown.self="onBackdrop">
     <section
-      class="dlg__panel"
-      role="dialog"
-      aria-modal="true"
+      :class="['dlg__panel', inline ? 'dlg__panel--inline' : '']"
+      :role="inline ? 'region' : 'dialog'"
+      :aria-modal="inline ? undefined : 'true'"
       aria-labelledby="settings-title"
       @keydown.esc.stop="emit('close')"
     >

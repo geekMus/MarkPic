@@ -690,6 +690,23 @@ select {
   width: min(440px, 100%);
 }
 
+/* 设置也可以不是一个弹窗：作为主视图铺满内容区，右侧的队列还能继续跑。
+   弹窗那一套（遮罩、居中、限宽）在这里全部让位给栅格。 */
+.settings-view {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dlg__panel--inline {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  animation: none;
+  border-radius: var(--r-5);
+}
+
 @keyframes dlg-in {
   from {
     opacity: 0;

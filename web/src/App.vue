@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
+import AppRail from './components/AppRail.vue'
+import Inspector from './components/Inspector.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
@@ -63,10 +65,23 @@ const {
   clearQueue,
 } = useRun()
 
-// 设置与关于都是弹窗，默认关着；需要时从标题栏 / 底栏打开
-const optionsOpen = ref(false)
+// 主视图：转换（队列）或设置。设置不再占用弹窗，右侧的队列还能继续看。
+const view = ref<'convert' | 'settings'>('convert')
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
+// 右栏在看哪一行；行被移出队列时自动回到「没选」。
+const selectedId = ref<string | null>(null)
+const selectedRow = computed(
+  () => rowViews.value.find((row) => row.id === selectedId.value) ?? null,
+)
+
+function toggleSettings(): void {
+  view.value = view.value === 'settings' ? 'convert' : 'settings'
+}
+
+function selectRow(id: string): void {
+  selectedId.value = id
+}
 
 const { hasUpdate, autoCheck, check: checkUpdate, stopPolling } = useUpdate()
 
@@ -174,8 +189,8 @@ function handleKeydown(event: KeyboardEvent): void {
       aboutOpen.value = false
       return
     }
-    if (optionsOpen.value) {
-      optionsOpen.value = false
+    if (view.value === 'settings') {
+      view.value = 'convert'
       return
     }
     if (manualOpen.value) {
@@ -185,7 +200,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
     // 弹窗开着的时候，回车是「保存设置」——后面那个「开始转换」按钮被挡住了
-    if (optionsOpen.value) {
+    if (view.value === 'settings') {
       if (dirty.value) {
         event.preventDefault()
         void handleSaveSettings()
@@ -225,18 +240,21 @@ onBeforeUnmount(() => {
       :picgo-needed="picgoNeeded"
       :health-checking="healthLoading"
       :theme="theme"
-      :options-open="optionsOpen"
+      :options-open="view === 'settings'"
       :phase="phase"
       :completed="completedCount"
       :total="totalCount"
       @refresh-health="refreshHealth"
       @toggle-theme="toggleTheme"
-      @toggle-settings="optionsOpen = !optionsOpen"
+      @toggle-settings="toggleSettings"
     />
 
-    <main class="app__main">
-      <div class="workspace">
+    <div class="app__body">
+      <AppRail :view="view" @navigate="view = $event" @about="aboutOpen = true" />
+
+      <main class="app__view">
         <FileQueue
+          v-if="view === 'convert'"
           :rows="rowViews"
           :phase="phase"
           :completed="completedCount"
@@ -244,35 +262,53 @@ onBeforeUnmount(() => {
           :manual-open="manualOpen"
           :remote-mode="settings.remote"
           :aborted="stats.abortReason !== ''"
+          :selected="selectedId"
           @pick-files="pick('files')"
           @pick-folder="pick('folder')"
           @submit-paths="enqueue"
           @remove="removeRow"
           @reveal="revealRow"
+          @select="selectRow"
           @clear="clearQueue"
           @update:manual-open="manualOpen = $event"
         />
-      </div>
-    </main>
+        <OptionsPanel
+          v-else
+          inline
+          :settings="settings"
+          :dirty="dirty"
+          :loaded="settingsLoaded"
+          :loading="settingsLoading"
+          :saving="settingsSaving"
+          :load-error="settingsError"
+          @update="updateSettings"
+          @save="handleSaveSettings"
+          @discard="discardSettings"
+          @retry="loadSettings"
+          @close="view = 'convert'"
+          @pick-dir="handlePickDir"
+        />
+      </main>
 
-    <!-- 设置是弹窗，独立于主栅格 -->
-    <OptionsPanel
-      v-if="optionsOpen"
-      :settings="settings"
-      :dirty="dirty"
-      :loaded="settingsLoaded"
-      :loading="settingsLoading"
-      :saving="settingsSaving"
-      :load-error="settingsError"
-      @update="updateSettings"
-      @save="handleSaveSettings"
-      @discard="discardSettings"
-      @retry="loadSettings"
-      @close="optionsOpen = false"
-      @pick-dir="handlePickDir"
-    />
+      <Inspector
+        v-if="view === 'convert'"
+        class="app__aside"
+        :stats="stats"
+        :phase="phase"
+        :row="selectedRow"
+        :completed="completedCount"
+        :total="totalCount"
+        :endpoint="settings.endpoint"
+        :picgo-online="picgo?.online ?? false"
+        :picgo-needed="picgoNeeded"
+        @reveal="revealRow"
+        @remove="removeRow"
+      />
+    </div>
+
 
     <AppFooter
+      v-if="view === 'convert'"
       :stats="stats"
       :phase="phase"
       :remote-mode="settings.remote"
@@ -303,7 +339,8 @@ onBeforeUnmount(() => {
       v-if="aboutOpen"
       :version="version"
       :data-dir="dataDir"
-      :data-note="dataNote"`n      :settings-note="settingsNote"
+      :data-note="dataNote"
+      :settings-note="settingsNote"
       @close="aboutOpen = false"
     />
 
@@ -336,17 +373,37 @@ onBeforeUnmount(() => {
   color: var(--ink);
 }
 
-.app__main {
+/* 三栏外壳：左边一条导航（后面加功能就往里塞），中间是当前视图，右边是本轮/选中的上下文。
+   这一层只负责「放得下」，具体排版交给各视图自己。 */
+.app__body {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 320px;
+  gap: 14px;
   min-height: 0;
   padding-bottom: 2px;
 }
 
-/* 一块面板浮在画布上；设置改成弹窗后，这里只剩队列 */
-.workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
-  height: 100%;
+.app__view {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.app__view > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 窗口窄到放不下三栏时，先收右栏（它只是上下文，不是必经路径） */
+@media (max-width: 1180px) {
+  .app__body {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .app__aside {
+    display: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -354,7 +411,9 @@ onBeforeUnmount(() => {
     grid-template-rows: 44px minmax(0, 1fr) auto;
   }
 
-  .app__main {
+  .app__body {
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 10px;
     padding-bottom: 8px;
   }
 }

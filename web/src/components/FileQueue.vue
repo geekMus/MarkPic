@@ -23,6 +23,8 @@ const props = defineProps<{
   remoteMode?: 'ignore' | 'check' | 'download'
   /** 这一轮是不是被提前掐断的（图床连不上）。 */
   aborted?: boolean
+  /** 右栏正在看哪一行；只用来画选中态。 */
+  selected?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +33,7 @@ const emit = defineEmits<{
   'submit-paths': [paths: string[]]
   remove: [id: string]
   reveal: [path: string]
+  select: [id: string]
   clear: []
   'update:manualOpen': [open: boolean]
 }>()
@@ -432,8 +435,10 @@ function onScroll(): void {
             :busy="busy"
             :remote-mode="remoteMode"
             :aborted="aborted"
-            @remove="emit('remove', $event)")
+            :selected="selected === row.id"
+            @remove="emit('remove', $event)"
             @reveal="emit('reveal', $event)"
+            @select="emit('select', $event)"
           />
           <li
             v-if="window_.bottom > 0"
