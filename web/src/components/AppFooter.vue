@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { RunPhase, RunStats } from '../composables/useRun'
-import { useI18n } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
 
 const props = defineProps<{
   stats: RunStats
@@ -45,6 +45,12 @@ const settled = computed(
     props.phase === 'cancelled',
 )
 
+/** 英文只有一个的时候不能写「1 files」：按数量挑单复数两套文案。 */
+function countText(key: MessageKey, count: number): string {
+  const full = (count === 1 ? `${key}.one` : key) as MessageKey
+  return t(full, { count })
+}
+
 /** 状态栏读数：文件数、引用数，跑完之后追加替换与失败计数。 */
 const parts = computed<Part[]>(() => {
   const stats = props.stats
@@ -56,14 +62,14 @@ const parts = computed<Part[]>(() => {
   const filesOnly = stats.files - dirs
   const filePart: Part =
     dirs === 0
-      ? { text: t('footer.files', { count: stats.files }), tone: 'plain' }
+      ? { text: countText('footer.files', stats.files), tone: 'plain' }
       : filesOnly === 0
         ? { text: t('footer.dirsOnly', { dirs }), tone: 'plain' }
         : { text: t('footer.filesAndDirs', { files: filesOnly, dirs }), tone: 'plain' }
   const list: Part[] = [filePart]
   list.push(
     stats.images > 0
-      ? { text: t('footer.images', { count: stats.images }), tone: 'plain' }
+      ? { text: countText('footer.images', stats.images), tone: 'plain' }
       : { text: t('footer.noImages'), tone: 'plain' },
   )
   // 只碰远程图的两种模式里「替换 0」永远是零，跑起来时也是句废话：
@@ -144,7 +150,7 @@ const parts = computed<Part[]>(() => {
               unique: stats.remoteCheckedUnique,
               count: stats.remoteChecked,
             })
-          : t('footer.remoteChecked', { count: stats.remoteChecked })
+          : countText('footer.remoteChecked', stats.remoteChecked)
       list.push({ text: checkedText, tone: 'plain' })
       if (stats.remoteDead > 0) {
         // 失效那一侧同样有「按地址算」和「按引用处算」两个数：一个死链被引用
