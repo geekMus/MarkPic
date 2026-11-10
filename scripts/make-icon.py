@@ -2,7 +2,7 @@
 
 图标形状的唯一来源是标题栏里的那个 SVG（web/src/components/AppHeader.vue 的
 .tb__mark）。改标记时：先用浏览器按各尺寸渲染成 PNG，再用这个脚本打包，
-然后重新生成 cmd/convert-md-picture/rsrc_windows_amd64.syso（见 README 的
+然后重新生成 cmd/markpic/rsrc_windows_amd64.syso（见 README 的
 「图标」一节）。
 
 这里自己写 ICO 字节而不是用 Pillow 的 ICO 保存器：Pillow 对大尺寸会用 PNG

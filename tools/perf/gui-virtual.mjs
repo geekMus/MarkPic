@@ -2,7 +2,7 @@
  * 虚拟化列表的体检探针（第 18 轮）：确认「只挂可见行」没有把列表弄坏。
  *
  * 用前先：
- *   1) 启动打包版：CMP_DATA_DIR=%TEMP%\cmp-gui-5000-data & bin\convert-md-picture.exe --port 17982 --no-open
+ *   1) 启动打包版：MARKPIC_DATA_DIR=%TEMP%\cmp-gui-5000-data & bin\MarkPic.exe --port 17982 --no-open
  *   2) 让假图床在 36678 上跑：go run ./tools/mockpicgo -port 36678 -delay 5ms -quiet
  *   3) 把本文件复制到 C:\Users\mus\.playwright-mcp\ 再用 playwright 的 browser_run_code_unsafe 调
  *      （那个工具只允许 C:\Users\mus 与 C:\Users\mus\.playwright-mcp 两个根）
