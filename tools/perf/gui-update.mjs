@@ -6,8 +6,8 @@
  *      `%TEMP%\cmp-fileserver.exe <目录> 127.0.0.1:36681`；
  *   2. candidate.exe 用 `-ldflags "-X …/internal/version.Version=9.9.9-test"` 编，
  *      清单里的 version / sha256 / size 要和它一致；
- *   3. 把当前 exe 复制到别处，带 CMP_UPDATE_MANIFEST 指向清单、指定端口跑起来，
- *      例如 `CMP_UPDATE_MANIFEST=http://127.0.0.1:36681/version.json exe --port 17998 --no-open`。
+ *   3. 把当前 exe 复制到别处，带 MARKPIC_UPDATE_MANIFEST 指向清单、指定端口跑起来，
+ *      例如 `MARKPIC_UPDATE_MANIFEST=http://127.0.0.1:36681/version.json exe --port 17998 --no-open`。
  *
  * 脚本做的事：打开「关于」→ 点「立即更新」→ 看状态怎么走 →
  * 盯着页面会不会自己刷新（window 上放个标记，刷新后就没了）→ 读刷新后的页脚版本号。

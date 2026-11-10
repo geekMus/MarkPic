@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   启动开发环境：Go 后端 + Vite 前端（两边都带热更新）。
 
@@ -155,8 +155,8 @@ try {
         if ((Invoke-Native -Command $pnpmExe -Arguments @('--dir', 'web', 'install')) -ne 0) { throw '前端依赖安装失败。' }
     }
 
-    # 让 vite.config.ts 知道后端在哪个端口（它读 CMP_API，默认 17860）。
-    $env:CMP_API = "http://127.0.0.1:$ApiPort"
+    # 让 vite.config.ts 知道后端在哪个端口（它读 MARKPIC_API，默认 17860；旧名 CMP_API 也认）。
+    $env:MARKPIC_API = "http://127.0.0.1:$ApiPort"
 
     # 默认不碰浏览器：开发机常常同时在干别的事（比如打游戏），
     # 弹一个窗口出来抢焦点很讨厌。要自动打开就显式加 -Open。

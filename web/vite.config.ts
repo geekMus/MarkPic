@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// 开发时后端端口由 scripts/web.ps1 通过环境变量 CMP_API 传进来，默认 17860。
+// 开发时后端端口由 scripts/web.ps1 通过环境变量 MARKPIC_API 传进来，默认 17860。
 // 打包后前端与 API 同源（都由 exe 提供），不经过这个代理。
-const apiTarget = process.env.CMP_API ?? 'http://127.0.0.1:17860'
+const apiTarget = process.env.MARKPIC_API ?? process.env.CMP_API ?? 'http://127.0.0.1:17860'
 
 // 改 Go 代码时 watch-api.ps1 会重启后端，正在进行的 SSE 连接会被切断。
 // http-proxy 默认把这种情况打成一整段红色报错栈，看着像出了故障，其实前端会自动重连。

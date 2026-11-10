@@ -3,7 +3,7 @@
 // 用 Playwright MCP 的 browser_run_code_unsafe 跑（filename 必须落在 C:\Users\mus 或
 // C:\Users\mus\.playwright-mcp 下），把本文件复制过去再调用。
 //
-// 前置：exe 在 17982（CMP_DATA_DIR 指一个干净的数据目录，upload-cache.json 已删）、
+// 前置：exe 在 17982（MARKPIC_DATA_DIR 指一个干净的数据目录，upload-cache.json 已删）、
 //       假图床 mockpicgo 在 36678（建议 -delay 200ms 让一轮跑得够久）、
 //       夹具 %TEMP%\cmp-gui-1000 里的 *.converted.md 已删掉。
 async (page) => {

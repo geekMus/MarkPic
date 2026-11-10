@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
   打一个版本：编译 exe、算出校验值、更新 version.json。
 
@@ -68,7 +68,7 @@ try {
     $item = Get-Item $file
     $hash = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLowerInvariant()
     $asset = $item.Name
-    $url = "https://github.com/geekMus/markpic/releases/download/$tag/$asset"
+    $url = "https://github.com/geekMus/MarkPic/releases/download/$tag/$asset"
 
     $manifest = [ordered]@{
         version   = $Version

@@ -4,7 +4,7 @@
 // 而且升级时只换 exe，data 目录原样留着。只有当那里写不进去（典型情况是装到了
 // Program Files，或者放在只读介质上）时才退回系统目录，并把原因记下来给界面显示。
 //
-// 目录可以用环境变量 CMP_DATA_DIR 覆盖，便于测试、多开或把数据放到别处。
+// 目录可以用环境变量 MARKPIC_DATA_DIR 覆盖，便于测试、多开或把数据放到别处；改名前叫 CMP_DATA_DIR，旧名字仍然认。
 package appdata
 
 import (
