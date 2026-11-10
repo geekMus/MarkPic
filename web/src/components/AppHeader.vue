@@ -256,6 +256,10 @@ function handleDoubleClick(event: MouseEvent): void {
   letter-spacing: 0.004em;
   font-variant-ligatures: discretionary-ligatures;
   white-space: nowrap;
+  /* 墨迹居中而不是行盒居中：Gabriola 的 ascent/descent 是 18/9，「MarkPic」又没有下伸部，
+     行盒居中之后墨迹整体偏高约 5px，跟左边 24px 的标记并排时看起来像「底边对齐」。
+     挪 0.185em（27px 字号下正好 5px，跟着字号缩放）让墨迹中心落在标记中心上。 */
+  transform: translateY(0.185em);
 }
 
 .brand__mark {
