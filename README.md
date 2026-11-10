@@ -442,8 +442,11 @@ go test ./...
 
 前端产物 `internal/webui/dist` 是提交进仓库的，这样 clone 之后只装 Go 就能构建，不必先装 Node。
 
-图标（exe 文件图标、任务栏图标、浏览器标签页图标）画的是同一个标记：界面左上角那个
-深色圆角方块 + 青色折角，唯一来源是 `web/src/components/AppHeader.vue` 里的 `.tb__mark`。
+图标（exe 文件图标、任务栏图标、浏览器标签页图标）画的是同一个标记：深蓝圆角方块里一个青色画框，
+框里一轮小太阳和一道山脊——它要说的是「图片」，不是「文件」。三处用的是同一套几何（24×24 视图坐标：
+方块 1.5–22.5 圆角 6.5、画框 5.4–6.8–18.6–17.2 圆角 2.6 线宽 1.55、太阳 9.0/10.2 r1.25、山脊五点折线 1.55）：
+`web/src/components/AppHeader.vue` 的 `.tb__mark`、`web/index.html` 的 favicon data URI、
+以及 `assets/icon.ico`。
 exe 的图标来自 `assets/icon.ico`，由 `cmd/convert-md-picture/rsrc_windows_amd64.syso`
 打进去（已提交，构建时不需要联网）；窗口自己的图标在运行时从这份资源里读出来挂上去，
 所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
@@ -453,7 +456,8 @@ Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.g
 改了那个标记之后，图标要按三步重做（脚本在 `scripts/make-icon.py`）：
 
 ```powershell
-# 1. 按各尺寸把 SVG 渲染成 PNG（用浏览器截图即可，尺寸：16 24 32 48 64 128 256）
+# 1. 按同一套几何把标记画成各尺寸 PNG（Pillow 8× 超采样再缩小，尺寸：16 20 24 32 40 48 64 128 256）
+#    python scripts\make-mark.py "$env:TEMP\cmp-icon"
 #    产物放在 %TEMP%\cmp-icon\mark-<size>.png
 # 2. 打包成多尺寸 ico
 python scripts\make-icon.py "$env:TEMP\cmp-icon" assets\icon.ico

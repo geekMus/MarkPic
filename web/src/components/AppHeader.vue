@@ -90,32 +90,39 @@ function handleDoubleClick(event: MouseEvent): void {
   <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
     <div class="tb__brand">
       <span class="tb__mark" aria-hidden="true">
+        <!-- 标记：画框里有山有太阳。和 assets/icon.ico、favicon 是同一套几何
+             （rect 1.5..22.5 / 框 5.4-6.8-18.6-17.2 / 太阳 9.0,10.2,1.25 / 山五点折线）。 -->
         <svg viewBox="0 0 24 24" fill="none">
           <rect x="1.5" y="1.5" width="21" height="21" rx="6.5" fill="var(--mark)" />
-          <path
-            d="M8.6 8.4h4.2a1.6 1.6 0 0 1 1.6 1.6v4.2"
+          <rect
+            x="5.4"
+            y="6.8"
+            width="13.2"
+            height="10.4"
+            rx="2.6"
             stroke="var(--mark-ink)"
-            stroke-width="1.6"
-            stroke-linecap="round"
+            stroke-width="1.55"
             fill="none"
           />
+          <circle cx="9" cy="10.2" r="1.25" fill="var(--mark-ink)" />
           <path
-            d="M15.4 8.6v6.8H8.6"
+            d="M7 15.7 10.1 12.5 11.9 14.2 13.3 12.8 16.8 15.8"
             stroke="var(--mark-ink)"
-            stroke-width="1.6"
+            stroke-width="1.55"
             stroke-linecap="round"
+            stroke-linejoin="round"
             fill="none"
-            opacity="0.55"
           />
         </svg>
       </span>
-      <!-- 品牌就是命令行里的那个名字。md 是它在做的事（改写 Markdown 图片链接），
-           所以把这一段点亮，其余保持普通字色：看着像命令，也像被高亮的 token。 -->
+      <!-- 字标：名字还是命令行里那个，但不带连字符 —— 连字符在 13px 下会读成三个碎词，
+           换成两颗小圆点做节奏；md 仍是唯一被点亮的那段（它是这个工具真正在做的事）。
+           正文用界面字体，不再用等宽：等宽放在标题栏里像一句代码注释。 -->
       <span class="brand" role="img" aria-label="convert-md-picture" :title="t('header.brand')">
         <span class="brand__word" aria-hidden="true">convert</span>
-        <span class="brand__dash" aria-hidden="true">-</span>
+        <span class="brand__dot" aria-hidden="true" />
         <span class="brand__word brand__word--md" aria-hidden="true">md</span>
-        <span class="brand__dash" aria-hidden="true">-</span>
+        <span class="brand__dot" aria-hidden="true" />
         <span class="brand__word" aria-hidden="true">picture</span>
       </span>
     </div>
@@ -221,40 +228,50 @@ function handleDoubleClick(event: MouseEvent): void {
   display: grid;
   place-items: center;
   flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 7px;
-  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.16), 0 6px 14px -10px rgba(13, 17, 23, 0.7);
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  /* 深色标题栏里 --mark 和底色几乎同值，靠这圈极淡的强调色描边把形状托住；
+     浅色下这条描边看不见，也不影响 */
+  outline: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  outline-offset: -1px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 2px rgba(13, 17, 23, 0.18),
+    0 8px 18px -12px rgba(13, 17, 23, 0.8);
 }
 
 .tb__mark svg {
   display: block;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
 }
 
-/* 品牌字标：等宽、小写，中段「md」用强调色 —— 工具本身就是一条命令，
-   等宽字体比衬线/无衬线的常规标题更贴合它 */
+/* 字标：界面字体 + 小圆点做节奏，中段「md」是唯一被点亮的部分。
+   以前是等宽小写加连字符，在标题栏里读起来像一句代码注释 */
 .brand {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
+  gap: 7px;
   overflow: hidden;
   color: var(--ink);
-  font-family: var(--mono);
+  font-family: var(--font);
   font-size: 13.5px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.012em;
   white-space: nowrap;
 }
 
-.brand__dash {
-  margin: 0 0.5px;
-  color: var(--ink-3);
-  font-weight: 400;
+.brand__dot {
+  flex: none;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  opacity: 0.55;
 }
 
 .brand__word--md {
   color: var(--accent-ink);
+  font-weight: 700;
 }
 
 .tb__status {
