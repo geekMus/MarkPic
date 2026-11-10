@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // FuzzScanLang 拿随机字节喂扫描器，守的是「不管文档多畸形都不能崩」。

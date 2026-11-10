@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/remoteimg"
+	"github.com/geekMus/markpic/internal/remoteimg"
 )
 
 // maxEntries 是缓存条数上限。

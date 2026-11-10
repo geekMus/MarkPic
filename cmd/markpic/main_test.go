@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/conv"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/conv"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 // 帮助文本里的数字以前是手写的，改默认并发时忘了跟着改，`--help` 就一直

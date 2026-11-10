@@ -10,7 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // IsBusy 判断一个文件错误是不是「被别的程序占用，或者没有权限」。

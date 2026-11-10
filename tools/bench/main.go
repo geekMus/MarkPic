@@ -1,4 +1,4 @@
-// Command bench 测量 convert-md-picture 的性能。
+// Command bench 测量 MarkPic 的性能。
 //
 // 它是性能迭代用的尺子：造一批 Markdown 夹具（含各种图片写法、远程图、缺失图、
 // 代码块里的图），起一个本地假图床，然后分别测
@@ -40,12 +40,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/conv"
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/imgpath"
-	"github.com/geekMus/convert-md-picture/internal/mdscan"
-	"github.com/geekMus/convert-md-picture/internal/settings"
-	"github.com/geekMus/convert-md-picture/internal/uploadcache"
+	"github.com/geekMus/markpic/internal/conv"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/imgpath"
+	"github.com/geekMus/markpic/internal/mdscan"
+	"github.com/geekMus/markpic/internal/settings"
+	"github.com/geekMus/markpic/internal/uploadcache"
 )
 
 var (

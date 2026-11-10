@@ -49,7 +49,7 @@
 
 语言不只是界面文字：前端每个请求都会带上 `Accept-Language`，服务端按它返回对应语言的提示，所以「某张图片为什么失败」「连不上 PicGo」「检查更新失败」这类信息也会跟着换语言。
 
-这两项属于界面自己的偏好，存在本机浏览器存储里（`convert-md-picture.lang`、`convert-md-picture.theme`），不写进 `settings.json`——切换语言不需要点「保存设置」。
+这两项属于界面自己的偏好，存在本机浏览器存储里（`markpic.lang`、`markpic.theme`），不写进 `settings.json`——切换语言不需要点「保存设置」。
 
 ### 命令行
 
@@ -244,10 +244,10 @@ remote-cache.json 上次下载远程图的记录，重复运行就不用再下�
 只读介质上），这时会退回 `%APPDATA%\markpic\`，并在「关于」弹窗里说明原因。
 从旧版本升级过来时，原来写在 `%APPDATA%` 的设置会自动搬到 `data` 目录，不会丢。
 
-想指定别的位置，设环境变量 `CMP_DATA_DIR` 即可（多开、把数据放移动硬盘上都用得上）：
+想指定别的位置，设环境变量 `MARKPIC_DATA_DIR` 即可（多开、把数据放移动硬盘上都用得上）：
 
 ```powershell
-$env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\MarkPic.exe
+$env:MARKPIC_DATA_DIR = 'D:\cmp-data'; .\bin\MarkPic.exe
 ```
 
 「关于」弹窗里能看到当前的数据目录，点「打开」直接在资源管理器里定位过去。
@@ -284,10 +284,10 @@ $env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\MarkPic.exe
 ```
 
 清单里没有给出 SHA-256 时**不会自动安装**（只提示可以去发布页手动下载）。
-需要自建镜像或本地调试时，用 `CMP_UPDATE_MANIFEST` 指向另一份清单：
+需要自建镜像或本地调试时，用 `MARKPIC_UPDATE_MANIFEST` 指向另一份清单：
 
 ```powershell
-$env:CMP_UPDATE_MANIFEST = 'http://127.0.0.1:8080/version.json'
+$env:MARKPIC_UPDATE_MANIFEST = 'http://127.0.0.1:8080/version.json'
 ```
 
 ### 发版
@@ -430,11 +430,11 @@ pnpm start -- -Port 17900    # 换端口
 
 ```powershell
 # 只构建 Go 部分（前端产物已提交在仓库里）
-go build -o bin\MarkPic.exe .\cmd\convert-md-picture
+go build -o bin\MarkPic.exe .\cmd\markpic
 
 # 改了前端：先构建前端，再构建 exe
 cd web; pnpm install; pnpm build; cd ..
-go build -o bin\MarkPic.exe .\cmd\convert-md-picture
+go build -o bin\MarkPic.exe .\cmd\markpic
 
 # 跑测试
 go test ./...
@@ -447,7 +447,7 @@ go test ./...
 方块 1.5–22.5 圆角 6.5、画框 5.4–6.8–18.6–17.2 圆角 2.6 线宽 1.55、太阳 9.0/10.2 r1.25、山脊五点折线 1.55）：
 `web/src/components/AppHeader.vue` 的 `.tb__mark`、`web/index.html` 的 favicon data URI、
 以及 `assets/icon.ico`。
-exe 的图标来自 `assets/icon.ico`，由 `cmd/convert-md-picture/rsrc_windows_amd64.syso`
+exe 的图标来自 `assets/icon.ico`，由 `cmd/markpic/rsrc_windows_amd64.syso`
 打进去（已提交，构建时不需要联网）；窗口自己的图标在运行时从这份资源里读出来挂上去，
 所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
 Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
@@ -462,7 +462,7 @@ Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.g
 # 2. 打包成多尺寸 ico
 python scripts\make-icon.py "$env:TEMP\cmp-icon" assets\icon.ico
 # 3. 重新生成资源文件
-go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\convert-md-picture\rsrc_windows_amd64.syso
+go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\markpic\rsrc_windows_amd64.syso
 ```
 
 网页里的标签页图标（`web/index.html` 的 `<link rel="icon">`）是同一份 SVG 的内联 data URI，
@@ -471,7 +471,7 @@ go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\con
 交叉编译到其他平台：
 
 ```powershell
-$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bin/MarkPic-linux ./cmd/convert-md-picture
+$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bin/MarkPic-linux ./cmd/markpic
 ```
 
 交叉编译不会带上 Windows 图标（`*.syso` 只在对应平台参与链接）。
@@ -481,7 +481,7 @@ $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bin/MarkPic-linux ./cmd/conv
 ## 目录结构
 
 ```
-cmd/convert-md-picture/   入口：命令行与图形界面两种模式
+cmd/markpic/   入口：命令行与图形界面两种模式
 internal/mdscan/          Markdown/HTML 图片引用扫描与按字节替换
 internal/imgpath/         图片地址分类（本地/远程）与相对路径解析
 internal/picgo/           PicGo 上传客户端（重试、去重、错误分类）
@@ -594,4 +594,4 @@ PicGo 没运行，或「设置 → 设置 Server」里的服务没开启。开�
 Vite 重载配置时会在 `web/` 下写一个临时目录再 watch 它，Windows 上偶发占用冲突。停掉 `pnpm web` 重新执行即可；配置本身没有问题。
 
 **界面能打开但接口全是 404 / 连不上**
-开发环境下 `http://127.0.0.1:5173/api/health` 应该返回一段 JSON。若返回失败，说明后端没起来或端口不是 17860——用 `.\scripts\web.ps1 -ApiPort <端口>` 换端口，并确认 `pnpm ui` 是在同一个 `CMP_API` 目标下启动的。
+开发环境下 `http://127.0.0.1:5173/api/health` 应该返回一段 JSON。若返回失败，说明后端没起来或端口不是 17860——用 `.\scripts\web.ps1 -ApiPort <端口>` 换端口，并确认 `pnpm ui` 是在同一个 `MARKPIC_API` 目标下启动的。

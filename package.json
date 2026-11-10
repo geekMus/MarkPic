@@ -1,8 +1,9 @@
 {
-  "name": "convert-md-picture",
+  "name": "markpic",
   "version": "1.0.0",
   "private": true,
-  "description": "把 Markdown 里的本地图片上传到 PicGo 图床并替换链接（Go 单文件 exe + Vue 3 界面）",
+  "repository": { "type": "git", "url": "https://github.com/geekMus/MarkPic.git" },
+  "description": "MarkPic：把 Markdown 里的图片收进图床（Go 单文件 exe + Vue 3 界面）",
   "//": "这里只是任务入口，不是前端工程：真正的依赖在 web/package.json。脚本都放在 scripts/ 下，方便直接用 PowerShell 跑。",
   "scripts": {
     "start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start.ps1",

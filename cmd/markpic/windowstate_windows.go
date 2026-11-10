@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"unsafe"
 
-	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/markpic/internal/appdata"
 )
 
 // 记住上次关窗时的大小，下次打开还是那个尺寸。

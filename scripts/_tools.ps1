@@ -101,12 +101,12 @@ function Test-ApiHealth {
     $url = "http://127.0.0.1:$Port/api/health"
     if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
         $body = & curl.exe -s --noproxy '*' --max-time 2 $url 2>$null
-        if ($LASTEXITCODE -eq 0 -and $body -match 'convert-md-picture') { return $true }
+        if ($LASTEXITCODE -eq 0 -and $body -match 'markpic') { return $true }
         return $false
     }
     try {
         $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2
-        return ($resp.Content -match 'convert-md-picture')
+        return ($resp.Content -match 'markpic')
     }
     catch { return $false }
 }

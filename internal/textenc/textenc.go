@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"unicode/utf8"
 
-	"github.com/geekMus/convert-md-picture/internal/platform"
+	"github.com/geekMus/markpic/internal/platform"
 )
 
 // Encoding 是文档的编码。

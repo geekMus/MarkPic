@@ -14,7 +14,7 @@ export type ResizeEdge =
   | 'bottom-right'
 
 /**
- * 桌面窗口命令由后端在 WebView2 里注入（cmd/convert-md-picture/window_windows.go）。
+ * 桌面窗口命令由后端在 WebView2 里注入（cmd/markpic/window_windows.go）。
  * 窗口没有系统标题栏，最小化 / 最大化 / 关闭、拖动和缩放都得由界面这里的
  * 交互回调过去，再交给系统自己的窗口循环处理。
  * 在浏览器里打开同一个界面时这些函数不存在，相关按钮自动隐藏。

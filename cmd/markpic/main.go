@@ -22,14 +22,14 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/geekMus/convert-md-picture/internal/appdata"
-	"github.com/geekMus/convert-md-picture/internal/brand"
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/platform"
-	"github.com/geekMus/convert-md-picture/internal/server"
-	"github.com/geekMus/convert-md-picture/internal/settings"
-	"github.com/geekMus/convert-md-picture/internal/update"
-	"github.com/geekMus/convert-md-picture/internal/version"
+	"github.com/geekMus/markpic/internal/appdata"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/platform"
+	"github.com/geekMus/markpic/internal/server"
+	"github.com/geekMus/markpic/internal/settings"
+	"github.com/geekMus/markpic/internal/update"
+	"github.com/geekMus/markpic/internal/version"
 )
 
 const defaultPort = 17860

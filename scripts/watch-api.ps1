@@ -75,7 +75,7 @@ function Build-Backend {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $output = & $goExe build -o $exe ./cmd/convert-md-picture 2>&1
+        $output = & $goExe build -o $exe ./cmd/markpic 2>&1
         $ok = ($LASTEXITCODE -eq 0)
         $lines = @($output | ForEach-Object { $_.ToString() })
         return @{ Ok = $ok; Output = $lines }

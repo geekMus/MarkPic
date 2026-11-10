@@ -23,7 +23,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/geekMus/convert-md-picture/internal/brand"
+	"github.com/geekMus/markpic/internal/brand"
 
 	"golang.org/x/sys/windows"
 )

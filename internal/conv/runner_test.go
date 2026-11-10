@@ -16,9 +16,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/imgpath"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/imgpath"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 // fakePicGo 起一个假的 PicGo 服务。failOnce 中的文件名第一次上传会失败。

@@ -23,16 +23,16 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"github.com/geekMus/convert-md-picture/internal/appdata"
-	"github.com/geekMus/convert-md-picture/internal/brand"
-	"github.com/geekMus/convert-md-picture/internal/conv"
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/picgo"
-	"github.com/geekMus/convert-md-picture/internal/platform"
-	"github.com/geekMus/convert-md-picture/internal/settings"
-	"github.com/geekMus/convert-md-picture/internal/update"
-	"github.com/geekMus/convert-md-picture/internal/version"
-	"github.com/geekMus/convert-md-picture/internal/webui"
+	"github.com/geekMus/markpic/internal/appdata"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/conv"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/picgo"
+	"github.com/geekMus/markpic/internal/platform"
+	"github.com/geekMus/markpic/internal/settings"
+	"github.com/geekMus/markpic/internal/update"
+	"github.com/geekMus/markpic/internal/version"
+	"github.com/geekMus/markpic/internal/webui"
 )
 
 // AppName 用于识别「已有实例在运行」，也是 /api/health 里那个 app 字段。

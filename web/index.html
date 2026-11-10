@@ -12,8 +12,12 @@
     <script>
       ;(function () {
         try {
-          var key = 'convert-md-picture.theme'
-          var stored = localStorage.getItem(key)
+          // 首屏防闪：在 Vue 挂载前先把主题定下来。新键优先，旧键（改名前的）也能读，
+          // 免得老用户已经选好的主题在升级后闪一下再跳回来。
+          var stored = localStorage.getItem('markpic.theme')
+          if (stored !== 'light' && stored !== 'dark') {
+            stored = localStorage.getItem('convert-md-picture.theme')
+          }
           var theme =
             stored === 'light' || stored === 'dark'
               ? stored

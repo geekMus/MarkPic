@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/brand"
-	"github.com/geekMus/convert-md-picture/internal/version"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/version"
 )
 
 // userAgent 是对外报的名字。

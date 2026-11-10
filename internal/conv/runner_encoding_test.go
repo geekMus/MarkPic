@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/textenc"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/textenc"
 )
 
 // 记事本「Unicode」存出来的文档：以前直接拒收，现在应当正常转换，

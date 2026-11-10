@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/brand"
+	"github.com/geekMus/markpic/internal/brand"
 )
 
 // tinyPNG 是一张 1×1 的 PNG，够喂 DetectContentType 了。

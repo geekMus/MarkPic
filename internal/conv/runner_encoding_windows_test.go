@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/textenc"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/textenc"
 )
 
 // 老的中文文档：本机 ANSI（中文机器上是 GBK）。

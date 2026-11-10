@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // 图片引用的语法类型。

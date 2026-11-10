@@ -1,4 +1,4 @@
-module github.com/geekMus/convert-md-picture
+module github.com/geekMus/markpic
 
 go 1.24
 

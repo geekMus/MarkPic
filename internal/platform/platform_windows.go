@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // Windows 的两个「文件被别的程序占着」错误码。syscall 包只定义了 Errno 类型，

@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/appdata"
-	"github.com/geekMus/convert-md-picture/internal/brand"
-	"github.com/geekMus/convert-md-picture/internal/conv"
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/picgo"
-	"github.com/geekMus/convert-md-picture/internal/remoteimg"
-	"github.com/geekMus/convert-md-picture/internal/settings"
-	"github.com/geekMus/convert-md-picture/internal/version"
+	"github.com/geekMus/markpic/internal/appdata"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/conv"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/picgo"
+	"github.com/geekMus/markpic/internal/remoteimg"
+	"github.com/geekMus/markpic/internal/settings"
+	"github.com/geekMus/markpic/internal/version"
 )
 
 // needsPicGo 判断这次运行到底会不会上传本地图片。

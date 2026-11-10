@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // scanWithin 在 d 之内扫完返回 true；跑不完就把所有 goroutine 的栈打出来并返回 false。

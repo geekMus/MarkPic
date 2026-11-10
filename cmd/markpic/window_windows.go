@@ -12,7 +12,7 @@ import (
 
 	webview2 "github.com/jchv/go-webview2"
 
-	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/markpic/internal/appdata"
 )
 
 // 图形界面的窗口尺寸：按界面「左台账 + 右设置轨」的舒适宽度取，窄于 900 会切成上下堆叠。

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 func targets(src string) []string {

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/update"
-	"github.com/geekMus/convert-md-picture/internal/version"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/update"
+	"github.com/geekMus/markpic/internal/version"
 )
 
 // UpdateOptions 告诉服务怎么替换并重启自己。

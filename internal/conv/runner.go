@@ -15,16 +15,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/imgpath"
-	"github.com/geekMus/convert-md-picture/internal/mdscan"
-	"github.com/geekMus/convert-md-picture/internal/picgo"
-	"github.com/geekMus/convert-md-picture/internal/platform"
-	"github.com/geekMus/convert-md-picture/internal/remotecache"
-	"github.com/geekMus/convert-md-picture/internal/remoteimg"
-	"github.com/geekMus/convert-md-picture/internal/settings"
-	"github.com/geekMus/convert-md-picture/internal/textenc"
-	"github.com/geekMus/convert-md-picture/internal/uploadcache"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/imgpath"
+	"github.com/geekMus/markpic/internal/mdscan"
+	"github.com/geekMus/markpic/internal/picgo"
+	"github.com/geekMus/markpic/internal/platform"
+	"github.com/geekMus/markpic/internal/remotecache"
+	"github.com/geekMus/markpic/internal/remoteimg"
+	"github.com/geekMus/markpic/internal/settings"
+	"github.com/geekMus/markpic/internal/textenc"
+	"github.com/geekMus/markpic/internal/uploadcache"
 )
 
 // Emit 是事件回调，可以为 nil（CLI 模式）。

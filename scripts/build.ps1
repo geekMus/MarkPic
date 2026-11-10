@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  构建 convert-md-picture 的单个 exe。
+  构建 MarkPic 的单个 exe。
 
 .DESCRIPTION
   流程：前端（可选）→ 测试（可选）→ 图标资源（缺了才生成）→ 编译 exe（注入版本号）。
@@ -73,10 +73,10 @@ try {
     }
 
     # 图标资源：.syso 生成一次就跟着仓库走，之后无需联网。
-    # 注意 Go 只链接「主包目录」里的 .syso，所以它必须放在 cmd/convert-md-picture 下。
+    # 注意 Go 只链接「主包目录」里的 .syso，所以它必须放在 cmd/markpic 下。
     # 失败不影响构建，只是 exe 用默认图标。
     $ico = Join-Path $root 'assets\icon.ico'
-    $syso = Join-Path $root 'cmd\convert-md-picture\rsrc_windows_amd64.syso'
+    $syso = Join-Path $root 'cmd\markpic\rsrc_windows_amd64.syso'
     if ((Test-Path $ico) -and -not (Test-Path $syso)) {
         Write-Host '==> 生成 Windows 图标资源' -ForegroundColor Cyan
         try {
@@ -105,14 +105,14 @@ try {
     $commit = (git rev-parse --short HEAD 2>$null)
     if (-not $commit) { $commit = 'none' }
 
-    $module = 'github.com/geekMus/convert-md-picture/internal/version'
+    $module = 'github.com/geekMus/markpic/internal/version'
     $ldflags = "-s -w -X $module.Version=$Version -X $module.Commit=$commit"
 
     Write-Host "==> 编译 exe（版本 $Version，提交 $commit）" -ForegroundColor Cyan
     $outDir = Split-Path -Parent $Output
     if ($outDir -and -not (Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
 
-    if ((Invoke-Native -Command $goExe -Arguments @('build', '-trimpath', '-ldflags', $ldflags, '-o', $Output, './cmd/convert-md-picture')) -ne 0) { throw '构建失败。' }
+    if ((Invoke-Native -Command $goExe -Arguments @('build', '-trimpath', '-ldflags', $ldflags, '-o', $Output, './cmd/markpic')) -ne 0) { throw '构建失败。' }
 
     $file = Get-Item $Output
     Write-Host ("完成：{0}（{1:N1} MB）" -f $file.FullName, ($file.Length / 1MB)) -ForegroundColor Green

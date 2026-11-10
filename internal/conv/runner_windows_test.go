@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 // lockFile 用「谁都不许共享」的方式打开文件，模拟编辑器 / Word / 杀毒

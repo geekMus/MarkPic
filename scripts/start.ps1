@@ -3,7 +3,7 @@
   构建并运行打包好的单文件 exe —— 和最终用户双击 exe 的效果一样。
 
 .DESCRIPTION
-  · 默认先编译一次 Go，产出 bin\convert-md-picture.exe（前端产物 internal/webui/dist 已提交在仓库里）
+  · 默认先编译一次 Go，产出 bin\MarkPic.exe（前端产物 internal/webui/dist 已提交在仓库里）
   · 然后以图形界面模式启动它：起本机服务并打开桌面窗口，界面就是交付给用户的那个
   · 想连前端一起重新构建（改过 web/）就加 -Web
   · 想直接用现有的 exe（不重新编译）就加 -NoBuild
@@ -19,7 +19,7 @@
   先把前端也重新构建一遍（改了 web/ 下的代码之后用）。
 
 .PARAMETER NoBuild
-  跳过构建，直接运行现有的 bin\convert-md-picture.exe。
+  跳过构建，直接运行现有的 bin\MarkPic.exe。
 
 .PARAMETER NoOpen
   只起服务，不开桌面窗口也不开浏览器（等价于给 exe 传 --no-open）。
@@ -61,7 +61,7 @@ Push-Location $root
 
 $code = 0
 try {
-    $exe = Join-Path $root 'bin\convert-md-picture.exe'
+    $exe = Join-Path $root 'bin\MarkPic.exe'
 
     if ($NoBuild) {
         if (-not (Test-Path $exe)) {

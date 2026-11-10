@@ -77,7 +77,7 @@ try {
 
     if ($NoWatch -or -not (Test-Path $devExe)) {
         Write-Host '==> 编译后端' -ForegroundColor Cyan
-        if ((Invoke-Native -Command $goExe -Arguments @('build', '-o', $devExe, './cmd/convert-md-picture')) -ne 0) { throw '后端编译失败，先看看上面的报错。' }
+        if ((Invoke-Native -Command $goExe -Arguments @('build', '-o', $devExe, './cmd/markpic')) -ne 0) { throw '后端编译失败，先看看上面的报错。' }
     }
 
     # 上一次没退干净的僵尸进程：端口没响应但进程还在，直接清掉。

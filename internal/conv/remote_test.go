@@ -15,10 +15,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/remotecache"
-	"github.com/geekMus/convert-md-picture/internal/remoteimg"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/remotecache"
+	"github.com/geekMus/markpic/internal/remoteimg"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 var (

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/geekMus/convert-md-picture/internal/mdscan"
+	"github.com/geekMus/markpic/internal/mdscan"
 )
 
 // Kind 是地址的类别。

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/conv"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/conv"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 // fakePicgo 模拟 PicGo 的 /upload 接口，并记录真实上传次数。

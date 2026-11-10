@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/conv"
+	"github.com/geekMus/markpic/internal/conv"
 )
 
 // 前端读得慢时，每个文件的结果都必须送到：丢了行的状态就会撒谎。

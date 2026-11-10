@@ -180,8 +180,8 @@ interface UpdateStatus {
 ```
 
 版本清单不调用 GitHub Releases API，而是取仓库根那个静态的 `version.json`
-（`https://raw.githubusercontent.com/geekMus/convert-md-picture/main/version.json`），
-可用环境变量 `CMP_UPDATE_MANIFEST` 指向别处（自建镜像、本地调试）。
+（`https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json`），
+可用环境变量 `MARKPIC_UPDATE_MANIFEST` 指向别处（自建镜像、本地调试）。
 
 `POST /api/update/install` 会下载安装包、核对清单里的 SHA-256，然后
 把当前 exe 改名成 `.old`、把新 exe 放到原路径、启动新进程、自己退出。

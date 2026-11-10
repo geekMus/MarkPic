@@ -13,12 +13,16 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/geekMus/convert-md-picture/internal/brand"
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // EnvDir 可用来强制指定数据目录。
-const EnvDir = "CMP_DATA_DIR"
+const EnvDir = "MARKPIC_DATA_DIR"
+
+// legacyEnvDir 是改名前的环境变量名。继续认它，免得用户脚本里写着的旧名字
+// 因为产品改个名字就失效；两个都设时以新名称为准。
+const legacyEnvDir = "CMP_DATA_DIR"
 
 // appName 是退回系统目录时用的目录名，也是旧版本用过的名字。
 const appName = brand.Slug
@@ -35,7 +39,7 @@ type Source string
 const (
 	// SourcePortable 表示数据放在 exe 旁边的 data 目录。
 	SourcePortable Source = "portable"
-	// SourceEnv 表示数据目录来自 CMP_DATA_DIR。
+	// SourceEnv 表示数据目录来自 MARKPIC_DATA_DIR（或改名前的 CMP_DATA_DIR）。
 	SourceEnv Source = "env"
 	// SourceSystem 表示退回了系统目录。
 	SourceSystem Source = "system"
@@ -108,6 +112,14 @@ func resolve() {
 			return
 		}
 		noteKey, noteArgs = i18n.KeyAppdataEnvUnusable, []any{EnvDir}
+	}
+	// 旧名字也认：新名字没设时再看旧的。
+	if v := strings.TrimSpace(os.Getenv(legacyEnvDir)); v != "" {
+		if usable(v) {
+			dir, source = v, SourceEnv
+			return
+		}
+		noteKey, noteArgs = i18n.KeyAppdataEnvUnusable, []any{legacyEnvDir}
 	}
 
 	if exe, err := os.Executable(); err == nil {

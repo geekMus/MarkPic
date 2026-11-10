@@ -30,18 +30,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/brand"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 const (
 	// DefaultManifestURL 是版本清单的默认地址。
-	DefaultManifestURL = "https://raw.githubusercontent.com/geekMus/convert-md-picture/main/version.json"
+	DefaultManifestURL = "https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json"
 
 	// ReleasePage 是发布页，检查失败时让用户自己去看看。
-	ReleasePage = "https://github.com/geekMus/convert-md-picture/releases"
+	ReleasePage = "https://github.com/geekMus/MarkPic/releases"
 
 	// ManifestEnv 可以覆盖清单地址，用于自建镜像或本地调试。
-	ManifestEnv = "CMP_UPDATE_MANIFEST"
+	ManifestEnv = "MARKPIC_UPDATE_MANIFEST"
+
+	// LegacyManifestEnv 是改名前的环境变量名，继续认——用户脚本里写着的旧名字
+	// 不该因为产品改个名字就一夜之间失效。
+	LegacyManifestEnv = "CMP_UPDATE_MANIFEST"
 
 	maxManifestBytes = 256 << 10
 )
@@ -49,6 +54,10 @@ const (
 // ManifestURL 返回版本清单地址，允许通过环境变量覆盖。
 func ManifestURL() string {
 	if v := strings.TrimSpace(os.Getenv(ManifestEnv)); v != "" {
+		return v
+	}
+	// 旧名字也认。
+	if v := strings.TrimSpace(os.Getenv(LegacyManifestEnv)); v != "" {
 		return v
 	}
 	return DefaultManifestURL
@@ -88,7 +97,7 @@ func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release,
 		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadURL), err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "convert-md-picture/"+current+"/"+arch)
+	req.Header.Set("User-Agent", brand.Slug+"/"+current+"/"+arch)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -194,7 +203,7 @@ func Download(ctx context.Context, url, wantSHA, dest string, progress func(rece
 	if err != nil {
 		return fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadDownloadURL), err)
 	}
-	req.Header.Set("User-Agent", "convert-md-picture-updater")
+	req.Header.Set("User-Agent", brand.Slug+"-updater")
 
 	client := &http.Client{Timeout: 0}
 	resp, err := client.Do(req)

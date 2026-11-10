@@ -7,12 +7,21 @@ export type MessageKey = keyof typeof zh
 
 const CATALOG: Record<Lang, Record<MessageKey, string>> = { zh, en }
 
-const STORAGE_KEY = 'convert-md-picture.lang'
+const STORAGE_KEY = 'markpic.lang'
+
+// 改名前的键：老用户选的英文还在旧键里，首次启动搬过来。
+const LEGACY_KEY = 'convert-md-picture.lang'
 
 function readLang(): Lang {
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY)
     if (stored === 'zh' || stored === 'en') return stored
+    const legacy = window.localStorage.getItem(LEGACY_KEY)
+    if (legacy === 'zh' || legacy === 'en') {
+      window.localStorage.setItem(STORAGE_KEY, legacy)
+      window.localStorage.removeItem(LEGACY_KEY)
+      return legacy
+    }
   } catch {
     // 隐私模式下读不到存储，用默认值
   }

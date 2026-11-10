@@ -14,10 +14,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
-	"github.com/geekMus/convert-md-picture/internal/mdscan"
-	"github.com/geekMus/convert-md-picture/internal/remoteimg"
-	"github.com/geekMus/convert-md-picture/internal/settings"
+	"github.com/geekMus/markpic/internal/i18n"
+	"github.com/geekMus/markpic/internal/mdscan"
+	"github.com/geekMus/markpic/internal/remoteimg"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 // 这一份文件负责「文档里已经写着的网络图片」：

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/geekMus/convert-md-picture/internal/i18n"
+	"github.com/geekMus/markpic/internal/i18n"
 )
 
 // 更新这条路上出错就是「把正在运行的程序换掉」这种级别的后果，
