@@ -29,6 +29,8 @@ const props = defineProps<{
   recent?: string[]
 }>()
 
+defineExpose({ openSearch })
+
 const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
@@ -176,19 +178,49 @@ const problemCount = computed(() => props.rows.reduce((n, row) => (isProblem(row
  */
 const filtering = computed(() => onlyProblems.value && problemCount.value > 0)
 
-const filteredRows = computed(() =>
-  filtering.value ? props.rows.filter((row) => isProblem(row)) : props.rows,
-)
+const searchOpen = ref(false)
+const query = ref('')
+const searchInput = ref<HTMLInputElement | null>(null)
 
-/** 切筛选时回到顶部：否则滚动位置还停在上一次的第 200 行，新列表里根本没有那一行。 */
-function toggleProblems(): void {
-  onlyProblems.value = !onlyProblems.value
+const filteredRows = computed(() => {
+  const base = filtering.value ? props.rows.filter((row) => isProblem(row)) : props.rows
+  const needle = query.value.trim().toLowerCase()
+  if (!needle) return base
+  return base.filter(
+    (row) => row.path.toLowerCase().includes(needle) || row.name.toLowerCase().includes(needle),
+  )
+})
+
+/** 打开搜索：焦点直接放进输入框，不然还得再点一次。 */
+function openSearch(): void {
+  searchOpen.value = true
+  void nextTick(() => searchInput.value?.focus())
+}
+
+/** 关掉搜索时把过滤清掉并回到顶部：留着旧关键字，下次打开会一脸问号。 */
+function closeSearch(): void {
+  searchOpen.value = false
+  query.value = ''
+  resetScroll()
+}
+
+function onSearchInput(): void {
+  resetScroll()
+}
+
+function resetScroll(): void {
   if (body.value) body.value.scrollTop = 0
   scrollTop.value = 0
   void nextTick(() => {
     syncViewport()
     measureMountedRows()
   })
+}
+
+/** 切筛选时回到顶部：否则滚动位置还停在上一次的第 200 行，新列表里根本没有那一行。 */
+function toggleProblems(): void {
+  onlyProblems.value = !onlyProblems.value
+  resetScroll()
 }
 
 /**
@@ -345,6 +377,31 @@ function onScroll(): void {
           <AppIcon name="terminal" :size="16" />
         </button>
 
+        <!-- 队列几百上千行时，按文件名找比滚轮靠谱 -->
+        <input
+          v-if="searchOpen"
+          ref="searchInput"
+          v-model="query"
+          class="queue__search"
+          type="search"
+          :placeholder="t('queue.search.placeholder')"
+          :aria-label="t('queue.search')"
+          @input="onSearchInput"
+          @keydown.esc.stop="closeSearch"
+        />
+        <button
+          v-if="rows.length > 0"
+          type="button"
+          class="icon-btn"
+          :class="{ 'icon-btn--active': searchOpen }"
+          :title="t('queue.search')"
+          :aria-label="t('queue.search')"
+          :aria-pressed="searchOpen"
+          @click="searchOpen ? closeSearch() : openSearch()"
+        >
+          <AppIcon name="search" :size="16" />
+        </button>
+
         <!-- 检测模式下死链往往只有十几处，埋在几百行「一切正常」里翻不到 -->
         <button
           v-if="problemCount > 0"
@@ -465,6 +522,32 @@ function onScroll(): void {
 </template>
 
 <style scoped>
+.queue__search {
+  width: 168px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink);
+  font-size: var(--fs-2);
+  outline: none;
+}
+
+.queue__search:focus {
+  border-color: var(--accent);
+}
+
+.queue__search::-webkit-search-cancel-button {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .queue__search {
+    width: 120px;
+  }
+}
+
 .queue__body {
   display: flex;
   flex-direction: column;

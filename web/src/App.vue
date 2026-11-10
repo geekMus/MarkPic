@@ -27,6 +27,8 @@ import { useUpdate } from './composables/useUpdate'
 import { useWindowControls } from './composables/useWindowControls'
 import { useI18n } from './i18n'
 
+const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
+
 const { toasts, dismiss, warning } = useToasts()
 const { t } = useI18n()
 const { resolved: theme, cycle: toggleTheme } = useTheme()
@@ -324,6 +326,18 @@ function handleKeydown(event: KeyboardEvent): void {
     goView('settings')
     return
   }
+  // 「/」在列表里是搜索：像浏览器那种习惯，按下去直接开始打字
+  if (
+    event.key === '/' &&
+    !mod &&
+    view.value === 'convert' &&
+    !paletteOpen.value &&
+    !(event.target as HTMLElement | null)?.closest('input, textarea')
+  ) {
+    event.preventDefault()
+    queueRef.value?.openSearch()
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     if (paletteOpen.value) return
     event.preventDefault()
@@ -424,6 +438,7 @@ onBeforeUnmount(() => {
       <main class="app__view">
         <FileQueue
           v-if="view === 'convert'"
+          ref="queueRef"
           :rows="rowViews"
           :phase="phase"
           :completed="completedCount"

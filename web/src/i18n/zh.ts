@@ -99,6 +99,8 @@ export const zh = {
   'queue.pickFolder': '选择包含 Markdown 的文件夹',
   'queue.folder': '文件夹',
   'queue.manual.toggle': '手动输入路径',
+  'queue.search': '搜索文件',
+  'queue.search.placeholder': '按文件名过滤',
   'queue.clear': '清空队列',
   'queue.onlyProblems': '只看有问题的（{n}）',
   'queue.onlyProblems.off': '显示全部文件',

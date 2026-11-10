@@ -101,6 +101,8 @@ export const en: Record<keyof typeof zh, string> = {
   'queue.pickFolder': 'Choose a folder containing Markdown',
   'queue.folder': 'Folder',
   'queue.manual.toggle': 'Enter paths manually',
+  'queue.search': 'Search files',
+  'queue.search.placeholder': 'Filter by file name',
   'queue.clear': 'Clear queue',
   'queue.onlyProblems': 'Only problems ({n})',
   'queue.onlyProblems.off': 'Show all files',
