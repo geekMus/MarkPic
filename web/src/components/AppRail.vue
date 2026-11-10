@@ -7,6 +7,8 @@ const props = defineProps<{
   view: 'convert' | 'settings'
   /** 侧边栏形态：只有图标的窄条，或图标 + 文字的导航。 */
   mode: 'compact' | 'expanded'
+  /** 设置里有没有还没保存的改动：有就让设置那颗按钮带个小点。 */
+  dirty?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -42,6 +44,11 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
       >
         <AppIcon :name="item.icon" :size="18" />
         <span v-if="props.mode === 'expanded'" class="rail__label">{{ t(item.key) }}</span>
+        <span
+          v-if="item.id === 'settings' && props.dirty && view !== 'settings'"
+          class="rail__dot"
+          :aria-label="t('settings.unsaved')"
+        />
       </button>
     </div>
 
@@ -74,6 +81,14 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
 </template>
 
 <style scoped>
+.rail__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
 .rail {
   display: flex;
   flex-direction: column;

@@ -195,7 +195,11 @@ function readRecent(): string[] {
 const recentPaths = ref<string[]>(readRecent())
 
 function rememberPaths(paths: string[]): void {
-  const next = [...paths, ...recentPaths.value.filter((old) => !paths.includes(old))].slice(0, RECENT_MAX)
+  // 同一个目录反复拖进来时，路径写法可能差一个尾斜杠或大小写：按归一化后的键去重
+  const key = (path: string): string => path.replace(/[\\/]+$/, '').toLowerCase()
+  const seen = new Set(paths.map(key))
+  const fresh = paths.filter((path, index) => paths.findIndex((other) => key(other) === key(path)) === index)
+  const next = [...fresh, ...recentPaths.value.filter((old) => !seen.has(key(old)))].slice(0, RECENT_MAX)
   recentPaths.value = next
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(next))
@@ -298,6 +302,11 @@ async function handlePickDir(): Promise<void> {
 
 /** 换视图时把键盘焦点跟着搬过去：否则 Esc 回到队列后，Tab 还是从页面开头走。 */
 function goView(next: 'convert' | 'settings'): void {
+  // 设置改了一半就走开：得说一声，不然下一次打开是那份改了一半的草稿，
+  // 用户还以为是保存了。
+  if (view.value === 'settings' && next !== 'settings' && dirty.value) {
+    warning(t('settings.unsavedLeft'))
+  }
   view.value = next
   void nextTick(() => document.querySelector<HTMLElement>(`.rail__btn[data-nav="${next}"]`)?.focus())
 }
@@ -405,6 +414,7 @@ onBeforeUnmount(() => {
     <div class="app__body" :class="{ 'app__body--wide': railMode === 'expanded' }">
       <AppRail
         :view="view"
+        :dirty="dirty"
         :mode="railMode"
         @navigate="goView($event)"
         @about="aboutOpen = true"

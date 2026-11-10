@@ -14,11 +14,13 @@ const emit = defineEmits<{
   manual: []
 }>()
 
-/** 只显示最后一段，整条路径留给 title —— 一排长路径读不出谁是谁。 */
-function baseName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
-  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed
+/**
+ * 显示最后两段，整条路径留给 title。
+ * 只取最后一段时，两个都叫 docs 的目录在列表里长得一模一样，选了哪个全靠猜。
+ */
+function shortPath(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]+/)
+  return parts.length >= 2 ? parts.slice(-2).join('\\') : parts[0] ?? path
 }
 
 const { t } = useI18n()
@@ -53,7 +55,7 @@ const { t } = useI18n()
         <ul class="recent__list">
           <li v-for="path in props.recent" :key="path">
             <button type="button" class="recent__item" :title="path" @click="emit('pick-recent', path)">
-              {{ baseName(path) }}
+              {{ shortPath(path) }}
             </button>
           </li>
         </ul>

@@ -56,6 +56,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.endpoint.optional': 'Nothing is uploaded in this mode, so this can stay empty',
   'settings.section.concurrency': 'Concurrency and retries',
   'settings.concurrency': 'Concurrency',
+  'settings.unsavedLeft': 'You left settings with unsaved changes — they are still here as a draft',
   'settings.concurrency.hint': 'Documents processed at once — and images uploaded at once',
   'settings.retries': 'Retries',
   'settings.reuse': 'Reuse previous uploads',

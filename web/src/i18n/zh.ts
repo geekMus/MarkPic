@@ -55,6 +55,7 @@ export const zh = {
   'settings.endpoint.optional': '这一轮不上传图片，地址可以留空',
   'settings.section.concurrency': '并发与重试',
   'settings.concurrency': '并发数',
+  'settings.unsavedLeft': '设置里有还没保存的改动，下次打开还是这份草稿',
   'settings.concurrency.hint': '同时处理的文件数，也是同时上传的图片数',
   'settings.retries': '失败重试',
   'settings.reuse': '复用上次的上传结果',
