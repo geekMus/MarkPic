@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
@@ -204,6 +204,33 @@ function rememberPaths(paths: string[]): void {
   }
 }
 
+/* 队列本身也记一份：关掉程序再打开，昨天拖进来的东西还在。
+   只记路径，不记结果 —— 结果要重新扫一遍才算数。 */
+const QUEUE_KEY = 'markpic.queue'
+
+function readQueue(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]')
+    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** 启动时把上次的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
+async function restoreQueue(): Promise<void> {
+  if (rowViews.value.length > 0 || busy.value) return
+  const saved = readQueue()
+  if (saved.length === 0) return
+  const added = addPaths(saved)
+  if (added.length === 0) return
+  try {
+    applyPreview(await preview(added, settingsSnapshot()), added)
+  } catch {
+    /* 预览失败就当没接回来，行还在，用户点开始也行 */
+  }
+}
+
 async function enqueue(paths: string[]): Promise<void> {
   const added = addPaths(paths)
   if (added.length === 0) {
@@ -325,6 +352,19 @@ function handleKeydown(event: KeyboardEvent): void {
 
 onMounted(() => {
   connect()
+  // 队列记在本地；加进来/清掉时同步写一次
+  watch(
+    () => rowViews.value.map((row) => row.path),
+    (paths) => {
+      try {
+        if (paths.length === 0) localStorage.removeItem(QUEUE_KEY)
+        else localStorage.setItem(QUEUE_KEY, JSON.stringify(paths))
+      } catch {
+        /* 存不下就算了 */
+      }
+    },
+  )
+  window.setTimeout(() => void restoreQueue(), 700)
   void refreshHealth()
   void loadSettings()
   window.addEventListener('keydown', handleKeydown)
