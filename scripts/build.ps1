@@ -15,7 +15,7 @@
   编译前先跑一遍 go test ./...。
 
 .PARAMETER Output
-  输出路径，默认 bin\convert-md-picture.exe。
+  输出路径，默认 bin\MarkPic.exe。
 
 .PARAMETER Version
   写进二进制的版本号。默认取 git describe（仓库没打过 tag 时回落到 1.0.0）。
@@ -36,7 +36,7 @@
 param(
     [switch]$Web,
     [switch]$Test,
-    [string]$Output = "bin\convert-md-picture.exe",
+    [string]$Output = "bin\MarkPic.exe",
     [string]$Version = "",
     [string]$Go = '',
     [string]$Pnpm = ''

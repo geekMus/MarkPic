@@ -219,7 +219,7 @@ func TestJSONReportCarriesDetailsAndRedactedDeadLinks(t *testing.T) {
 	if strings.Contains(buf.String(), "secret") {
 		t.Errorf("逐图明细里的 target 也要抹掉密码：\n%s", buf.String())
 	}
-	if strings.Contains(buf.String(), "convert-md-picture 1.0.0") {
+	if strings.Contains(buf.String(), "MarkPic 1.0.0") {
 		t.Errorf("JSON 模式不该再打印人读的抬头：\n%s", buf.String())
 	}
 }

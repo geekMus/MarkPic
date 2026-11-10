@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/geekMus/convert-md-picture/internal/brand"
 	"github.com/geekMus/convert-md-picture/internal/version"
 )
 
@@ -31,7 +32,7 @@ import (
 // Go 默认的 "Go-http-client/1.1" 会被一部分图床直接挡掉：实测维基共享资源的图，
 // 用默认 UA 回 403，换成这个名字就是 200。那不是图坏了，是我们自报家门太敷衍——
 // 检测模式会把好地址报成「失效」，用户照着报告去改，改的全是好图。
-var userAgent = "convert-md-picture/" + version.Version
+var userAgent = brand.Slug + "/" + version.Version
 
 // setHeaders 给请求盖上 User-Agent。所有出站请求都走这里，免得漏掉一处。
 func setHeaders(req *http.Request, extra ...string) {

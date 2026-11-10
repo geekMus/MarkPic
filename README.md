@@ -1,4 +1,4 @@
-# convert-md-picture
+# MarkPic
 
 把 Markdown 文档里的本地图片上传到 [PicGo](https://github.com/Molunerfinn/PicGo) 图床，并把文档里的图片链接替换成图床地址。
 
@@ -24,7 +24,7 @@
 
 ### 图形界面
 
-直接运行 `convert-md-picture.exe`，会弹出一个桌面窗口：程序在 `127.0.0.1:17860`（被占用时自动后移）启动本地服务，窗口里就是完整界面。界面里可以选择文件或文件夹、预览每张图片的处理结果、开始转换、取消、在资源管理器中定位结果文件。
+直接运行 `MarkPic.exe`，会弹出一个桌面窗口：程序在 `127.0.0.1:17860`（被占用时自动后移）启动本地服务，窗口里就是完整界面。界面里可以选择文件或文件夹、预览每张图片的处理结果、开始转换、取消、在资源管理器中定位结果文件。
 
 界面是一套三栏外壳：左边一条窄导航（转换 / 设置 / 关于），中间是当前视图，右边是本轮账与选中文件的上下文。这么分是因为后面还要往里加功能——单列「标题栏 + 队列 + 页脚」再多塞东西就挤成一锅了。点队列里任意一行就选中它（同时展开明细），右侧显示这篇的图片数、状态与问题清单，并能直接定位或移出队列；窗口窄到放不下三栏时先收右栏（1180 以下），再窄一点（900 以下）导航也收细，最小 760×560 下依然不出现横向滚动。
 
@@ -55,22 +55,22 @@
 
 ```powershell
 # 转换单个文件，生成 note.converted.md
-convert-md-picture note.md
+MarkPic note.md
 
 # 原地替换（先备份为 note.md.bak）
-convert-md-picture note.md --in-place
+MarkPic note.md --in-place
 
 # 递归处理整个目录，输出到指定目录
-convert-md-picture .\docs --output directory --out-dir .\out
+MarkPic .\docs --output directory --out-dir .\out
 
 # 只看文章里的远程图片链接还有没有效（不改文档、不上传本地图）
-convert-md-picture --remote check docs/
+MarkPic --remote check docs/
 
 # 反过来：把远程图下载回本地，链接改成相对路径
-convert-md-picture --remote download --remote-dir images docs/
+MarkPic --remote download --remote-dir images docs/
 
 # 只检查不写文件
-convert-md-picture .\docs --dry-run
+MarkPic .\docs --dry-run
 ```
 
 | 参数 | 说明 |
@@ -142,7 +142,7 @@ convert-md-picture .\docs --dry-run
 - 引用式图片（`![alt][label]` + 文档里的 `[label]: 地址 "标题"`）会被换成等价的整行写法，**定义里那个标题一起带过去**——不然渲染出来的图少了悬停提示，等于我们替用户删了点东西。单引号、双引号、括号三种写法的标题都认，换完统一成双引号。
 - 「失效几个」也按地址算：同一个死链在文档里被引用 3 次时，报告写「失效 1 个地址（3 处引用）」，和结尾那份按地址去重的清单是同一个数。以前这里按引用处数报「失效 3 张」，同一份报告里两句话互相打架，读的人会以为坏了三张图。下载模式同理，「没下载回来」把「地址本来坏了」和「这次没拿到」合在一起数，地址数在前、引用处数在括号里。
 - 检测报的「远程图 N 张」是**去重后的地址数**：同一张图被引用 10 次只去敲一次门，引用处数另写在括号里（「远程图 1 张（10 处引用）」）。两个数分开报，是因为它们回答的不是同一个问题——前者是「图床被敲了几次」，后者是「文档里有几处指着它」。以前只报后者，10 处引用看起来像我们对图床敲了十次门。
-- 出站请求都带着自己的名字（`convert-md-picture/<版本>`）。用 Go 默认的 `Go-http-client/1.1` 时，有的站会直接关门——实测维基共享资源的图回 403，换成自己的名字就是 200。那不是图没了，是我们自报家门太敷衍，而检测会把这类地址写成「失效」。
+- 出站请求都带着自己的名字（`markpic/<版本>`）。用 Go 默认的 `Go-http-client/1.1` 时，有的站会直接关门——实测维基共享资源的图回 403，换成自己的名字就是 200。那不是图没了，是我们自报家门太敷衍，而检测会把这类地址写成「失效」。
 - 有的图床压根不实现 HEAD，对什么地址都回 404；所以 404/410 也会**补一次 GET** 再定论，只有 GET 也拿不到才算失效。实测 `picsum.photos` 就是这种：HEAD 404、GET 302 → 200 PNG。代价是真死链多一次请求（449 篇语料的 380 条死链：215 ms → 280 ms），比把好地址报成失效划算得多。一台主机上只要撞见过一次「HEAD 说不通、GET 说得通」，后面的地址就直连 GET 不再白问一趟（10 张 picsum 图：每个地址两趟 → 一趟）。
 - 对方答话了、只是不肯给图（403 防盗链、500 抽风）时，说明写的是「对方回了 HTTP 403，这张图没有拿到」，不是「连不上这个地址」——后者会让人去查防火墙、DNS、代理，可对方明明答话了。
 - `check` 把「200 但是空的」「200 但不是图片」和「200 但只给了一段（206）」都算失效：前者是图床出毛病后最常见的坏响应，只看状态码会给你一份「全部有效」的报告，等你下载完才发现图是空的。206 那条尤其要紧——状态码是 2xx、类型也真是 `image/png`，唯一的问题就是它不是整张。
@@ -151,9 +151,9 @@ convert-md-picture .\docs --dry-run
 - 命令行跑完会在结尾给一份**按地址去重**的清单：哪些地址失效、为什么、在哪几处引用（`d4.md:1`、`d2.md:3` …）。一份长文档里同一个死链被引用几十次是常事，逐行刷屏没人看得下去，照着清单改文档就行。界面上对应的是逐图明细里那几行红字；队列右上角那颗复制图标把同一份清单（按地址去重、带文件名与行号）直接放进剪贴板，不用一行一行抄；清单里除了打不开的远程地址，还有一节「找不到的本地图」——只检测/只下载这两种模式不碰本地图，可引用的文件不在照样是坏链接，以前这一节只在明细里露头。每行右边那颗文件夹图标直接把那份文档（跑完的行给的是副本）在资源管理器里点出来——改完总要去看看。也可以直接把文件或文件夹拖进窗口（拖进来时整屏会暗一下、中间写「松手就加进队列」）；拖一段文字进来则按路径列表处理。下载模式下列的是「没下载回来」的地址——连不上、超时也算在内，不只是返回 404 的那种。
 - 下载和写文档都是「先写临时文件再改名」。进程被强杀（任务管理器结束、关机）时 `defer` 不会执行，临时文件会留在目录里；下次往同一个目录写东西时会顺手清掉**超过一小时**的 `.cmp-*.tmp`，正在写的不会被动到。
 
-退出码：`check` 和 `download` 模式下发现失效的远程地址都会返回 `1`（脚本里可以 `convert-md-picture --remote check docs/ || echo 有死链`）—— 检测时那是这一轮要找的东西，下载时它意味着文档里还留着断链。全部有效返回 `0`。
+退出码：`check` 和 `download` 模式下发现失效的远程地址都会返回 `1`（脚本里可以 `MarkPic --remote check docs/ || echo 有死链`）—— 检测时那是这一轮要找的东西，下载时它意味着文档里还留着断链。全部有效返回 `0`。
 
-想把结果交给脚本处理时加 `-j`：stdout 上只有一份 JSON（`summary` 是汇总，`files` 是逐文件明细，`deadLinks` 是按地址去重后的清单，`warnings` 是那些「没能照常处理」的说明，`error` 是「这一轮根本没开始」的原因（比如图床没开），字段与 `/api/run` 那套事件一致）。退出码规则不变，所以 `convert-md-picture -j --remote check docs/ | jq '.deadLinks[].url'` 拿来喂 CI 是够用的。带账号密码的地址在这份 JSON 里同样被抹成 `***@`。
+想把结果交给脚本处理时加 `-j`：stdout 上只有一份 JSON（`summary` 是汇总，`files` 是逐文件明细，`deadLinks` 是按地址去重后的清单，`warnings` 是那些「没能照常处理」的说明，`error` 是「这一轮根本没开始」的原因（比如图床没开），字段与 `/api/run` 那套事件一致）。退出码规则不变，所以 `MarkPic -j --remote check docs/ | jq '.deadLinks[].url'` 拿来喂 CI 是够用的。带账号密码的地址在这份 JSON 里同样被抹成 `***@`。
 
 ### 输出方式
 
@@ -229,7 +229,7 @@ convert-md-picture .\docs --dry-run
 程序不往系统目录里塞东西，所有数据都在 **exe 旁边的 `data` 目录**里：
 
 ```
-convert-md-picture.exe
+MarkPic.exe
 data/
   settings.json     界面里改的设置（原子写入，损坏时自动回退默认值）
   upload-cache.json 上次上传拿到的图片地址，重复运行就不用再传一遍（删掉只是会重传）
@@ -241,13 +241,13 @@ remote-cache.json 上次下载远程图的记录，重复运行就不用再下�
 `data` 目录就等于清干净；自动更新只替换 exe，`data` 原样留着。
 
 只有一种情况会放到系统目录：**exe 所在目录写不进去**（比如装进了 `Program Files`，或者放在
-只读介质上），这时会退回 `%APPDATA%\convert-md-picture\`，并在「关于」弹窗里说明原因。
+只读介质上），这时会退回 `%APPDATA%\markpic\`，并在「关于」弹窗里说明原因。
 从旧版本升级过来时，原来写在 `%APPDATA%` 的设置会自动搬到 `data` 目录，不会丢。
 
 想指定别的位置，设环境变量 `CMP_DATA_DIR` 即可（多开、把数据放移动硬盘上都用得上）：
 
 ```powershell
-$env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\convert-md-picture.exe
+$env:CMP_DATA_DIR = 'D:\cmp-data'; .\bin\MarkPic.exe
 ```
 
 「关于」弹窗里能看到当前的数据目录，点「打开」直接在资源管理器里定位过去。
@@ -296,7 +296,7 @@ $env:CMP_UPDATE_MANIFEST = 'http://127.0.0.1:8080/version.json'
 .\scripts\release.ps1 -Version 1.0.1 -Notes "修了几个对齐问题"
 ```
 
-脚本会用这个版本号编译 `bin\convert-md-picture-v1.0.1-windows-amd64.exe`，
+脚本会用这个版本号编译 `bin\MarkPic-v1.0.1-windows-amd64.exe`，
 算出 SHA-256 与大小，写进 `version.json`，并打印后续的 `gh release create` / `git tag` 命令。
 
 顺序很重要：**先把 exe 传到 release，再推 `version.json`**。
@@ -347,7 +347,7 @@ PicGo 状态）→ 在 `127.0.0.1:5173` 启动 Vite 并把 `/api/*` 代理到后
 | `http://127.0.0.1:17860` | 后端接口本身（可以直接调 `/api/*`，见 `docs/API.md`） |
 
 > 终端里只看到横幅是正常的：本脚本不碰浏览器，自己打开 `http://127.0.0.1:5173` 就行；确认这个
-> 终端还在运行（Ctrl+C 或关掉窗口会把前后端一起带走）。`pnpm start` 与双击 `convert-md-picture.exe`
+> 终端还在运行（Ctrl+C 或关掉窗口会把前后端一起带走）。`pnpm start` 与双击 `MarkPic.exe`
 > 是另一种形态：自带界面（桌面窗口），不需要浏览器；想改成浏览器打开就加 `--browser`，只想跑服务
 > 就加 `--no-open`。
 
@@ -423,18 +423,18 @@ pnpm start -- -Port 17900    # 换端口
 .\scripts\build.ps1 -Web -Test # 再顺手跑一遍测试
 ```
 
-产物是 `bin\convert-md-picture.exe`（约 9 MB），双击即可运行。
+产物是 `bin\MarkPic.exe`（约 9 MB），双击即可运行。
 版本号从 git 自动注入，`--version` 可以看到（例如 `1.0.0 (5494b24)`）。
 
 ### 手动构建（不用脚本）
 
 ```powershell
 # 只构建 Go 部分（前端产物已提交在仓库里）
-go build -o bin\convert-md-picture.exe .\cmd\convert-md-picture
+go build -o bin\MarkPic.exe .\cmd\convert-md-picture
 
 # 改了前端：先构建前端，再构建 exe
 cd web; pnpm install; pnpm build; cd ..
-go build -o bin\convert-md-picture.exe .\cmd\convert-md-picture
+go build -o bin\MarkPic.exe .\cmd\convert-md-picture
 
 # 跑测试
 go test ./...
@@ -471,7 +471,7 @@ go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\con
 交叉编译到其他平台：
 
 ```powershell
-$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bin/convert-md-picture-linux ./cmd/convert-md-picture
+$env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bin/MarkPic-linux ./cmd/convert-md-picture
 ```
 
 交叉编译不会带上 Windows 图标（`*.syso` 只在对应平台参与链接）。

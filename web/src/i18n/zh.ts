@@ -13,7 +13,7 @@ export const zh = {
   'common.save': '保存',
 
   // 标题栏
-  'header.brand': 'convert-md-picture · Markdown 图片图床化',
+  'header.brand': 'MarkPic · 把 Markdown 里的图片收进图床',
   'header.picgo.checking': '检查中…',
   'header.picgo.online': 'PicGo 已连接',
   'header.picgo.notNeeded': '本次不需要 PicGo',
@@ -255,6 +255,7 @@ export const zh = {
 
   // 关于与更新
   'about.title': '关于',
+  'about.appName': 'MarkPic',
   'about.current': '当前版本',
   'about.latest': '最新版本',
   'about.status': '状态',

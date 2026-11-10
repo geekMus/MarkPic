@@ -118,12 +118,9 @@ function handleDoubleClick(event: MouseEvent): void {
       <!-- 字标：名字还是命令行里那个，但不带连字符 —— 连字符在 13px 下会读成三个碎词，
            换成两颗小圆点做节奏；md 仍是唯一被点亮的那段（它是这个工具真正在做的事）。
            正文用界面字体，不再用等宽：等宽放在标题栏里像一句代码注释。 -->
-      <span class="brand" role="img" aria-label="convert-md-picture" :title="t('header.brand')">
-        <span class="brand__word" aria-hidden="true">convert</span>
-        <span class="brand__dot" aria-hidden="true" />
-        <span class="brand__word brand__word--md" aria-hidden="true">md</span>
-        <span class="brand__dot" aria-hidden="true" />
-        <span class="brand__word" aria-hidden="true">picture</span>
+      <span class="brand" role="img" aria-label="MarkPic" :title="t('header.brand')">
+        <span class="brand__mark" aria-hidden="true">Mark</span>
+        <span class="brand__pic" aria-hidden="true">Pic</span>
       </span>
     </div>
 
@@ -245,35 +242,32 @@ function handleDoubleClick(event: MouseEvent): void {
   height: 24px;
 }
 
-/* 字标：界面字体 + 小圆点做节奏，中段「md」是唯一被点亮的部分。
-   以前是等宽小写加连字符，在标题栏里读起来像一句代码注释 */
+/* 字标用 Gabriola：Windows 自带的书法体，笔画有粗细与连势，比等宽小写更像一个名字。
+   换机器没这字体时依次退回 Segoe Script、Ink Free、Palatino，都缺才落到 Georgia。 */
 .brand {
   display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  overflow: hidden;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 0;
   color: var(--ink);
-  font-family: var(--font);
-  font-size: 13.5px;
-  font-weight: 600;
-  letter-spacing: 0.012em;
+  font-family: Gabriola, "Segoe Script", "Ink Free", "Palatino Linotype", Georgia, serif;
+  font-size: 27px;
+  line-height: 1.12;
+  letter-spacing: 0.004em;
+  font-variant-ligatures: discretionary-ligatures;
   white-space: nowrap;
 }
 
-.brand__dot {
+.brand__mark {
   flex: none;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--ink-3);
-  opacity: 0.55;
 }
 
-.brand__word--md {
+/* 「Pic」是这个词里唯一被点亮的一段：工具真正在做的事是「图」 */
+.brand__pic {
+  flex: none;
+  margin-left: 1px;
   color: var(--accent-ink);
-  font-weight: 700;
 }
-
 .tb__status {
   display: flex;
   align-items: center;

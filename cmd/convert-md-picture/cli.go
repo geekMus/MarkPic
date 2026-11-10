@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/convert-md-picture/internal/brand"
 	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
@@ -87,7 +88,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet, jsonOut bool) int {
 	}
 	// 「失效的远程地址」在两种模式里都是坏消息：只检测时它就是这一轮要找的东西
 	// （一个永远退 0 的检查器在脚本里没有用），下载时它意味着文档里还留着断链。
-	// `convert-md-picture --remote check docs/ || echo 有死链` 该能察觉。
+	// `MarkPic --remote check docs/ || echo 有死链` 该能察觉。
 	if cfg.Remote != settings.RemoteIgnore && sum.RemoteDead > 0 {
 		return 1
 	}
@@ -97,7 +98,7 @@ func runCLI(cfg settings.Settings, paths []string, quiet, jsonOut bool) int {
 		return 1
 	}
 	// 一个文件都没处理（路径全都不存在、通配符没匹配到、目录里没有 Markdown）：
-	// 脚本里 `convert-md-picture docs/*.md || echo 出错了` 应该能察觉，所以也算失败。
+	// 脚本里 `MarkPic docs/*.md || echo 出错了` 应该能察觉，所以也算失败。
 	if sum.Files == 0 {
 		fmt.Fprintln(os.Stderr, "没有找到任何可处理的文件。")
 		return 1
@@ -172,7 +173,7 @@ func (p *printer) header(cfg settings.Settings) {
 	if p.jsonOut {
 		return
 	}
-	fmt.Printf("convert-md-picture %s\n", version.String())
+	fmt.Printf("%s %s\n", brand.Name, version.String())
 	fmt.Printf("PicGo %s\n", cfg.Endpoint)
 	fmt.Printf("模式 %s · 并发 %d%s%s\n\n", modeLabel(cfg.Output), cfg.Concurrency, dryRunLabel(cfg.DryRun), remoteLabel(cfg.Remote))
 }

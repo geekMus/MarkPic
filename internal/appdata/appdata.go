@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/geekMus/convert-md-picture/internal/brand"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 )
 
@@ -20,7 +21,10 @@ import (
 const EnvDir = "CMP_DATA_DIR"
 
 // appName 是退回系统目录时用的目录名，也是旧版本用过的名字。
-const appName = "convert-md-picture"
+const appName = brand.Slug
+
+// legacyAppName 是改名前的目录名：只用于把老用户的设置搬过来。
+const legacyAppName = "convert-md-picture"
 
 // dirName 是 exe 旁边那个数据目录的名字。
 const dirName = "data"
@@ -149,7 +153,7 @@ func LegacySettingsPath() string {
 	if err != nil || cfg == "" {
 		return ""
 	}
-	return filepath.Join(cfg, appName, "settings.json")
+	return filepath.Join(cfg, legacyAppName, "settings.json")
 }
 
 // AdoptLegacySettings 在新位置还没有设置、旧位置有设置时把它搬过来，这样老用户升级

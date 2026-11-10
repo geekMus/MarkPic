@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/geekMus/convert-md-picture/internal/brand"
 )
 
 // tinyPNG 是一张 1×1 的 PNG，够喂 DetectContentType 了。
@@ -1227,8 +1229,8 @@ func TestProbeSendsUserAgent(t *testing.T) {
 	if _, err := newClient(t).Probe(context.Background(), srv.URL+"/x.png"); err != nil {
 		t.Fatalf("不该报错: %v", err)
 	}
-	if !strings.HasPrefix(got, "convert-md-picture/") {
-		t.Fatalf("User-Agent = %q，应该是 convert-md-picture/<版本>", got)
+	if !strings.HasPrefix(got, brand.Slug+"/") {
+		t.Fatalf("User-Agent = %q，应该是 markpic/<版本>", got)
 	}
 }
 

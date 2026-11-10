@@ -23,6 +23,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/geekMus/convert-md-picture/internal/brand"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -101,7 +103,7 @@ const (
 // appUserModelID 让任务栏把窗口认成「我们自己」：钉住的快捷方式和正在运行的
 // 窗口会归到一组，用的也是 exe 自带的那个图标。不设的话 Windows 用 exe 路径
 // 猜一个，钉住之后容易和运行中的窗口分成两个图标。
-const appUserModelID = "geekMus.convert-md-picture"
+const appUserModelID = brand.AppUserModelID
 
 var (
 	user32Chrome   = syscall.NewLazyDLL("user32.dll")

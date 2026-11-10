@@ -9,7 +9,7 @@
 
       git tag v1.0.1
       git commit -am "release v1.0.1" ; git push --follow-tags
-      gh release create v1.0.1 bin\convert-md-picture-v1.0.1-windows-amd64.exe --title v1.0.1
+      gh release create v1.0.1 bin\MarkPic-v1.0.1-windows-amd64.exe --title v1.0.1
 
   发版顺序很重要：先把 exe 传上 release，再推 version.json 所在的分支 ——
   否则老版本会看到一个指向还不存在的下载地址的清单。
@@ -24,7 +24,7 @@
   不重新编译，只按现有产物重写 version.json。
 
 .PARAMETER Output
-  产物路径，默认 bin\convert-md-picture-v<版本>-windows-amd64.exe。
+  产物路径，默认 bin\MarkPic-v<版本>-windows-amd64.exe。
 
 .EXAMPLE
   .\scripts\release.ps1 -Version 1.0.1 -Notes "修了几个对齐问题"
@@ -52,7 +52,7 @@ try {
     }
     $tag = "v$Version"
     if (-not $Output) {
-        $Output = "bin\convert-md-picture-$tag-windows-amd64.exe"
+        $Output = "bin\MarkPic-$tag-windows-amd64.exe"
     }
 
     if (-not $SkipBuild) {

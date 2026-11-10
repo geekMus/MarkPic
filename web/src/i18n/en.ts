@@ -14,7 +14,7 @@ export const en: Record<keyof typeof zh, string> = {
   'common.save': 'Save',
 
   // Title bar
-  'header.brand': 'convert-md-picture · Markdown image hosting',
+  'header.brand': 'MarkPic · Markdown images to your image host',
   'header.picgo.checking': 'Checking…',
   'header.picgo.online': 'PicGo connected',
   'header.picgo.notNeeded': 'PicGo not needed',
@@ -259,6 +259,7 @@ export const en: Record<keyof typeof zh, string> = {
 
   // About and updates
   'about.title': 'About',
+  'about.appName': 'MarkPic',
   'about.current': 'Current version',
   'about.latest': 'Latest version',
   'about.status': 'Status',

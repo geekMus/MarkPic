@@ -1,4 +1,4 @@
-# convert-md-picture — 本地 HTTP API 契约
+# MarkPic — 本地 HTTP API 契约
 
 GUI 模式下，单文件 exe 会在 `127.0.0.1:<port>` 启动一个**仅监听回环地址**的 HTTP 服务，
 前端静态资源通过 `go:embed` 打进二进制，API 与静态资源同源。

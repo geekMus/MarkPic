@@ -118,7 +118,7 @@ async function openDataDir(): Promise<void> {
       <header class="panel__head">
         <div class="panel__title">
           <h2 id="about-title">{{ t('about.title') }}</h2>
-          <span class="panel__note mono">convert-md-picture</span>
+          <span class="panel__note mono">{{ t('about.appName') }}</span>
         </div>
         <div class="panel__actions">
           <button

@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/convert-md-picture/internal/brand"
 	"github.com/geekMus/convert-md-picture/internal/conv"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/picgo"
@@ -34,8 +35,8 @@ import (
 	"github.com/geekMus/convert-md-picture/internal/webui"
 )
 
-// AppName 用于识别「已有实例在运行」。
-const AppName = "convert-md-picture"
+// AppName 用于识别「已有实例在运行」，也是 /api/health 里那个 app 字段。
+const AppName = brand.Slug
 
 // Server 是本地服务实例。
 type Server struct {

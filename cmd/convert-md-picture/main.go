@@ -1,4 +1,4 @@
-// convert-md-picture 把 Markdown 文档里的本地图片上传到 PicGo 图床，
+// MarkPic 把 Markdown 文档里的本地图片上传到 PicGo 图床，
 // 并把文档里的链接替换成图床地址。
 //
 // 两种用法：
@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/geekMus/convert-md-picture/internal/appdata"
+	"github.com/geekMus/convert-md-picture/internal/brand"
 	"github.com/geekMus/convert-md-picture/internal/i18n"
 	"github.com/geekMus/convert-md-picture/internal/platform"
 	"github.com/geekMus/convert-md-picture/internal/server"
@@ -98,7 +99,7 @@ func run(args []string) int {
 
 func newRootCmd(opt *options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:           "convert-md-picture [文件|目录 ...]",
+		Use:           brand.Name + " [文件|目录 ...]",
 		Short:         "把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接",
 		Args:          cobra.ArbitraryArgs,
 		SilenceUsage:  true, // 帮助统一由 UsageFunc 输出，出错时只报错
@@ -218,7 +219,7 @@ func applyOverrides(cmd *cobra.Command, opt options, cfg *settings.Settings) {
 }
 
 // appTitle 是任务栏与消息框里显示的名字：和 exe、和标题栏里的字标同一个名字。
-const appTitle = "convert-md-picture"
+const appTitle = brand.Name
 
 func runGUI(store *settings.Store, opt options) int {
 	sig := make(chan os.Signal, 1)
@@ -276,7 +277,7 @@ func runGUI(store *settings.Store, opt options) int {
 	go func() { _ = srv.Serve() }()
 
 	url := srv.URL()
-	fmt.Printf("convert-md-picture %s\n", version.String())
+	fmt.Printf("%s %s\n", brand.Name, version.String())
 	fmt.Printf("已启动：%s\n", url)
 	fmt.Printf("数据目录：%s\n", appdata.Dir())
 	if note := appdata.Note(i18n.ZH); note != "" {
@@ -357,15 +358,17 @@ func findRunning(port int) string {
 }
 
 func usageText() string {
-	return fmt.Sprintf(usageTemplate, settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency,
+	// 模板里用 {name} 占位：产品名只有一个来源（brand.Name），示例不必逐处手改。
+	tpl := strings.ReplaceAll(usageTemplate, "{name}", brand.Name)
+	return fmt.Sprintf(tpl, settings.MinConcurrency, settings.MaxConcurrency, settings.DefaultConcurrency,
 		settings.MinRetries, settings.MaxRetries, settings.DefaultRetries)
 }
 
-const usageTemplate = `convert-md-picture — 把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接
+const usageTemplate = `{name} — 把 Markdown 里的本地图片上传到 PicGo 图床并替换为图床链接
 
 用法：
-  convert-md-picture                    打开桌面窗口
-  convert-md-picture <文件|目录> ...     命令行批量转换
+  {name}                    打开桌面窗口
+  {name} <文件|目录> ...     命令行批量转换
 
 参数：
   -p, --port int         图形界面端口（默认 17860，被占用时自动后移）
@@ -393,12 +396,12 @@ const usageTemplate = `convert-md-picture — 把 Markdown 里的本地图片上
   -h, --help             显示帮助
 
 示例：
-  convert-md-picture 笔记.md
-  convert-md-picture . --in-place
-  convert-md-picture docs -o directory --out-dir ./out
-  convert-md-picture post.md --remote check
-  convert-md-picture -j --remote check docs/ | jq -r '.deadLinks[].url'
-  convert-md-picture post.md --remote download --remote-dir assets/img
+  {name} 笔记.md
+  {name} . --in-place
+  {name} docs -o directory --out-dir ./out
+  {name} post.md --remote check
+  {name} -j --remote check docs/ | jq -r '.deadLinks[].url'
+  {name} post.md --remote download --remote-dir assets/img
 `
 
 // reportSettingsProblem 把「设置文件读不出来、现在跑的是默认值」这件事说给用户听。

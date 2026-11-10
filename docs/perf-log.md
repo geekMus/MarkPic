@@ -4213,3 +4213,57 @@ DOM 查一遍（`document.querySelector` 找到那个元素、看它的属性与
 - `AppHeader.vue` 是 **CRLF**，行级替换必须按 `\r\n` 切；按 LF 写锚点会静默 miss。
 - 替换 `.tb__mark` 那段样式时多留了一个 `}`：**`typecheck` 仍然是 0**（TypeScript 不看 CSS），
   只有 `vite` 构建才报 `postcss Parser.unexpectedClose`。改完 CSS 一定要跑一次构建。
+
+## 更名：从 `convert-md-picture` 到 `MarkPic`
+
+用户的原话是「我是想把我们项目更名。给一个简单好记并且标题这里名字用艺术体写法」——
+不是把标题重排一遍，是换名字。之前那版圆点字标虽然已经把三个词读顺了，但
+`convert-md-picture` 这个名字本身是「动词短语 + 三个连字符」，念起来要断三次，
+写进任务栏、开始菜单、关于弹窗都占地方。
+
+新名字 **MarkPic**：Markdown 取前半、Picture 取后半，两个词各占一半，念起来是
+「Mark·Pic」两个音节；中文一句话解释是「把 Markdown 里的图片收进图床」，
+正好也是它做的事。
+
+**名字只在一处定义。** 新增 `internal/brand`：
+
+```go
+Name           = "MarkPic"           // 窗口标题、任务栏、关于弹窗、命令行抬头
+Slug           = "markpic"           // 目录名、文件名、/api/health 的 app 字段
+AppUserModelID = "geekMus.markpic"   // Windows 把窗口归到哪个任务栏身份下
+```
+
+Go 侧的 `appTitle`、cobra 的 `Use`、`usageText()` 里的 6 条示例、两处版本打印、
+`appdata` 的回落目录名、`/api/health` 的 `app`、以及出站请求的 `User-Agent`
+（`markpic/<版本>`）全部改成引用这里，没有第二份字面量。
+
+**决策：什么跟着改，什么不动。**
+
+- 改：exe 名（`bin\MarkPic.exe`）、窗口标题、任务栏身份、命令行桥接示例、关于弹窗、
+  `web/index.html` 的 `<title>`、`/api/health` 的 `app`、UA、README 里的命令。
+- 不动：Go module path `github.com/geekMus/convert-md-picture`（192 处 import，跟仓库走）、
+  GitHub 仓库 URL、环境变量前缀 `CMP_*`、exe 旁的 `data/` 目录名。
+- 迁移：`appdata` 里保留 `legacyAppName = "convert-md-picture"`，
+  `LegacySettingsPath()` 继续指向 `%APPDATA%\convert-md-picture\settings.json` ——
+  老用户装在 Program Files 里时，设置是从那个旧目录搬过来的，这条不能跟着改名断了。
+
+**艺术体。** Windows 自带 Gabriola（`C:\Windows\Fonts\Gabriola.ttf`），书法感强、
+字形舒展，不用打包字体文件；回退链 `Gabriola, "Segoe Script", "Ink Free",
+"Palatino Linotype", Georgia, serif`。字标拆成 `Mark` + `Pic` 两段，`Pic` 用
+`--accent-ink`：名字里有一半被点亮，跟界面上「正在做的事」用同一种颜色。
+
+第一版写 24px / `line-height: 1`，实测字标盒只有 24px 高、Gabriola 的升部被压，
+改成 27px / 1.12 才舒展开（Dom 实测 107×30，标题栏 44px 里不挤）。
+
+**两个坑（都是「静默失效」那一类）。**
+
+1. `web/src/components/AppHeader.vue` 是 **CRLF** 文件。按 LF 锚点做替换，
+   `git diff` 里只会出现 CSS 的变化，模板那几行根本没动——改完必须
+   `git diff --stat` 或直接在浏览器里量 DOM（`document.querySelector('.brand')`）。
+2. `scripts/build.ps1`、`scripts/release.ps1` 必须存 **UTF-8 with BOM**。
+   我用无 BOM 写回了一次，PowerShell 5.1 按 GBK 读，`build.ps1` 里那句
+   Write-Host 变成乱码、脚本直接解析失败——这不是逻辑错，是编码错，报错信息
+   看起来却像语法错。
+
+改名之后有一件事要人工做一次：如果之前把窗口钉在任务栏上，得先取消固定再重钉——
+`AppUserModelID` 换了，Windows 认为这是一个新程序。
