@@ -312,23 +312,23 @@ function onScroll(): void {
       <div class="panel__actions">
         <button
           type="button"
-          class="btn btn--secondary btn--sm"
+          class="icon-btn"
           :title="t('queue.pickFiles')"
+          :aria-label="t('queue.pickFiles')"
           :disabled="busy"
           @click="emit('pick-files')"
         >
-          <AppIcon name="file-plus" :size="14" />
-          {{ t('queue.files') }}
+          <AppIcon name="file-plus" :size="16" />
         </button>
         <button
           type="button"
-          class="btn btn--secondary btn--sm"
+          class="icon-btn"
           :title="t('queue.pickFolder')"
+          :aria-label="t('queue.pickFolder')"
           :disabled="busy"
           @click="emit('pick-folder')"
         >
-          <AppIcon name="folder-plus" :size="14" />
-          {{ t('queue.folder') }}
+          <AppIcon name="folder-plus" :size="16" />
         </button>
         <button
           type="button"

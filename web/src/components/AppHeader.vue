@@ -14,7 +14,6 @@ const props = defineProps<{
   picgoNeeded?: boolean
   healthChecking: boolean
   theme: 'light' | 'dark'
-  optionsOpen: boolean
   phase: RunPhase
   completed: number
   total: number
@@ -23,7 +22,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'refresh-health': []
   'toggle-theme': []
-  'toggle-settings': []
+  'open-palette': []
 }>()
 
 const { available: windowChrome, maximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
@@ -130,6 +129,16 @@ function handleDoubleClick(event: MouseEvent): void {
     <div class="tb__tools" data-no-drag>
       <button
         type="button"
+        class="icon-btn"
+        :title="t('palette.open')"
+        :aria-label="t('palette.open')"
+        @click="emit('open-palette')"
+      >
+        <AppIcon name="command" :size="15" />
+      </button>
+
+      <button
+        type="button"
         class="health"
         :data-tone="picgoTone"
         :title="picgoTitle"
@@ -139,8 +148,6 @@ function handleDoubleClick(event: MouseEvent): void {
         <span class="health__text">{{ picgoLabel }}</span>
       </button>
 
-      <span class="tb__sep" aria-hidden="true" />
-
       <button
         type="button"
         class="icon-btn"
@@ -148,19 +155,7 @@ function handleDoubleClick(event: MouseEvent): void {
         :aria-label="themeTitle"
         @click="emit('toggle-theme')"
       >
-        <AppIcon :name="themeIcon" :size="16" />
-      </button>
-
-      <button
-        type="button"
-        class="icon-btn"
-        :class="{ 'icon-btn--active': optionsOpen }"
-        :title="optionsOpen ? t('header.settings.close') : t('header.settings.open')"
-        :aria-label="optionsOpen ? t('header.settings.close') : t('header.settings.open')"
-        :aria-pressed="optionsOpen"
-        @click="emit('toggle-settings')"
-      >
-        <AppIcon name="settings" :size="16" />
+        <AppIcon :name="themeIcon" :size="15" />
       </button>
     </div>
 
@@ -200,8 +195,8 @@ function handleDoubleClick(event: MouseEvent): void {
 .tb {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 44px;
+  gap: 10px;
+  height: 40px;
   /* 抵消 .app 的左右留白，让窗口按钮贴到窗口右边缘 */
   margin: 0 calc(var(--gutter) * -1);
   padding: 0 var(--gutter);
@@ -224,21 +219,15 @@ function handleDoubleClick(event: MouseEvent): void {
   display: grid;
   place-items: center;
   flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  /* 深色标题栏里 --mark 和底色几乎同值，靠这圈极淡的强调色描边把形状托住；
-     浅色下这条描边看不见，也不影响 */
-  outline: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-  outline-offset: -1px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 1px 2px rgba(13, 17, 23, 0.18),
-    0 8px 18px -12px rgba(13, 17, 23, 0.8);
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
 }
 
 .tb__mark svg {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 
 /* 字标用 Gabriola：Windows 自带的书法体，笔画有粗细与连势，比等宽小写更像一个名字。
@@ -250,14 +239,14 @@ function handleDoubleClick(event: MouseEvent): void {
   min-width: 0;
   color: var(--ink);
   font-family: Gabriola, "Segoe Script", "Ink Free", "Palatino Linotype", Georgia, serif;
-  font-size: 27px;
-  line-height: 1.12;
+  font-size: 24px;
+  line-height: 1.1;
   letter-spacing: 0.004em;
   font-variant-ligatures: discretionary-ligatures;
   white-space: nowrap;
   /* 墨迹居中而不是行盒居中：Gabriola 的 ascent/descent 是 18/9，「MarkPic」又没有下伸部，
-     行盒居中之后墨迹整体偏高约 5px，跟左边 24px 的标记并排时看起来像「底边对齐」。
-     挪 0.185em（27px 字号下正好 5px，跟着字号缩放）让墨迹中心落在标记中心上。 */
+     行盒居中之后墨迹整体偏高，跟左边的小方块并排时看起来像「底边对齐」。
+     0.185em 让墨迹中心落回方块中心（跟着字号缩放）。 */
   transform: translateY(0.185em);
 }
 
@@ -286,25 +275,18 @@ function handleDoubleClick(event: MouseEvent): void {
   flex: none;
 }
 
-.tb__sep {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--line-2);
-}
-
 /* PicGo 状态读成一个可点的徽标，悬停才浮起来 */
 .health {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  height: 28px;
-  padding: 0 11px;
+  height: 24px;
+  padding: 0 9px;
   border: 1px solid var(--line-2);
   border-radius: var(--r-pill);
-  background: var(--panel);
-  color: var(--ink-2);
-  font-size: var(--fs-2);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
   cursor: pointer;
   transition:
     border-color var(--t-fast) var(--ease),
@@ -319,8 +301,8 @@ function handleDoubleClick(event: MouseEvent): void {
 }
 
 .health__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--ink-3);
 }

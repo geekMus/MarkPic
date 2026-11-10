@@ -53,8 +53,8 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
   z-index: 40;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: 340px;
+  gap: 6px;
+  width: 320px;
   max-width: calc(100vw - 40px);
   pointer-events: none;
 }
@@ -63,34 +63,21 @@ const ICON_BY_TONE: Record<ToastTone, 'info' | 'check' | 'alert'> = {
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  padding: 10px 8px 10px 12px;
-  border: 1px solid var(--border-panel);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--r-3);
+  padding: 9px 8px 9px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow-pop);
   pointer-events: auto;
-}
-
-.toast[data-tone='success'] {
-  border-left-color: var(--ok);
-}
-
-.toast[data-tone='warning'] {
-  border-left-color: var(--warn);
-}
-
-.toast[data-tone='danger'] {
-  border-left-color: var(--bad);
 }
 
 .toast__icon {
   display: grid;
   place-items: center;
   flex: none;
-  width: 18px;
-  height: 18px;
-  margin-top: 1px;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
   color: var(--accent);
 }
 

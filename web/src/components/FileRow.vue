@@ -276,12 +276,12 @@ const showReplacedStat = computed(
 
 /**
  * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
- * （路径根本没匹配到文件的行不展开，见 noDetails，所以这里只剩「没有本地图片」一种情况。）
+ * （路径根本没匹配到文件的行不展开，见 canExpand，所以这里只剩「没有本地图片」一种情况。）
  */
 const emptyDetailsText = computed(() => t('row.details.empty'))
 
-/** 没有逐图明细的行（例如路径下压根没有 Markdown）就不该给一个能点的展开箭头。 */
-const noDetails = computed(() => Boolean(props.row.missing) && !props.row.result)
+/** 有逐图明细才能展开：判据直接看结果里的 items，不再绕「缺文件」那一层推断。 */
+const canExpand = computed(() => (props.row.result?.items?.length ?? 0) > 0)
 
 /**
  * 逐图状态文字。下载模式里「failed」指的是下载不下来，
@@ -378,7 +378,7 @@ function onItemsScroll(event: Event): void {
 /** 点行就是「选中它」：右栏跟着换内容；有明细的行顺带展开，保持原来的手感。 */
 function onRowClick(): void {
   emit('select', props.row.id)
-  if (!noDetails) toggleExpanded()
+  if (canExpand.value) toggleExpanded()
 }
 
 function toggleExpanded(): void {
@@ -406,19 +406,23 @@ function replaced(status: ImageStatus): boolean {
 </script>
 
 <template>
-  <li class="item" :data-tone="statusMeta.tone" :data-selected="props.selected ? 'yes' : null">
+  <li
+    class="item"
+    :data-tone="statusMeta.tone"
+    :data-selected="props.selected ? 'yes' : null"
+  >
     <div class="item__main">
       <button
         type="button"
         class="item__toggle"
-        :disabled="noDetails"
-        :aria-expanded="noDetails ? undefined : expanded"
-        :aria-controls="noDetails ? undefined : detailsId"
-        :title="noDetails ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
+        :disabled="!canExpand"
+        :aria-expanded="canExpand ? expanded : undefined"
+        :aria-controls="canExpand ? detailsId : undefined"
+        :title="!canExpand ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
         @click="onRowClick"
       >
         <span
-          v-if="!noDetails"
+          v-if="canExpand"
           class="item__chev"
           :class="{ 'item__chev--on': expanded }"
           aria-hidden="true"
@@ -472,7 +476,7 @@ function replaced(status: ImageStatus): boolean {
       <span :style="indeterminate ? undefined : { width: percent + '%' }" />
     </div>
 
-    <div v-if="expanded && !noDetails" :id="detailsId" class="details">
+    <div v-if="expanded && canExpand" :id="detailsId" class="details">
       <div class="details__stats">
         <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
         <span v-if="showReplacedStat" class="stat">
@@ -561,29 +565,26 @@ function replaced(status: ImageStatus): boolean {
 <style scoped>
 .item {
   position: relative;
-  padding-left: 10px;
   border-bottom: 1px solid var(--line);
   transition: background var(--t-fast) var(--ease);
 }
 
-/* 悬停时左沿亮起一小段强调色：光标落在哪一行，一眼就有落点。
-   它比整行换底色更「准」，也不打断台账的节奏。 */
+/* 选中的行：左侧一条 2px 的强调线 + 一层极淡的底色。
+   不靠投影、不靠描边 —— 列表里大部分时间没有任何一行是选中的。 */
 .item::before {
   position: absolute;
-  top: 10px;
-  bottom: 10px;
+  top: 0;
+  bottom: 0;
   left: 0;
   width: 2px;
-  border-radius: 2px;
   background: var(--accent);
   content: '';
   opacity: 0;
   transition: opacity var(--t-fast) var(--ease);
 }
 
-.item:hover::before,
-.item:focus-within::before {
-  opacity: 0.85;
+.item[data-selected='yes']::before {
+  opacity: 1;
 }
 
 .item:last-child {
@@ -591,16 +592,20 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .item:hover {
-  background: color-mix(in srgb, var(--panel-2) 60%, transparent);
+  background: var(--panel-2);
+}
+
+.item[data-selected='yes'] {
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
 }
 
 .item__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px 96px 68px;
+  grid-template-columns: minmax(0, 1fr) 64px 92px 64px;
   align-items: center;
-  column-gap: 10px;
-  min-height: 62px;
-  padding-right: 10px;
+  column-gap: 8px;
+  min-height: 56px;
+  padding-right: 8px;
 }
 
 /* 展开箭头绝对定位在轨道左侧，名字文字和列头的「文件」严格对齐 */
@@ -613,7 +618,7 @@ function replaced(status: ImageStatus): boolean {
   display: flex;
   align-items: center;
   min-width: 0;
-  padding: 8px 0 8px 26px;
+  padding: 7px 0 7px 24px;
   border: 0;
   background: none;
   text-align: left;
@@ -655,7 +660,7 @@ function replaced(status: ImageStatus): boolean {
   overflow: hidden;
   color: var(--ink);
   font-size: var(--fs-3);
-  font-weight: 600;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -719,7 +724,7 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .item__reason {
-  padding: 0 10px 8px 36px;
+  padding: 0 8px 7px 24px;
   color: var(--warn);
   font-size: var(--fs-2);
   line-height: 1.5;
@@ -732,7 +737,7 @@ function replaced(status: ImageStatus): boolean {
 .item__rail {
   position: relative;
   height: 2px;
-  margin: 0 10px 0 36px;
+  margin: 0 8px 0 24px;
   overflow: hidden;
   border-radius: var(--r-pill);
   background: var(--line);
@@ -776,10 +781,10 @@ function replaced(status: ImageStatus): boolean {
 /* ---- 展开后的明细台账 ---- */
 
 .details {
-  margin: 2px 10px 12px 36px;
-  padding: 12px 14px 13px;
+  margin: 0 8px 10px 24px;
+  padding: 10px 12px 11px;
   border: 1px solid var(--line);
-  border-radius: var(--r-3);
+  border-radius: var(--r-2);
   background: var(--panel-2);
   animation: details-in var(--t-base) var(--ease);
 }
@@ -788,17 +793,15 @@ function replaced(status: ImageStatus): boolean {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  padding-bottom: 11px;
-  border-bottom: 1px solid var(--line-2);
+  gap: 12px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--line);
 }
 
-/* 一眼看数：数字在前、单位在后，底下一层极淡的片，三档并列时不至于挤成一行字 */
-.details__stats .stat {
-  padding: 3px 9px 4px;
-  border: 1px solid var(--line-2);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+/* 一眼看数：数字在前、单位在后，平铺成一行，不加一个个小胶囊。 */
+.details__stats .stat + .stat {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 
 .stat {
@@ -809,7 +812,7 @@ function replaced(status: ImageStatus): boolean {
 
 .stat__n {
   color: var(--ink);
-  font-size: var(--fs-4);
+  font-size: var(--fs-3);
   font-weight: 600;
   line-height: 1;
 }

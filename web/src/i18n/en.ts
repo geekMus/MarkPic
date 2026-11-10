@@ -183,6 +183,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.output': 'Output',
 
   // Empty state
+  'empty.eyebrow': 'Local images → hosted links',
   'empty.title': 'Replace local images with image-host links',
   'empty.text':
     'Reads the local images referenced by your Markdown, uploads them through the local PicGo, and swaps those paths for image-host links. Writes a copy by default and leaves the originals untouched.',
@@ -263,6 +264,24 @@ export const en: Record<keyof typeof zh, string> = {
   'about.state.error': 'Check failed',
   'about.state.idle': 'Not checked yet',
 
+  // Command palette
+  'palette.label': 'Command palette',
+  'palette.placeholder': 'Search commands…',
+  'palette.empty': 'No matching command',
+  'palette.move': 'move',
+  'palette.act': 'open',
+  'palette.dismiss': 'close',
+  'palette.open': 'Open the command palette (Ctrl K)',
+  'palette.cmd.pickFiles': 'Choose files…',
+  'palette.cmd.pickFolder': 'Choose a folder…',
+  'palette.cmd.start': 'Start the run',
+  'palette.cmd.cancel': 'Cancel this run',
+  'palette.cmd.clear': 'Clear the queue',
+  'palette.cmd.settings': 'Open settings',
+  'palette.cmd.theme': 'Switch theme',
+  'palette.cmd.about': 'About and updates',
+  'palette.cmd.reveal': 'Open the output location',
+
   // Toasts
   'toast.region': 'Notifications',
   'toast.dismiss': 'Dismiss notification',
@@ -270,6 +289,9 @@ export const en: Record<keyof typeof zh, string> = {
   'toast.runFinished': 'Finished · {count} images uploaded',
   'toast.runFinishedDedup': 'Finished · {refs} links replaced ({requests} image(s) actually uploaded)',
   'toast.runFinishedPartial': 'Finished with {count} failed images',
+  'toast.runCheckedClean': 'Checked · all {count} remote addresses respond',
+  'toast.runCheckedDead': 'Checked · {count} remote addresses are broken',
+  'toast.runDownloaded': 'Downloaded · {count} remote images saved locally',
   'toast.reconnected': 'Live connection restored',
   'toast.reconnecting': 'Live connection lost — reconnecting',
   'toast.eventsNotReady': 'Live progress is not connected yet; progress may not update',

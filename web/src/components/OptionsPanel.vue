@@ -347,9 +347,9 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 <style scoped>
 /* .dlg / .dlg__panel / .dlg__body 是全局原语（见 main.css），这里只留弹窗自己的排版 */
 
-/* 弹窗里不必像侧栏那样松，收紧一点让四个分组尽量一屏放下 */
+/* 分组之间靠一条细线与留白分开，不再是一个个带内边距的卡片块 */
 .dlg__body > .section {
-  padding: 14px 18px 15px;
+  padding: 18px 0 20px;
 }
 
 .dlg__body > .section:first-child {

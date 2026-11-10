@@ -4,6 +4,8 @@ import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
 import AppRail from './components/AppRail.vue'
+import CommandPalette from './components/CommandPalette.vue'
+import type { PaletteCommand } from './components/CommandPalette.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
@@ -68,6 +70,7 @@ const {
 const view = ref<'convert' | 'settings'>('convert')
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
+const paletteOpen = ref(false)
 // 选中哪一行：只用来给那一行描边，明细由行自己展开。
 const selectedId = ref<string | null>(null)
 
@@ -95,10 +98,6 @@ function toggleRail(): void {
   }
 }
 
-function toggleSettings(): void {
-  view.value = view.value === 'settings' ? 'convert' : 'settings'
-}
-
 function selectRow(id: string): void {
   selectedId.value = id
 }
@@ -118,6 +117,31 @@ const dryRun = computed(() => settings.dryRun)
 
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
+
+// 命令面板只列「现在真的能做」的事：跑着的时候不出现「开始」，没开始的时候不出现「取消」。
+const paletteCommands = computed<PaletteCommand[]>(() => {
+  const commands: PaletteCommand[] = []
+  if (!busy.value) {
+    commands.push({ id: 'pick-files', label: t('palette.cmd.pickFiles'), icon: 'file-plus', run: () => void pick('files') })
+    commands.push({ id: 'pick-folder', label: t('palette.cmd.pickFolder'), icon: 'folder-plus', run: () => void pick('folder') })
+  }
+  if (canStart.value) {
+    commands.push({ id: 'start', label: t('palette.cmd.start'), icon: 'play', hint: 'Ctrl ↵', run: handleRun })
+  }
+  if (busy.value) {
+    commands.push({ id: 'cancel', label: t('palette.cmd.cancel'), icon: 'x', run: cancel })
+  }
+  if (canReveal.value) {
+    commands.push({ id: 'reveal', label: t('palette.cmd.reveal'), icon: 'folder-open', run: () => void handleReveal() })
+  }
+  if (!busy.value && rowViews.value.length > 0) {
+    commands.push({ id: 'clear', label: t('palette.cmd.clear'), icon: 'trash', run: clearQueue })
+  }
+  commands.push({ id: 'settings', label: t('palette.cmd.settings'), icon: 'settings', run: () => { view.value = 'settings' } })
+  commands.push({ id: 'theme', label: t('palette.cmd.theme'), icon: theme.value === 'dark' ? 'moon' : 'sun', run: toggleTheme })
+  commands.push({ id: 'about', label: t('palette.cmd.about'), icon: 'info', run: () => { aboutOpen.value = true } })
+  return commands
+})
 
 function dialogFallback(): void {
   warning(t('toast.dialogFallback'))
@@ -204,7 +228,17 @@ async function handlePickDir(): Promise<void> {
 
 /** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    if (paletteOpen.value) return
+    event.preventDefault()
+    paletteOpen.value = true
+    return
+  }
   if (event.key === 'Escape') {
+    if (paletteOpen.value) {
+      paletteOpen.value = false
+      return
+    }
     if (aboutOpen.value) {
       aboutOpen.value = false
       return
@@ -256,17 +290,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <AppHeader
+      @open-palette="paletteOpen = true"
       :picgo="picgo"
       :picgo-needed="picgoNeeded"
       :health-checking="healthLoading"
       :theme="theme"
-      :options-open="view === 'settings'"
       :phase="phase"
       :completed="completedCount"
       :total="totalCount"
       @refresh-health="refreshHealth"
       @toggle-theme="toggleTheme"
-      @toggle-settings="toggleSettings"
     />
 
     <div class="app__body" :class="{ 'app__body--wide': railMode === 'expanded' }">
@@ -314,28 +347,25 @@ onBeforeUnmount(() => {
           @close="view = 'convert'"
           @pick-dir="handlePickDir"
         />
+
+        <AppFooter
+          v-if="view === 'convert'"
+          :stats="stats"
+          :phase="phase"
+          :remote-mode="settings.remote"
+          :busy="busy"
+          :can-start="canStart"
+          :can-reveal="canReveal"
+          :dry-run="dryRun"
+          :version="version"
+          :has-update="hasUpdate"
+          @run="handleRun"
+          @cancel="cancel"
+          @reveal="handleReveal"
+          @about="aboutOpen = true"
+        />
       </main>
-
     </div>
-
-
-    <AppFooter
-      v-if="view === 'convert'"
-      :stats="stats"
-      :phase="phase"
-      :remote-mode="settings.remote"
-      :busy="busy"
-      :can-start="canStart"
-      :can-reveal="canReveal"
-      :dry-run="dryRun"
-      :version="version"
-      :has-update="hasUpdate"
-      @run="handleRun"
-      @cancel="cancel"
-      @reveal="handleReveal"
-      @about="aboutOpen = true"
-    />
-
     <!-- 拖文件进来时铺一层：不拦默认行为的话，WebView2 会直接导航到那个文件 -->
     <div v-if="dropActive" class="dropzone" aria-hidden="true">
       <span class="dropzone__pill">
@@ -343,6 +373,8 @@ onBeforeUnmount(() => {
         {{ t('drop.hint') }}
       </span>
     </div>
+
+    <CommandPalette v-if="paletteOpen" :commands="paletteCommands" @close="paletteOpen = false" />
 
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
 
@@ -376,7 +408,7 @@ onBeforeUnmount(() => {
   display: grid;
   /* 底栏是一块浮起来的 dock（有自己的内边距与圆角），高度交给内容决定；
      写死 64px 会让它贴死在窗口底部，像一条状态栏。 */
-  grid-template-rows: 44px minmax(0, 1fr) auto;
+  grid-template-rows: 40px minmax(0, 1fr);
   height: 100vh;
   /* 桌面窗口的最小宽度由后端 WM_GETMINMAXINFO 兜着（760 逻辑像素）；
      这里再留一道底线，浏览器里拖到更窄就出现横向滚动条，而不是把版面压垮。 */
@@ -390,9 +422,8 @@ onBeforeUnmount(() => {
 .app__body {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr);
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
-  padding-bottom: 2px;
 }
 
 /* 侧边栏展开时把导航文字放出来，内容区相应让位。 */
@@ -407,14 +438,19 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-.app__view > * {
+.app__view > *:first-child {
   flex: 1;
   min-height: 0;
 }
 
+/* 底栏是状态条，不参与拉伸 */
+.app__view > :not(:first-child) {
+  flex: none;
+}
+
 @media (max-width: 900px) {
   .app {
-    grid-template-rows: 44px minmax(0, 1fr) auto;
+    grid-template-rows: 40px minmax(0, 1fr);
   }
 
   .app__body {

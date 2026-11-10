@@ -614,6 +614,14 @@ function onSignal(event: RunEvent): void {
             requests: event.summary.uploadRequests ?? 0,
           }),
         )
+      } else if (event.summary.uploaded === 0 && (event.summary.localized ?? 0) > 0) {
+        // 只下载的一轮：「下载完成」才说得清这一轮做了什么。
+        success(t('toast.runDownloaded', { count: event.summary.localized ?? 0 }))
+      } else if (event.summary.uploaded === 0 && (event.summary.remoteChecked ?? 0) > 0) {
+        // 只检测的一轮：说清是几个地址、坏没坏，而不是「上传 0 张图片」。
+        const dead = event.summary.remoteDead ?? 0
+        if (dead > 0) warning(t('toast.runCheckedDead', { count: dead }))
+        else success(t('toast.runCheckedClean', { count: event.summary.remoteChecked ?? 0 }))
       } else {
         success(t('toast.runFinished', { count: event.summary.uploaded }))
       }

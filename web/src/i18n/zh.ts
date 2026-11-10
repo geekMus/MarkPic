@@ -181,6 +181,7 @@ export const zh = {
   'row.output': '输出',
 
   // 空态
+  'empty.eyebrow': '本地图片 → 图床链接',
   'empty.title': '把本地图片换成图床链接',
   'empty.text':
     '读取 Markdown 里引用的本地图片，经本机 PicGo 上传，再把文档里的地址替换成图床链接。默认另存一份副本，原文件不动。',
@@ -259,6 +260,24 @@ export const zh = {
   'about.state.error': '检查失败',
   'about.state.idle': '还没有检查过',
 
+  // 命令面板
+  'palette.label': '命令面板',
+  'palette.placeholder': '搜索命令…',
+  'palette.empty': '没有匹配的命令',
+  'palette.move': '选择',
+  'palette.act': '执行',
+  'palette.dismiss': '关闭',
+  'palette.open': '打开命令面板（Ctrl K）',
+  'palette.cmd.pickFiles': '选择文件…',
+  'palette.cmd.pickFolder': '选择文件夹…',
+  'palette.cmd.start': '开始转换',
+  'palette.cmd.cancel': '取消这一轮',
+  'palette.cmd.clear': '清空队列',
+  'palette.cmd.settings': '打开设置',
+  'palette.cmd.theme': '切换主题',
+  'palette.cmd.about': '关于与更新',
+  'palette.cmd.reveal': '打开输出位置',
+
   // 通知
   'toast.region': '通知',
   'toast.dismiss': '关闭提示',
@@ -266,6 +285,9 @@ export const zh = {
   'toast.runFinished': '转换完成 · 上传 {count} 张图片',
   'toast.runFinishedDedup': '转换完成 · 替换 {refs} 处链接（实际传给图床 {requests} 张）',
   'toast.runFinishedPartial': '转换完成，{count} 张图片失败',
+  'toast.runCheckedClean': '检测完成 · {count} 个远程地址都能打开',
+  'toast.runCheckedDead': '检测完成 · {count} 个远程地址打不开',
+  'toast.runDownloaded': '下载完成 · {count} 张远程图取回本地',
   'toast.reconnected': '已恢复实时连接',
   'toast.reconnecting': '实时连接已断开，正在重连',
   'toast.eventsNotReady': '实时进度连接未就绪，转换进度可能不会更新',

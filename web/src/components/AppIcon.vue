@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-type IconName =
+export type IconName =
   | 'file-plus'
   | 'folder'
   | 'folder-plus'
@@ -24,6 +24,8 @@ type IconName =
   | 'image'
   | 'link'
   | 'copy'
+  | 'search'
+  | 'command'
 
 const props = withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 16 })
 
@@ -36,7 +38,8 @@ const ICONS: Record<IconName, string[]> = {
   ],
   'folder': [
     'M3 8.6V6.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v9.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
-  ],  'folder-plus': [
+  ],
+  'folder-plus': [
     'M3 8.6V6.5a2 2 0 0 1 2-2h3.4a2 2 0 0 1 1.4.6l1 1a2 2 0 0 0 1.4.6H19a2 2 0 0 1 2 2v9.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
     'M12 12.4v5.2',
     'M9.4 15h5.2',
@@ -54,6 +57,14 @@ const ICONS: Record<IconName, string[]> = {
     'M13.6 11v5.4',
   ],
   'chevron-down': ['M6.5 9.5l5.5 5.5 5.5-5.5'],
+  search: ['M10.8 17.6a6.8 6.8 0 1 0 0-13.6 6.8 6.8 0 0 0 0 13.6z', 'M15.8 15.8L20 20'],
+  command: [
+    'M9 9h6v6H9z',
+    'M9 9H7.5a1.5 1.5 0 1 1 1.5-1.5z',
+    'M15 9h1.5a1.5 1.5 0 1 0-1.5-1.5z',
+    'M9 15H7.5a1.5 1.5 0 1 0 1.5 1.5z',
+    'M15 15h1.5a1.5 1.5 0 1 1-1.5 1.5z',
+  ],
   sun: [
     'M12 7.6a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8',
     'M12 2.4v2.2',

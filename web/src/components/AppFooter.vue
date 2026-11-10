@@ -279,30 +279,29 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 </template>
 
 <style scoped>
-/* 底栏是浮在画布上的一块 dock：有边界、有阴影、有内边距。
-   以前它是平贴在窗口底部的一条，和队列面板之间没有关系，整屏看起来像
-   「一张卡片 + 一条横线」。dock 化之后，上下两块是同一种东西。 */
+/* 底栏是窗口的状态条，不是第二张卡片：只有一条上边线，贴着内容区走。
+   一条横线 + 一行读数 + 一个主行动 —— 屏幕上只留一处「开始」。 */
 .foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  height: 54px;
-  margin: 10px 0 14px;
-  padding: 0 14px 0 16px;
-  border: 1px solid var(--border-panel);
-  border-radius: var(--r-4);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 90%, white 10%), var(--panel));
-  box-shadow: var(--shadow-panel);
+  height: 44px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
 }
 
 @media (max-width: 900px) {
   .foot {
     height: auto;
-    min-height: 54px;
+    min-height: 44px;
     flex-wrap: wrap;
-    padding: 8px 12px;
+    padding: 6px 2px;
     row-gap: 6px;
   }
 }
@@ -311,14 +310,15 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
-  color: var(--ink-2);
-  font-size: var(--fs-2);
+  color: var(--ink-3);
+  font-size: var(--fs-1);
 }
 
 .foot__part {
   color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -338,7 +338,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 .foot__actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex: none;
 }
 
