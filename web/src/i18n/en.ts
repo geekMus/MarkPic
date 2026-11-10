@@ -180,6 +180,10 @@ export const en: Record<keyof typeof zh, string> = {
   'row.stat.skipped': 'Skipped',
   'row.stat.remoteUnsupported': "Can't handle",
   'row.stat.failed': 'Failed',
+  'row.col.line': 'Line',
+  'row.col.status': 'Status',
+  'row.col.ref': 'Reference',
+  'row.col.result': 'Result',
   'row.output': 'Output',
 
   // Empty state
@@ -315,6 +319,7 @@ export const en: Record<keyof typeof zh, string> = {
   'error.pickDir': 'Could not choose a folder: {detail}',
   'error.preview': 'Could not read the image count: {detail}',
   'error.revealOutput': 'Could not open the output folder: {detail}',
+  'error.openOutput': 'Could not open the output file: {detail}',
   'error.openDataDir': 'Could not open the data folder',
   'error.health': 'Could not read service status',
   'error.noRunId': 'The local service did not return a runId',

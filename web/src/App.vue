@@ -118,12 +118,29 @@ const dryRun = computed(() => settings.dryRun)
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
 
+/** 路径只留最后一段：命令面板里一排长路径读不出谁是谁。 */
+function baseName(path: string): string {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
+  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed
+}
+
 // 命令面板只列「现在真的能做」的事：跑着的时候不出现「开始」，没开始的时候不出现「取消」。
 const paletteCommands = computed<PaletteCommand[]>(() => {
   const commands: PaletteCommand[] = []
   if (!busy.value) {
     commands.push({ id: 'pick-files', label: t('palette.cmd.pickFiles'), icon: 'file-plus', run: () => void pick('files') })
     commands.push({ id: 'pick-folder', label: t('palette.cmd.pickFolder'), icon: 'folder-plus', run: () => void pick('folder') })
+    // 最近用过的路径：名字在前，整条路径当提示，回车就等于重新入队
+    for (const path of recentPaths.value.slice(0, 3)) {
+      commands.push({
+        id: `recent-${path}`,
+        label: baseName(path),
+        hint: path,
+        icon: 'folder',
+        run: () => void enqueue([path]),
+      })
+    }
   }
   if (canStart.value) {
     commands.push({ id: 'start', label: t('palette.cmd.start'), icon: 'play', hint: 'Ctrl ↵', run: handleRun })

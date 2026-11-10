@@ -6,6 +6,8 @@ import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n, type MessageKey } from '../i18n'
 import { redactUrl } from '../composables/useDeadLinks'
+import { describeError, openTarget } from '../api'
+import { useToasts } from '../composables/useToasts'
 
 type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
@@ -25,6 +27,19 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
+
+const { danger } = useToasts()
+
+/** 打开这次写出来的那份文件；失败就把原因说出来，别让按钮像没反应。 */
+async function openOutput(): Promise<void> {
+  const target = props.row.result?.outputPath ?? ''
+  if (target === '') return
+  try {
+    await openTarget(target)
+  } catch (error) {
+    danger(describeError(error, t('error.openOutput')))
+  }
+}
 
 /** 已跑完的行给的是副本，其它情况给原文档 —— 想干活的总是这两者之一。 */
 const revealTarget = computed<string>(() => {
@@ -513,6 +528,14 @@ function replaced(status: ImageStatus): boolean {
         </span>
       </div>
 
+      <div v-if="items.length > 0" class="items__head" aria-hidden="true">
+        <span>{{ t('row.col.line') }}</span>
+        <span>{{ t('row.col.status') }}</span>
+        <span>{{ t('row.col.ref') }}</span>
+        <span />
+        <span>{{ t('row.col.result') }}</span>
+      </div>
+
       <ul
         v-if="items.length > 0"
         ref="itemsEl"
@@ -553,6 +576,9 @@ function replaced(status: ImageStatus): boolean {
       <p v-if="row.result?.outputPath" class="details__out">
         <span>{{ t('row.output') }}</span>
         <span class="mono">{{ row.result.outputPath }}</span>
+        <button type="button" class="btn btn--ghost btn--sm" @click="openOutput">
+          {{ t('common.open') }}
+        </button>
       </p>
 
       <ul v-if="row.result?.warnings?.length" class="warnings">
@@ -792,16 +818,20 @@ function replaced(status: ImageStatus): boolean {
 .details__stats {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 9px;
+  align-items: baseline;
+  gap: 0;
+  margin-bottom: 2px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--fs-1);
 }
 
 /* 一眼看数：数字在前、单位在后，平铺成一行，不加一个个小胶囊。 */
-.details__stats .stat + .stat {
-  padding-left: 12px;
-  border-left: 1px solid var(--line);
+.details__stats .stat + .stat::before {
+  content: '·';
+  margin: 0 8px;
+  color: var(--line-3);
 }
 
 .stat {
@@ -811,8 +841,8 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .stat__n {
-  color: var(--ink);
-  font-size: var(--fs-3);
+  color: var(--ink-2);
+  font-size: var(--fs-2);
   font-weight: 600;
   line-height: 1;
 }
@@ -842,6 +872,16 @@ function replaced(status: ImageStatus): boolean {
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.items__head {
+  display: grid;
+  grid-template-columns: 46px 58px minmax(0, 1fr) 16px minmax(0, 1.05fr);
+  column-gap: 8px;
+  padding: 8px 0 4px;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  letter-spacing: 0.04em;
 }
 
 .items__row {
@@ -936,8 +976,14 @@ function replaced(status: ImageStatus): boolean {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--line-2);
+  align-items: center;
   color: var(--ink-2);
   font-size: var(--fs-1);
+}
+
+.details__out .btn {
+  flex: none;
+  margin-left: auto;
 }
 
 .details__out .mono {

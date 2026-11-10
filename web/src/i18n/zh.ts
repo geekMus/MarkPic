@@ -178,6 +178,10 @@ export const zh = {
   'row.stat.skipped': '跳过',
   'row.stat.remoteUnsupported': '没法处理',
   'row.stat.failed': '失败',
+  'row.col.line': '行',
+  'row.col.status': '状态',
+  'row.col.ref': '引用',
+  'row.col.result': '结果',
   'row.output': '输出',
 
   // 空态
@@ -309,6 +313,7 @@ export const zh = {
   'error.pickDir': '选择目录失败：{detail}',
   'error.preview': '读取图片数量失败：{detail}',
   'error.revealOutput': '打开输出目录失败：{detail}',
+  'error.openOutput': '打开输出文件失败：{detail}',
   'error.openDataDir': '打不开数据目录',
   'error.health': '无法读取服务状态',
   'error.noRunId': '本地服务未返回 runId',
