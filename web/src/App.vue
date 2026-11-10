@@ -119,10 +119,10 @@ const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
 
 /** 路径只留最后一段：命令面板里一排长路径读不出谁是谁。 */
-function baseName(path: string): string {
-  const trimmed = path.replace(/[\\/]+$/, '')
-  const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'))
-  return cut >= 0 ? trimmed.slice(cut + 1) : trimmed
+/** 命令面板里的最近路径：最后两段，同名目录才分得清；完整路径放在右列。 */
+function shortName(path: string): string {
+  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]+/)
+  return parts.length >= 2 ? parts.slice(-2).join('\\') : parts[0] ?? path
 }
 
 // 命令面板只列「现在真的能做」的事：跑着的时候不出现「开始」，没开始的时候不出现「取消」。
@@ -135,7 +135,7 @@ const paletteCommands = computed<PaletteCommand[]>(() => {
     for (const path of recentPaths.value.slice(0, 3)) {
       commands.push({
         id: `recent-${path}`,
-        label: baseName(path),
+        label: shortName(path),
         hint: path,
         icon: 'folder',
         run: () => void enqueue([path]),
