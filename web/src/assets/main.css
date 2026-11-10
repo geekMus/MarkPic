@@ -445,7 +445,8 @@ select {
   width: 100%;
   border: 1px solid var(--line-2);
   border-radius: var(--r-2);
-  background: var(--panel);
+  /* 往里凹一层，和「可点的按钮」区分开 */
+  background: color-mix(in srgb, var(--panel-2) 62%, var(--panel));
   color: var(--ink);
   font-size: var(--fs-3);
   transition:
@@ -521,7 +522,9 @@ select {
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: var(--panel-2);
+  /* 轨道比面板再退一层：选中项用面板色才「浮」得起来。
+     早先轨道取 --panel-2，和选中项的 --panel 只差 1.15:1，深色下几乎看不出选的是哪个。 */
+  background: color-mix(in srgb, var(--canvas) 62%, transparent);
 }
 
 .segmented__item {
@@ -548,7 +551,9 @@ select {
   background: var(--panel);
   color: var(--ink);
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(13, 17, 23, 0.1), 0 0 0 1px rgba(13, 17, 23, 0.04);
+  box-shadow:
+    0 1px 2px rgba(13, 17, 23, 0.14),
+    0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 /* ------------------------------------------------------------------ 面板 */
