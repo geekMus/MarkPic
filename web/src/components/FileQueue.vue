@@ -642,10 +642,11 @@ function onScroll(): void {
   grid-template-rows: 44px auto minmax(0, 1fr);
 }
 
-/* 固定块让出滚动条那一条宽度（见 main.css 里 *::-webkit-scrollbar 的 10px），
-   列头和行的右端才对得齐 —— 滚动条现在只在行列表里，不在这一块。 */
+/* 固定块（列头 / 手动输入）整条铺满面板宽度：底下的背景与分隔线要顶到右边缘，
+   否则右端会缺一小块、看着像列头没占满。真正需要让出滚动条的只有里面的文字，
+   所以把 10px 的让位放进 .ledger__head 自己的 padding-right（8px 行内边距 + 10px 滚动条）。 */
 .queue__fixed {
-  padding-right: 10px;
+  padding-right: 0;
 }
 
 .queue__body {
@@ -691,15 +692,16 @@ function onScroll(): void {
   list-style: none;
 }
 
-/* 台账列头：不参与滚动（在上面那条固定块里），和行栅格同一套列宽 */
+/* 台账列头：不参与滚动（在上面那条固定块里），列宽与 .item__main 逐项一致 ——
+   1fr / 64 / 92 / 64，gap 8，右端让出 8px（行内边距）+ 10px（滚动条）。 */
 .ledger__head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 76px 96px 68px;
+  grid-template-columns: minmax(0, 1fr) 64px 92px 64px;
   align-items: center;
-  column-gap: 10px;
+  column-gap: 8px;
   flex: none;
   height: 30px;
-  padding: 0 10px 0 36px;
+  padding: 0 18px 0 36px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
 }
@@ -719,7 +721,8 @@ function onScroll(): void {
   display: flex;
   flex-direction: column;
   gap: 9px;
-  padding: 14px 16px 15px;
+  /* 右 18px = 行的内边距 8 + 滚动条 10，跟行右端对齐（固定块本身铺满面板） */
+  padding: 14px 18px 15px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
   animation: manual-in var(--t-base) var(--ease);
