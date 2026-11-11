@@ -17,6 +17,13 @@ const props = defineProps<{
   version: string
   /** 已经查到有新版本时，在版本号旁边点一个记号。 */
   hasUpdate: boolean
+  /**
+   * 另一页正在跑时的一句说明（「转换 正在运行」）。
+   *
+   * 作业视图各有各的队列，跑着的那一轮留在它自己那一页：站在别的页面上，
+   * 开始按钮灰着却没有任何解释，用户会以为坏了。
+   */
+  busyElsewhere?: string
 }>()
 
 const emit = defineEmits<{
@@ -74,6 +81,7 @@ const parts = computed<Part[]>(() => {
         ? { text: t('footer.dirsOnly', { dirs }), tone: 'plain' }
         : { text: t('footer.filesAndDirs', { files: filesOnly, dirs }), tone: 'plain' }
   const list: Part[] = [filePart]
+  if (props.busyElsewhere) list.push({ text: props.busyElsewhere, tone: 'warn' })
   list.push(
     stats.images > 0
       ? { text: countText('footer.images', stats.images), tone: 'plain' }

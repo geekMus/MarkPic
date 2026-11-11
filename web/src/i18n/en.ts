@@ -296,6 +296,8 @@ export const en: Record<keyof typeof zh, string> = {
   'toast.region': 'Notifications',
   'toast.dismiss': 'Dismiss notification',
   'toast.runCancelled': 'Conversion cancelled',
+  'toast.runCancelled.check': 'Check cancelled',
+  'toast.runCancelled.download': 'Download cancelled',
   'toast.runFinished': 'Finished · {count} images uploaded',
   'toast.runFinishedDedup': 'Finished · {refs} links replaced ({requests} image(s) actually uploaded)',
   'toast.runFinishedPartial': 'Finished with {count} failed images',
@@ -392,4 +394,5 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.queued.convert': 'to convert',
   'row.status.queued.check': 'to check',
   'row.status.queued.download': 'to download',
+  'footer.runningElsewhere': '{page} is running',
 }

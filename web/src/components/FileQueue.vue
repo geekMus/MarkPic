@@ -5,6 +5,7 @@ import type { IconName } from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
+import { queuePageScroll, rememberQueueScroll } from '../composables/useRun'
 import {
   collectDeadLinks,
   collectMissingLocals,
@@ -118,6 +119,8 @@ const OVERSCAN = 4
 const body = ref<HTMLElement | null>(null)
 const list = ref<HTMLUListElement | null>(null)
 const scrollTop = ref(0)
+/** 这一屏属于哪一页：滚动位置按页记，切回来接着看上次那一屏。 */
+const pageMode = computed(() => props.remoteMode ?? 'ignore')
 const viewportHeight = ref(0)
 const heights = new Map<string, number>()
 /** 实测高度变化后 +1，用来让下面的 computed 重算。 */
@@ -156,9 +159,21 @@ onMounted(() => {
   })
   if (body.value) observer.observe(body.value)
   measureMountedRows()
+  // 切回这一页时接着上次的滚动位置（行高是量出来的，所以先量再跳）
+  const kept = queuePageScroll(pageMode.value)
+  if (kept > 0 && body.value) {
+    body.value.scrollTop = kept
+    scrollTop.value = kept
+    void nextTick(measureMountedRows)
+  }
+})
+
+watch(scrollTop, (top) => {
+  rememberQueueScroll(pageMode.value, top)
 })
 
 onBeforeUnmount(() => {
+  rememberQueueScroll(pageMode.value, scrollTop.value)
   observer?.disconnect()
   observer = null
 })

@@ -291,6 +291,8 @@ export const zh = {
   'toast.region': '通知',
   'toast.dismiss': '关闭提示',
   'toast.runCancelled': '转换已取消',
+  'toast.runCancelled.check': '检测已取消',
+  'toast.runCancelled.download': '下载已取消',
   'toast.runFinished': '转换完成 · 上传 {count} 张图片',
   'toast.runFinishedDedup': '转换完成 · 替换 {refs} 处链接（实际传给图床 {requests} 张）',
   'toast.runFinishedPartial': '转换完成，{count} 张图片失败',
@@ -385,4 +387,5 @@ export const zh = {
   'row.status.queued.convert': '待转换',
   'row.status.queued.check': '待检测',
   'row.status.queued.download': '待下载',
+  'footer.runningElsewhere': '{page} 正在运行',
 } as const

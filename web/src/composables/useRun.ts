@@ -12,6 +12,7 @@ import type {
   RunEvent,
   RunFileInfo,
   RunSummary,
+  RemoteMode,
   Settings,
 } from '../types'
 import { t } from '../i18n'
@@ -108,33 +109,145 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'log',
 ])
 
-const phase = ref<RunPhase>('idle')
-const rows = ref<RunRow[]>([])
+/** 运行中的统计（每页一份，切页时整份搬走，不跟着页面串味）。 */
+interface LiveCounters {
+  images: number
+  uploaded: number
+  reused: number
+  uploadRequests: number
+  failed: number
+  ok: number
+  partial: number
+  failedFiles: number
+  noImages: number
+  localized: number
+  localizedUnique: number
+  remoteChecked: number
+  remoteCheckedUnique: number
+  remoteDead: number
+  remoteDeadUnique: number
+  remoteFailed: number
+  remoteFailedUnique: number
+  remoteUnsupported: number
+  localMissing: number
+  remoteKept: number
+  filesChecked: number
+  remoteReused: number
+  abortReason: string
+  settled: number
+}
+
+function emptyCounters(): LiveCounters {
+  return {
+    images: 0,
+    uploaded: 0,
+    reused: 0,
+    uploadRequests: 0,
+    failed: 0,
+    ok: 0,
+    partial: 0,
+    failedFiles: 0,
+    noImages: 0,
+    localized: 0,
+    localizedUnique: 0,
+    remoteChecked: 0,
+    remoteCheckedUnique: 0,
+    remoteDead: 0,
+    remoteDeadUnique: 0,
+    remoteFailed: 0,
+    remoteFailedUnique: 0,
+    remoteUnsupported: 0,
+    localMissing: 0,
+    remoteKept: 0,
+    filesChecked: 0,
+    remoteReused: 0,
+    abortReason: '',
+    settled: 0,
+  }
+}
+
+/**
+ * 一个作业页的全部可变状态。
+ *
+ * 「转换 / 检测 / 下载」是三个独立的页面：各自的队列、各自的进度与结果，切走再切回来
+ * 还是原样。后端一次只跑一轮，那一轮属于「开始它的那一页」—— 切页只是把下面这组
+ * ref 换成另一页的引用，事件照样写进跑着的那一页，不会因为画面换了就写错地方。
+ */
+interface QueuePage {
+  rows: RunRow[]
+  rowIndex: Map<string, number>
+  eventIndex: Map<string, number>
+  pathIndex: Map<string, number>
+  phase: RunPhase
+  summary: RunSummary | null
+  runId: string | null
+  /** 最近一次从服务端快照接管过来的 runId（挡「重连把清空过的队列又填满」）。 */
+  lastAdoptedRunId: string | null
+  live: LiveCounters
+  lastReveal: string | null
+  lastRevealIndex: number
+  localSeq: number
+  /** 这一页列表的滚动位置：切回来接着看上次那一屏。 */
+  scrollTop: number
+}
+
+function newPage(): QueuePage {
+  return {
+    rows: [],
+    rowIndex: new Map<string, number>(),
+    eventIndex: new Map<string, number>(),
+    pathIndex: new Map<string, number>(),
+    phase: 'idle',
+    summary: null,
+    runId: null,
+    lastAdoptedRunId: null,
+    live: emptyCounters(),
+    lastReveal: null,
+    lastRevealIndex: -1,
+    localSeq: 0,
+    scrollTop: 0,
+  }
+}
+
+const PAGES: readonly RemoteMode[] = ['ignore', 'check', 'download']
+const pages: Record<RemoteMode, QueuePage> = {
+  ignore: newPage(),
+  check: newPage(),
+  download: newPage(),
+}
+
+/** 当前显示的是哪一页。 */
+let activePage: RemoteMode = 'ignore'
+/** 正在跑的那一轮属于哪一页；`null` = 没有作业在跑（切页不会改它）。 */
+const runningPage = ref<RemoteMode | null>(null)
+
+const phase = ref<RunPhase>(pages[activePage].phase)
+const rows = ref<RunRow[]>(pages[activePage].rows)
 /**
  * id → 行下标。
  *
  * 1000 篇文档一轮会推来几千条事件，而每条事件都要按 id 找到对应行；
  * 用 `rows.findIndex` 就是每次 O(n)（1000 行 × 几千次事件 = 几百万次比较）。
  */
-const rowIndex = new Map<string, number>()
+let rowIndex = pages[activePage].rowIndex
 /** 服务端 id → 下标。事件里的 id 是服务端给的，队列行的 id 是本地的，两张表各查各的。 */
-const eventIndex = new Map<string, number>()
+let eventIndex = pages[activePage].eventIndex
 /**
  * 路径（pathKey）→ 下标。
  *
  * 兜底用：万一行没拿到 serverId（run.started 那批事件没送到、或行是先手动
  * 加进来的），file.finished 还能按路径认领已有的一行，不至于同一个文件冒出两行。
  */
-const pathIndex = new Map<string, number>()
-const summary = ref<RunSummary | null>(null)
-const runId = ref<string | null>(null)
+let pathIndex = pages[activePage].pathIndex
+const summary = ref<RunSummary | null>(pages[activePage].summary)
+const runId = ref<string | null>(pages[activePage].runId)
 /**
  * 最近一次从服务端快照接管过来的 runId。
  *
  * 用来挡住「一轮已经结束、重连又把它变回界面」这种情况：结束时服务端还会留一份快照，
  * 供刚刚刷新的页面接一次；但同一个页面不该靠重连把清空过的队列重新填满。
  */
-let lastAdoptedRunId: string | null = null
+let lastAdoptedRunId: string | null = pages[activePage].lastAdoptedRunId
 const connected = ref(false)
 const reconnecting = ref(false)
 
@@ -144,36 +257,135 @@ const reconnecting = ref(false)
  * 旧实现把统计写成 computed：任一事件动了行它就失效，然后遍历上千行、并对每份结果
  * 过滤上万条图片明细。1000 篇 × 12 张图那一轮里，这是界面卡顿（最长一帧 489ms）的主因。
  */
-const live = reactive({
-  images: 0,
-  uploaded: 0,
-  reused: 0,
-  uploadRequests: 0,
-  failed: 0,
-  ok: 0,
-  partial: 0,
-  failedFiles: 0,
-  noImages: 0,
-  localized: 0,
-  localizedUnique: 0,
-  remoteChecked: 0,
-  remoteCheckedUnique: 0,
-  remoteDead: 0,
-  remoteDeadUnique: 0,
-  remoteFailed: 0,
-  remoteFailedUnique: 0,
-  remoteUnsupported: 0,
-  localMissing: 0,
-  remoteKept: 0,
-  filesChecked: 0,
-  remoteReused: 0,
-  abortReason: '',
-  settled: 0,
-})
+const live = reactive<LiveCounters>(emptyCounters())
 
 /** 「打开输出目录」的目标：按队列顺序最后一个成功的产物。 */
-let lastRevealIndex = -1
-const lastReveal = ref<string | null>(null)
+let lastRevealIndex = pages[activePage].lastRevealIndex
+const lastReveal = ref<string | null>(pages[activePage].lastReveal)
+
+/** 把当前页这组引用写回 `pages`（切页、取快照之前都要先调一次）。 */
+function savePage(): void {
+  const page = pages[activePage]
+  page.rows = rows.value
+  page.rowIndex = rowIndex
+  page.eventIndex = eventIndex
+  page.pathIndex = pathIndex
+  page.phase = phase.value
+  page.summary = summary.value
+  page.runId = runId.value
+  page.lastAdoptedRunId = lastAdoptedRunId
+  page.live = { ...live }
+  page.lastReveal = lastReveal.value
+  page.lastRevealIndex = lastRevealIndex
+  page.localSeq = localSeq
+}
+
+/** 把某一页接上来（不保存当前页 —— 调用方负责先 `savePage()`）。 */
+function loadPage(mode: RemoteMode): void {
+  activePage = mode
+  const page = pages[mode]
+  rows.value = page.rows
+  rowIndex = page.rowIndex
+  eventIndex = page.eventIndex
+  pathIndex = page.pathIndex
+  phase.value = page.phase
+  summary.value = page.summary
+  runId.value = page.runId
+  lastAdoptedRunId = page.lastAdoptedRunId
+  lastReveal.value = page.lastReveal
+  lastRevealIndex = page.lastRevealIndex
+  localSeq = page.localSeq
+  Object.assign(live, emptyCounters(), page.live)
+}
+
+/**
+ * 切换作业页：把当前页存回去，再把目标页接上来。
+ *
+ * 导航栏点到别的作业菜单、或者从表单页回到某个作业页时调用。跑着的那一轮不在
+ * 这里换归属 —— 进度留在它自己那一页上。
+ */
+export function setQueuePage(mode: RemoteMode): void {
+  if (mode === activePage) return
+  savePage()
+  loadPage(mode)
+}
+
+/** 当前显示的是哪一页（`ignore` = 转换）。 */
+export function currentQueuePage(): RemoteMode {
+  return activePage
+}
+
+/** 哪一页有作业在跑；没有就是 `null`。 */
+export function runningQueuePage(): RemoteMode | null {
+  return runningPage.value
+}
+
+/** 三页各自的路径清单（持久化用）；调用前会把当前页写回 pages。 */
+export function queuePagePaths(): Record<RemoteMode, string[]> {
+  savePage()
+  const out = {} as Record<RemoteMode, string[]>
+  for (const mode of PAGES) out[mode] = pages[mode].rows.map((row) => row.path)
+  return out
+}
+
+/** 这一页上次滚到哪儿了。 */
+/** 这一页里还没预检过的行（`images === null` 的那批）：切到这一页时再扫。 */
+export function queuePagePendingPreview(mode: RemoteMode): string[] {
+  if (mode === activePage) savePage()
+  return pages[mode].rows
+    .filter((row) => row.images === null && row.phase === 'queued')
+    .map((row) => row.path)
+}
+
+export function queuePageScroll(mode: RemoteMode): number {
+  return pages[mode].scrollTop
+}
+
+/** 记下这一页的滚动位置（切页/卸载前调）。 */
+export function rememberQueueScroll(mode: RemoteMode, top: number): void {
+  pages[mode].scrollTop = top
+}
+
+/**
+ * 把上次记着的路径接回某一页（启动时用）。
+ *
+ * 只造行、不预检 —— 预检要发网络/磁盘请求，交给调用方按页去做。返回真正新增的路径。
+ */
+export function restoreQueuePage(mode: RemoteMode, saved: readonly string[]): string[] {
+  if (mode === activePage) savePage()
+  const page = pages[mode]
+  if (page.rows.length > 0 || page.phase !== 'idle') return []
+
+  const known = new Set<string>()
+  const added: string[] = []
+  for (const raw of saved) {
+    const path = raw.trim().replace(/^"(.*)"$/, '$1').trim()
+    if (path === '') continue
+    const key = pathKey(path)
+    if (key === '' || known.has(key)) continue
+    known.add(key)
+    added.push(path)
+    const { name, dir } = splitPath(path)
+    page.rows.push({
+      id: `local-${++page.localSeq}`,
+      path,
+      name,
+      dir,
+      images: null,
+      phase: 'queued',
+      uploaded: 0,
+      total: 0,
+      result: null,
+    })
+  }
+  page.rowIndex = new Map(page.rows.map((row, index) => [row.id, index]))
+  if (mode === activePage) {
+    rows.value = page.rows
+    rowIndex = page.rowIndex
+    localSeq = page.localSeq
+  }
+  return added
+}
 
 let sinkActive = false
 let reconnectTimer: number | null = null
@@ -190,9 +402,13 @@ function flashIfAway(): void {
 let cancelTimer: number | null = null
 let localSeq = 0
 
-const busy = computed(
-  () => phase.value === 'preparing' || phase.value === 'running' || phase.value === 'cancelling',
-)
+/**
+ * 有没有作业在跑。
+ *
+ * 按「哪一页在跑」算，而不是按当前页的 phase 算：切到别的页之后，那一轮还在后台跑，
+ * 「加文件 / 开始」这些动作仍然得拦住（后端一次只跑一轮）。
+ */
+const busy = computed(() => runningPage.value !== null)
 
 /**
  * 传给列表的行数组。
@@ -546,6 +762,13 @@ function applyStarted(files: RunFileInfo[]): void {
   seedImagesFromRows()
 }
 
+/** 取消的那句提示按页说：站在「检测」上却说「转换已取消」很出戏。 */
+function cancelText(mode: RemoteMode): string {
+  if (mode === 'check') return t('toast.runCancelled.check')
+  if (mode === 'download') return t('toast.runCancelled.download')
+  return t('toast.runCancelled')
+}
+
 function markUnsettledCancelled(): void {
   for (const row of rows.value) {
     if (row.phase !== 'settled') row.phase = 'cancelled'
@@ -596,6 +819,8 @@ function onSignal(event: RunEvent): void {
     }
     case 'run.finished': {
       if (!matches(event.runId)) return
+      const owner = runningPage.value ?? activePage
+      runningPage.value = null
       if (outcomeAnnounced) { runId.value = null; phase.value = 'cancelled'; return }
       flashIfAway()
       clearCancelTimer()
@@ -608,7 +833,7 @@ function onSignal(event: RunEvent): void {
         // 否则用户只看到「已取消」，以为是自己点错了。
         outcomeAnnounced = true
         if (event.summary.abortReason) danger(event.summary.abortReason)
-        else warning(t('toast.runCancelled'))
+        else warning(cancelText(owner))
       } else if (event.summary.failedImages > 0) {
         warning(t('toast.runFinishedPartial', { count: event.summary.failedImages }))
       } else if (
@@ -637,6 +862,8 @@ function onSignal(event: RunEvent): void {
     }
     case 'run.cancelled': {
       if (!matches(event.runId)) return
+      const owner = runningPage.value ?? activePage
+      runningPage.value = null
       clearCancelTimer()
       if (event.summary) summary.value = event.summary
       phase.value = 'cancelled'
@@ -646,7 +873,7 @@ function onSignal(event: RunEvent): void {
       outcomeAnnounced = true
       flashIfAway()
       if (event.summary?.abortReason) danger(event.summary.abortReason)
-      else warning(t('toast.runCancelled'))
+      else warning(cancelText(owner))
       return
     }
     case 'log': {
@@ -721,6 +948,8 @@ function adoptSnapshot(snapshot: CurrentRun): void {
     : snapshot.summary?.cancelled
       ? 'cancelled'
       : 'done'
+  // 接管的这一轮还在跑：它算当前页的作业，加文件/开始要继续拦住。
+  runningPage.value = snapshot.running ? activePage : null
 
   applyStarted(snapshot.files ?? [])
 
@@ -863,11 +1092,18 @@ function addPaths(input: string[]): string[] {
  * （以及目录里的文件）。早先对每一行都套这个结果，于是「先加一个目录、再加一个别的文件」
  * 会把那个目录的图片数从 4 改成 1，甚至把它标成「找不到」—— 新的预览结果里本来就没有它。
  */
-function applyPreview(result: PreviewResult, touched: readonly string[]): void {
+/**
+ * 把预检结果写进某一页。
+ *
+ * 启动恢复时三页是连着扫的，扫到第三页时画面可能还在第一页 —— 所以结果要按「哪一页」
+ * 落，不能按「当前 rows」落，否则预检白扫（行上的张数永远停在「待统计」）。
+ */
+export function applyPreviewOn(mode: RemoteMode, result: PreviewResult, touched: readonly string[]): void {
+  if (mode === activePage) savePage()
   const byPath = new Map(result.files.map(file => [pathKey(file.path), file]))
   const touchedKeys = new Set(touched.map(pathKey))
 
-  for (const row of rows.value) {
+  for (const row of pages[mode].rows) {
     const rowKey = pathKey(row.path)
     if (!touchedKeys.has(rowKey) && !byPath.has(rowKey)) continue
     const exact = byPath.get(pathKey(row.path))
@@ -904,7 +1140,11 @@ function applyPreview(result: PreviewResult, touched: readonly string[]): void {
     }
   }
 
-  seedImagesFromRows()
+  if (mode === activePage) seedImagesFromRows()
+}
+
+function applyPreview(result: PreviewResult, touched: readonly string[]): void {
+  applyPreviewOn(activePage, result, touched)
 }
 
 async function start(paths: string[], settings: Settings): Promise<boolean> {
@@ -919,6 +1159,8 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
   runId.value = null
   summary.value = null
   resetRowsForRun()
+  // 这一轮属于「开始它的那一页」：之后怎么切页都不影响它的进度往哪儿写。
+  runningPage.value = activePage
 
   if (!connected.value) {
     warning(t('toast.eventsNotReady'))
@@ -937,6 +1179,7 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
   } catch (err) {
     if (runId.value !== null) return true
     phase.value = 'idle'
+    runningPage.value = null
     danger(describeError(err, t('error.startRun')))
     return false
   }
@@ -956,6 +1199,7 @@ async function cancel(): Promise<void> {
     cancelTimer = null
     if (phase.value === 'cancelling') {
       phase.value = 'cancelled'
+      runningPage.value = null
       markUnsettledCancelled()
       warning(t('toast.cancelUnconfirmed'))
     }

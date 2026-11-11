@@ -11,6 +11,8 @@ const props = defineProps<{
   mode: 'compact' | 'expanded'
   /** 输出 / 设置里有没有还没保存的改动：有就让那颗按钮带个小点。 */
   dirty?: boolean
+  /** 哪个作业页正在跑：在它的图标上点一颗呼吸的小点，切走也看得见。 */
+  running?: View | null
 }>()
 
 const emit = defineEmits<{
@@ -44,7 +46,7 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
         type="button"
         class="rail__btn"
         :data-nav="item.id"
-        :class="{ 'rail__btn--on': view === item.id }"
+        :class="{ 'rail__btn--on': view === item.id, 'rail__btn--run': running === item.id }"
         :aria-pressed="view === item.id"
         :title="t(item.key)"
         :aria-label="t(item.key)"
@@ -95,6 +97,43 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
   border-radius: 50%;
   background: var(--accent);
   flex: none;
+}
+
+/* 这一页正在跑：右上角一颗会呼吸的点。切到别的页面也看得见作业没停。 */
+.rail__btn--run::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: rail-pulse 1.6s var(--ease) infinite;
+}
+
+.rail--expanded .rail__btn--run::after {
+  top: 50%;
+  right: 9px;
+  margin-top: -2.5px;
+}
+
+@keyframes rail-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  60% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail__btn--run::after {
+    animation: none;
+  }
 }
 
 .rail {

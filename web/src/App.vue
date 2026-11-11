@@ -20,13 +20,22 @@ import {
 } from './api'
 import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
-import { useRun } from './composables/useRun'
+import {
+  applyPreviewOn,
+  currentQueuePage,
+  queuePagePaths,
+  queuePagePendingPreview,
+  restoreQueuePage,
+  runningQueuePage,
+  setQueuePage,
+  useRun,
+} from './composables/useRun'
 import { useSettings } from './composables/useSettings'
 import { useTheme } from './composables/useTheme'
 import { useToasts } from './composables/useToasts'
 import { useUpdate } from './composables/useUpdate'
 import { useWindowControls } from './composables/useWindowControls'
-import { useI18n } from './i18n'
+import { useI18n, type MessageKey } from './i18n'
 import { JOB_VIEWS, modeOfView, viewOfMode, type JobView, type RemoteMode, type View } from './types'
 
 const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
@@ -86,6 +95,39 @@ function jobModeOf(next: View): RemoteMode | null {
 const mode = ref<RemoteMode>('ignore')
 const isJobView = computed(() => jobModeOf(view.value) !== null)
 const isFormView = computed(() => !isJobView.value)
+
+/**
+ * 三个作业页各有一份队列（见 useRun 里的 QueuePage）。
+ *
+ * 切菜单 = 换一页：转换里的文件、结果、进度留在转换，下载那一页还是它自己的样子；
+ * 切回来接着看。跑着的那一轮不跟着画面走，它留在开始它的那一页上。
+ */
+const JOB_MODES: readonly RemoteMode[] = ['ignore', 'check', 'download']
+
+watch(
+  view,
+  (next) => {
+    const nextMode = jobModeOf(next)
+    if (nextMode === null) return
+    setQueuePage(nextMode)
+    // 切到哪一页，就补扫那一页还没统计过的行（启动时只扫了当时停留的那一页）
+    void previewPage(nextMode)
+  },
+  { immediate: true },
+)
+
+/** 哪个作业页正在跑：侧边栏那个按钮上点个记号，别让人以为作业丢了。 */
+const runningView = computed<View | null>(() => {
+  const owner = runningQueuePage()
+  return owner === null ? null : viewOfMode(owner)
+})
+
+/** 跑着的画面不在眼前时，底栏说一句「转换 正在运行」，否则开始按钮灰着没人知道为什么。 */
+const runningElsewhere = computed<string>(() => {
+  const owner = runningQueuePage()
+  if (owner === null || owner === mode.value) return ''
+  return t('footer.runningElsewhere', { page: t(`nav.${viewOfMode(owner)}` as MessageKey) })
+})
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
 const paletteOpen = ref(false)
@@ -247,15 +289,40 @@ function rememberPaths(paths: string[]): void {
 }
 
 /* 队列本身也记一份：关掉程序再打开，昨天拖进来的东西还在。
-   只记路径，不记结果 —— 结果要重新扫一遍才算数。 */
-const QUEUE_KEY = 'markpic.queue'
+   三页各记各的（转换 / 检测 / 下载），只记路径不记结果 —— 结果要重新扫一遍才算数。 */
+const QUEUE_KEY = 'markpic.queue' // 老版本只存一条队列，读一次当转换那一页的
+const QUEUES_KEY = 'markpic.queues'
 
-function readQueue(): string[] {
+function strings(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+}
+
+function readQueues(): Partial<Record<RemoteMode, string[]>> {
   try {
-    const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? '[]')
-    return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
+    const raw = JSON.parse(localStorage.getItem(QUEUES_KEY) ?? 'null') as unknown
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
+      const out: Partial<Record<RemoteMode, string[]>> = {}
+      for (const pageMode of JOB_MODES) {
+        out[pageMode] = strings((raw as Record<string, unknown>)[pageMode])
+      }
+      return out
+    }
   } catch {
-    return []
+    /* 存档坏了就当没有，下面再试老键 */
+  }
+  try {
+    const legacy = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null') as unknown
+    return { ignore: strings(legacy) }
+  } catch {
+    return {}
+  }
+}
+
+function writeQueues(): void {
+  try {
+    localStorage.setItem(QUEUES_KEY, JSON.stringify(queuePagePaths()))
+  } catch {
+    /* 存不下就算了，别为了记住路径把转换拦下来 */
   }
 }
 
@@ -268,18 +335,27 @@ function jobSettings() {
   return settingsSnapshot({ remote: mode.value })
 }
 
-/** 启动时把上次的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
-async function restoreQueue(): Promise<void> {
-  if (rowViews.value.length > 0 || busy.value) return
-  const saved = readQueue()
-  if (saved.length === 0) return
-  const added = addPaths(saved)
-  if (added.length === 0) return
+/** 扫一遍某一页里还没统计过的行（切到这一页时顺手做，别让三页在启动时抢网络）。 */
+async function previewPage(pageMode: RemoteMode): Promise<void> {
+  const paths = queuePagePendingPreview(pageMode)
+  if (paths.length === 0) return
   try {
-    applyPreview(await preview(added, jobSettings()), added)
+    applyPreviewOn(pageMode, await preview(paths, settingsSnapshot({ remote: pageMode })), paths)
   } catch {
-    /* 预览失败就当没接回来，行还在，用户点开始也行 */
+    /* 预览失败就当没扫过，行还在，用户点开始也行 */
   }
+}
+
+/** 启动时把三页各自的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
+async function restoreQueue(): Promise<void> {
+  if (busy.value) return
+  const saved = readQueues()
+  for (const pageMode of JOB_MODES) {
+    const paths = saved[pageMode] ?? []
+    if (paths.length === 0) continue
+    restoreQueuePage(pageMode, paths)
+  }
+  void previewPage(currentQueuePage())
 }
 
 async function enqueue(paths: string[]): Promise<void> {
@@ -430,15 +506,8 @@ onMounted(() => {
   connect()
   // 队列记在本地；加进来/清掉时同步写一次
   watch(
-    () => rowViews.value.map((row) => row.path),
-    (paths) => {
-      try {
-        if (paths.length === 0) localStorage.removeItem(QUEUE_KEY)
-        else localStorage.setItem(QUEUE_KEY, JSON.stringify(paths))
-      } catch {
-        /* 存不下就算了 */
-      }
-    },
+    () => [view.value, ...rowViews.value.map((row) => row.path)],
+    () => writeQueues(),
   )
   window.setTimeout(() => void restoreQueue(), 700)
   void refreshHealth()
@@ -475,6 +544,7 @@ onBeforeUnmount(() => {
     <div class="app__body" :class="{ 'app__body--wide': railMode === 'expanded' }">
       <AppRail
         :view="view"
+        :running="runningView"
         :dirty="dirty"
         :mode="railMode"
         @navigate="goView($event)"
@@ -485,6 +555,7 @@ onBeforeUnmount(() => {
       <main class="app__view">
         <FileQueue
           v-if="isJobView"
+          :key="mode"
           ref="queueRef"
           :rows="rowViews"
           :phase="phase"
@@ -539,6 +610,7 @@ onBeforeUnmount(() => {
 
         <AppFooter
           v-if="isJobView"
+          :busy-elsewhere="runningElsewhere"
           :stats="stats"
           :phase="phase"
           :remote-mode="mode"
