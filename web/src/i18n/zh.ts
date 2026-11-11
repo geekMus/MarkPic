@@ -87,6 +87,7 @@ export const zh = {
   'nav.expand': '展开侧边栏',
   'nav.collapse': '收起侧边栏',
   'queue.title': '队列',
+  'queue.count': '{count} 个文件',
   'queue.progress': '{done}/{total} 已完成',
   'queue.pickFiles': '选择 Markdown 文件',
   'queue.files': '文件',

@@ -118,11 +118,10 @@ const band = computed(() => {
   <ReportShell
     mode="download"
     icon="download"
+    tone="ok"
     title-key="nav.download"
     hint-key="view.download.sub"
     :tag="tag"
-    :count="counts.total"
-    unit-key="download.unit"
     :verdicts="band"
     :has-rows="rows.length > 0"
     :manual-open="manualOpen"
@@ -174,28 +173,31 @@ const band = computed(() => {
 
 <style scoped>
 .dl {
-  padding: 0 18px 10px;
+  display: flex;
+  flex-direction: column;
 }
 
 .dl__none {
-  padding: 22px 2px;
+  padding: 26px 2px;
   color: var(--ink-3);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
+}
+
+/* 一个文档一段：段与段之间留白，不画框 */
+.dl__group + .dl__group {
+  margin-top: 30px;
 }
 
 .dl__file {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 10px 2px 7px;
-  background: var(--panel);
+  gap: 10px;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--line);
 }
 
 .dl__name {
-  max-width: 46%;
+  max-width: 42%;
   overflow: hidden;
   color: var(--ink-2);
   font-size: var(--fs-2);
@@ -208,6 +210,7 @@ const band = computed(() => {
   overflow: hidden;
   min-width: 0;
   color: var(--ink-3);
+  font-family: var(--mono);
   font-size: var(--fs-1);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -234,16 +237,16 @@ const band = computed(() => {
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 0;
+  padding: 6px 0 0;
   list-style: none;
 }
 
 .dl__row {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) 14px minmax(0, 0.95fr) auto;
+  grid-template-columns: minmax(0, 1.02fr) 18px minmax(0, 0.98fr) auto;
   align-items: baseline;
-  gap: 8px;
-  padding: 7px 8px 7px 6px;
+  gap: 14px;
+  padding: 13px 12px 13px 10px;
   border-radius: var(--r-2);
 }
 
@@ -254,23 +257,20 @@ const band = computed(() => {
 .dl__remote,
 .dl__local {
   overflow: hidden;
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .dl__remote {
-  color: var(--ink);
+  color: var(--ink-2);
 }
 
 .dl__local {
   color: var(--accent-ink);
 }
 
-.dl__local--none {
-  color: var(--ink-3);
-}
-
+.dl__local--none,
 .dl__local--todo {
   color: var(--ink-3);
 }
@@ -278,14 +278,28 @@ const band = computed(() => {
 .dl__arrow {
   align-self: center;
   color: var(--ink-3);
+  font-size: var(--fs-2);
+  text-align: center;
 }
 
+/* 失败原因单独一行，从远程地址的左端开始，跟上面那行的地址对齐 */
 .dl__err {
   grid-column: 1 / -1;
+  margin-top: 4px;
   overflow: hidden;
   color: var(--bad);
   font-size: var(--fs-1);
-  line-height: 1.45;
+  line-height: 1.5;
   text-overflow: ellipsis;
+}
+
+@media (max-width: 820px) {
+  .dl__dir {
+    display: none;
+  }
+
+  .dl__row {
+    grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
+  }
 }
 </style>

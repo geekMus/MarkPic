@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
-import type { IconName } from './AppIcon.vue'
+import PageHead from './PageHead.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
@@ -14,7 +14,6 @@ import {
 } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 import { useI18n } from '../i18n'
-import type { MessageKey } from '../i18n'
 
 const props = defineProps<{
   rows: RunRowView[]
@@ -58,24 +57,6 @@ const busy = computed(
   () => props.phase === 'preparing' || props.phase === 'running' || props.phase === 'cancelling',
 )
 
-// 三个作业视图共用同一份队列（同一批文件、不同的活），所以「我在哪个菜单」只能靠
-// 面板标题说清楚：图标 + 名字 + 一句干什么 + 结果落在哪儿。少了这一行，
-// 切「检测」「下载」时画面一模一样，看着像点击没生效。
-const MODE_META: Record<
-  'ignore' | 'check' | 'download',
-  { icon: IconName; titleKey: MessageKey; subKey: MessageKey; tone: string }
-> = {
-  ignore: { icon: 'image', titleKey: 'nav.convert', subKey: 'view.convert.sub', tone: 'convert' },
-  check: { icon: 'link', titleKey: 'nav.check', subKey: 'view.check.sub', tone: 'check' },
-  download: {
-    icon: 'download',
-    titleKey: 'nav.download',
-    subKey: 'view.download.sub',
-    tone: 'download',
-  },
-}
-
-const modeMeta = computed(() => MODE_META[props.remoteMode ?? 'ignore'])
 
 watch(
   () => props.manualOpen,
@@ -373,119 +354,121 @@ function onScroll(): void {
 
 <template>
   <section class="panel queue">
-    <header class="panel__head">
-      <div class="panel__title">
-        <span class="queue__mode" :class="`queue__mode--${modeMeta.tone}`" aria-hidden="true">
-          <AppIcon :name="modeMeta.icon" :size="13" />
+    <PageHead
+      icon="image"
+      tone="accent"
+      title-key="nav.convert"
+      lead-key="view.convert.sub"
+      :tag="modeTag"
+    >
+      <template #badge>
+        <span v-if="rows.length > 0" class="queue__count num">
+          {{ t('queue.count', { count: rows.length }) }}
         </span>
-        <h2>{{ t(modeMeta.titleKey) }}</h2>
-        <span v-if="rows.length > 0" class="panel__count num">{{ rows.length }}</span>
-        <span v-if="!busy" class="queue__sub">{{ t(modeMeta.subKey) }}</span>
-        <span v-if="modeTag" class="queue__tag num">{{ modeTag }}</span>
-        <span v-if="busy" class="panel__note num queue__running" role="status" aria-live="polite">
+        <span v-if="busy" class="queue__progress num" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}
         </span>
-      </div>
+      </template>
+      <template #actions>
+          <button
+            type="button"
+            class="icon-btn"
+            :title="t('queue.pickFiles')"
+            :aria-label="t('queue.pickFiles')"
+            :disabled="busy"
+            @click="emit('pick-files')"
+          >
+            <AppIcon name="file-plus" :size="16" />
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            :title="t('queue.pickFolder')"
+            :aria-label="t('queue.pickFolder')"
+            :disabled="busy"
+            @click="emit('pick-folder')"
+          >
+            <AppIcon name="folder-plus" :size="16" />
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            :class="{ 'icon-btn--active': manualOpen }"
+            :title="t('queue.manual.toggle')"
+            :aria-label="t('queue.manual.toggle')"
+            :aria-pressed="manualOpen"
+            @click="emit('update:manualOpen', !manualOpen)"
+          >
+            <AppIcon name="terminal" :size="16" />
+          </button>
 
-      <div class="panel__actions">
-        <button
-          type="button"
-          class="icon-btn"
-          :title="t('queue.pickFiles')"
-          :aria-label="t('queue.pickFiles')"
-          :disabled="busy"
-          @click="emit('pick-files')"
-        >
-          <AppIcon name="file-plus" :size="16" />
-        </button>
-        <button
-          type="button"
-          class="icon-btn"
-          :title="t('queue.pickFolder')"
-          :aria-label="t('queue.pickFolder')"
-          :disabled="busy"
-          @click="emit('pick-folder')"
-        >
-          <AppIcon name="folder-plus" :size="16" />
-        </button>
-        <button
-          type="button"
-          class="icon-btn"
-          :class="{ 'icon-btn--active': manualOpen }"
-          :title="t('queue.manual.toggle')"
-          :aria-label="t('queue.manual.toggle')"
-          :aria-pressed="manualOpen"
-          @click="emit('update:manualOpen', !manualOpen)"
-        >
-          <AppIcon name="terminal" :size="16" />
-        </button>
+          <!-- 队列几百上千行时，按文件名找比滚轮靠谱 -->
+          <input
+            v-if="searchOpen"
+            ref="searchInput"
+            v-model="query"
+            class="queue__search"
+            type="search"
+            :placeholder="t('queue.search.placeholder')"
+            :aria-label="t('queue.search')"
+            @input="onSearchInput"
+            @keydown.esc.stop="closeSearch"
+          />
+          <button
+            v-if="rows.length > 0"
+            type="button"
+            class="icon-btn"
+            :class="{ 'icon-btn--active': searchOpen }"
+            :title="t('queue.search')"
+            :aria-label="t('queue.search')"
+            :aria-pressed="searchOpen"
+            @click="searchOpen ? closeSearch() : openSearch()"
+          >
+            <AppIcon name="search" :size="16" />
+          </button>
 
-        <!-- 队列几百上千行时，按文件名找比滚轮靠谱 -->
-        <input
-          v-if="searchOpen"
-          ref="searchInput"
-          v-model="query"
-          class="queue__search"
-          type="search"
-          :placeholder="t('queue.search.placeholder')"
-          :aria-label="t('queue.search')"
-          @input="onSearchInput"
-          @keydown.esc.stop="closeSearch"
-        />
-        <button
-          v-if="rows.length > 0"
-          type="button"
-          class="icon-btn"
-          :class="{ 'icon-btn--active': searchOpen }"
-          :title="t('queue.search')"
-          :aria-label="t('queue.search')"
-          :aria-pressed="searchOpen"
-          @click="searchOpen ? closeSearch() : openSearch()"
-        >
-          <AppIcon name="search" :size="16" />
-        </button>
+          <!-- 检测模式下死链往往只有十几处，埋在几百行「一切正常」里翻不到 -->
+          <button
+            v-if="problemCount > 0"
+            type="button"
+            class="icon-btn queue__filter"
+            :class="{ 'icon-btn--active': onlyProblems }"
+            :title="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
+            :aria-label="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
+            :aria-pressed="onlyProblems"
+            @click="toggleProblems"
+          >
+            <AppIcon name="alert" :size="16" />
+            <span class="queue__filter-count num" aria-hidden="true">{{ problemCount }}</span>
+          </button>
 
-        <!-- 检测模式下死链往往只有十几处，埋在几百行「一切正常」里翻不到 -->
-        <button
-          v-if="problemCount > 0"
-          type="button"
-          class="icon-btn queue__filter"
-          :class="{ 'icon-btn--active': onlyProblems }"
-          :title="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
-          :aria-label="onlyProblems ? t('queue.onlyProblems.off') : t('queue.onlyProblems', { n: problemCount })"
-          :aria-pressed="onlyProblems"
-          @click="toggleProblems"
-        >
-          <AppIcon name="alert" :size="16" />
-          <span class="queue__filter-count num" aria-hidden="true">{{ problemCount }}</span>
-        </button>
+          <!-- 死链要照着改文档：把去重清单复制出去，比一行一行抄省事 -->
+          <button
+            v-if="brokenRefs > 0"
+            type="button"
+            class="icon-btn"
+            :title="t('queue.copyDead', { refs: brokenRefs })"
+            :aria-label="t('queue.copyDead', { refs: brokenRefs })"
+            @click="copyDeadReport"
+          >
+            <AppIcon name="copy" :size="16" />
+          </button>
 
-        <!-- 死链要照着改文档：把去重清单复制出去，比一行一行抄省事 -->
-        <button
-          v-if="brokenRefs > 0"
-          type="button"
-          class="icon-btn"
-          :title="t('queue.copyDead', { refs: brokenRefs })"
-          :aria-label="t('queue.copyDead', { refs: brokenRefs })"
-          @click="copyDeadReport"
-        >
-          <AppIcon name="copy" :size="16" />
-        </button>
+          <span class="panel__divider" aria-hidden="true" />
 
-        <span class="panel__divider" aria-hidden="true" />
-
-        <button
-          type="button"
-          class="icon-btn icon-btn--danger"
-          :title="t('queue.clear')"
-          :aria-label="t('queue.clear')"
-          :disabled="rows.length === 0 || busy"
-          @click="emit('clear')"
-        >
-          <AppIcon name="trash" :size="16" />
-        </button>
-      </div>
-    </header>
+          <button
+            type="button"
+            class="icon-btn icon-btn--danger"
+            :title="t('queue.clear')"
+            :aria-label="t('queue.clear')"
+            :disabled="rows.length === 0 || busy"
+            @click="emit('clear')"
+          >
+            <AppIcon name="trash" :size="16" />
+          </button>
+      
+      </template>
+    </PageHead>
 
     <!-- 列头和手动输入框不跟着滚：滚动条只属于下面的行列表。
          放在滚动区里的话，滚动条会从标题栏底下一路拉到窗口底部，
@@ -589,84 +572,38 @@ function onScroll(): void {
   display: none;
 }
 
-/* 菜单身份那一小枚图标：方、窄、安静，只负责让三个作业视图一眼能分开 */
-.queue__mode {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 21px;
-  height: 21px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--panel-2);
-  color: var(--ink-2);
-}
-
-.queue__mode--convert {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.queue__mode--check {
-  border-color: var(--warn-line);
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-/* 一句干什么：窗口窄了先截它，不能把右边的按钮挤掉 */
-.queue__sub {
-  overflow: hidden;
-  min-width: 0;
+/* 页头徽标：队列里有多少个文件 / 这一轮跑到哪了 */
+.queue__count {
   color: var(--ink-3);
   font-size: var(--fs-2);
-  text-overflow: ellipsis;
+  font-weight: 500;
   white-space: nowrap;
 }
 
-/* 结果落在哪儿：图床地址 / 只读 / 存到 images/ */
-.queue__tag {
-  flex: none;
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--panel-2);
-  color: var(--ink-3);
-  font-size: var(--fs-1);
+.queue__progress {
+  color: var(--accent-ink);
+  font-size: var(--fs-2);
   white-space: nowrap;
-}
-
-@media (max-width: 900px) {
-  .queue__search {
-    width: 120px;
-  }
-
-  .queue__sub {
-    display: none;
-  }
-
-  .queue__tag {
-    display: none;
-  }
 }
 
 .panel.queue {
   /* 面板默认是「标题 44px + 内容 1fr + 脚 auto」，这里多出一条固定块：
      标题 / 列头（或手动输入）/ 剩下的全给滚动区。
      写成 .panel.queue 是为了压过 main.css 里 .panel 那条同样优先级的规则。 */
-  grid-template-rows: 44px auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 /* 固定块（列头 / 手动输入）整条铺满面板宽度：底下的背景与分隔线要顶到右边缘，
    否则右端会缺一小块、看着像列头没占满。真正需要让出滚动条的只有里面的文字，
    所以把 10px 的让位放进 .ledger__head 自己的 padding-right（8px 行内边距 + 10px 滚动条）。 */
 .queue__fixed {
-  padding-right: 0;
+  padding: 20px 24px 0;
 }
 
 .queue__body {
   display: flex;
   flex-direction: column;
+  padding: 0 24px 24px;
 }
 
 .queue__running {
@@ -715,17 +652,15 @@ function onScroll(): void {
   align-items: center;
   column-gap: 8px;
   flex: none;
-  height: 30px;
-  padding: 0 18px 0 36px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel-2);
+  height: 26px;
+  margin-bottom: 4px;
+  padding: 0 10px 0 0;
 }
 
 .ledger__col {
   color: var(--ink-3);
   font-size: var(--fs-1);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 
 .ledger__col--num {

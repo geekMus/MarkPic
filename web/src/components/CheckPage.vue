@@ -173,11 +173,10 @@ const emptyHint = computed<MessageKey>(() =>
   <ReportShell
     mode="check"
     icon="link"
+    tone="warn"
     title-key="nav.check"
     hint-key="view.check.sub"
     :tag="tag"
-    :count="counts.all"
-    unit-key="check.unit"
     :verdicts="band"
     :has-rows="rows.length > 0"
     :manual-open="manualOpen"
@@ -257,30 +256,29 @@ const emptyHint = computed<MessageKey>(() =>
 
 <style scoped>
 .chk {
-  padding: 0 18px 10px;
+  display: flex;
+  flex-direction: column;
 }
 
+/* 筛选片：不吸顶，跟正文一起滚，省掉那条挡视线的底色 */
 .chk__filters {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
-  gap: 6px;
-  padding: 10px 0 9px;
-  background: var(--panel);
+  flex: none;
+  gap: 8px;
+  margin-bottom: 24px;
 }
 
 .chk__chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 9px;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   background: transparent;
   color: var(--ink-3);
-  font-size: var(--fs-1);
+  font-size: var(--fs-2);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -307,7 +305,7 @@ const emptyHint = computed<MessageKey>(() =>
 
 .chk__chip .num {
   color: var(--ink-3);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
 }
 
 .chk__chip--bad[aria-pressed='true'] {
@@ -331,26 +329,30 @@ const emptyHint = computed<MessageKey>(() =>
 }
 
 .chk__none {
-  padding: 22px 2px;
+  padding: 26px 2px;
   color: var(--ink-3);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
+}
+
+/* 一组 = 一个域名：组与组之间靠留白分开，不画框、不叠卡 */
+.chk__group + .chk__group {
+  margin-top: 30px;
 }
 
 .chk__host {
-  position: sticky;
-  top: 43px;
-  z-index: 1;
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 8px 2px 7px;
-  background: var(--panel);
+  gap: 10px;
+  padding: 0 10px 10px;
+  border-bottom: 1px solid var(--line);
 }
 
 .chk__host h3 {
   color: var(--ink-2);
+  font-family: var(--mono);
   font-size: var(--fs-2);
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .chk__meta {
@@ -370,16 +372,16 @@ const emptyHint = computed<MessageKey>(() =>
   display: flex;
   flex-direction: column;
   margin: 0;
-  padding: 0;
+  padding: 6px 0 0;
   list-style: none;
 }
 
 .chk__row {
   display: grid;
-  grid-template-columns: 82px minmax(0, 1fr) auto;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 10px;
-  padding: 7px 8px 7px 6px;
+  gap: 14px;
+  padding: 13px 12px 13px 10px;
   border-radius: var(--r-2);
 }
 
@@ -390,7 +392,7 @@ const emptyHint = computed<MessageKey>(() =>
 .chk__addr {
   overflow: hidden;
   color: var(--ink);
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -401,18 +403,19 @@ const emptyHint = computed<MessageKey>(() =>
   white-space: nowrap;
 }
 
-/* 打不开的原因（404、证书过期）单独一行，小一号，跟着地址缩 */
+/* 打不开的原因（404、证书过期）单独一行，跟地址左端对齐 */
 .chk__err {
   grid-column: 2 / -1;
+  margin-top: 4px;
   overflow: hidden;
   color: var(--bad);
   font-size: var(--fs-1);
-  line-height: 1.45;
+  line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 没法处理（ftp、data: 这类）不算「坏」，用琥珀色，跟结论带那一格一致 */
+/* 没法处理（ftp、data: 这类）不算「坏」，用琥珀色，跟结论那一句一致 */
 .chk__err--warn {
   color: var(--warn);
 }

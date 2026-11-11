@@ -3,11 +3,12 @@ import { nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { IconName } from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
+import PageHead from './PageHead.vue'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 
 /**
- * 检测 / 下载两页共用的「报告外壳」：标题行 + 一行结论 + 粘贴路径 + 可滚动的正文。
+ * 检测 / 下载两页共用的「报告外壳」：页头 + 一行结论 + 粘贴路径 + 可滚动的正文。
  *
  * 只复用外壳，不复用内容 —— 检测页画地址、下载页画「远程 → 本地」，
  * 正文由各自的页面塞进 slot。以前三个作业页共用同一张文件表，
@@ -16,18 +17,16 @@ import type { MessageKey } from '../i18n'
 const props = defineProps<{
   mode: 'check' | 'download'
   icon: IconName
+  tone: 'accent' | 'warn' | 'ok'
   titleKey: MessageKey
   hintKey: MessageKey
   /** 标题右边那句目标信息，例如「只读」「存到 images/」。 */
   tag?: string
-  /** 标题旁的数（地址数 / 远程图数）。 */
-  count: number
-  /** 数的单位，例如「个地址」。 */
-  unitKey: MessageKey
-  verdicts: { key: MessageKey; count: number; tone: 'plain' | 'ok' | 'warn' | 'bad' }[]
   hasRows: boolean
   manualOpen: boolean
   recent?: string[]
+  /** 一行结论的几段：4 个地址 · 2 能打开 · 1 打不开。 */
+  verdicts: { key: MessageKey; count: number; tone: 'plain' | 'ok' | 'warn' | 'bad' }[]
 }>()
 
 const emit = defineEmits<{
@@ -65,19 +64,15 @@ function submitManual(): void {
 </script>
 
 <template>
-  <section class="panel report" :class="`report--${mode}`">
-    <header class="panel__head">
-      <div class="panel__title">
-        <span class="report__mode" :class="`report__mode--${mode}`">
-          <AppIcon :name="icon" :size="13" />
-        </span>
-        <h2>{{ t(titleKey) }}</h2>
-        <span v-if="count > 0" class="panel__count num">{{ count }}</span>
-        <span v-if="count > 0" class="report__unit">{{ t(unitKey) }}</span>
-        <span class="report__sub">{{ t(hintKey) }}</span>
-        <span v-if="tag" class="report__tag num">{{ tag }}</span>
-      </div>
-      <div class="panel__actions">
+  <section class="panel report">
+    <PageHead
+      :icon="icon"
+      :tone="tone"
+      :title-key="titleKey"
+      :lead-key="hintKey"
+      :tag="tag"
+    >
+      <template #actions>
         <button
           type="button"
           class="icon-btn"
@@ -108,7 +103,7 @@ function submitManual(): void {
           <AppIcon name="terminal" :size="16" />
         </button>
 
-        <span class="panel__divider" aria-hidden="true" />
+        <span class="report__divider" aria-hidden="true" />
 
         <button
           type="button"
@@ -120,16 +115,19 @@ function submitManual(): void {
         >
           <AppIcon name="trash" :size="16" />
         </button>
-      </div>
-    </header>
+      </template>
+    </PageHead>
 
-    <!-- 一行结论：这一页关心的几个数（地址 / 能打开 / 打不开） -->
-    <div v-if="hasRows && verdicts.length > 0" class="report__band">
-      <div v-for="cell in verdicts" :key="cell.key" class="report__cell" :class="`report__cell--${cell.tone}`">
-        <span class="report__num num">{{ cell.count }}</span>
-        <span class="report__lbl">{{ t(cell.key) }}</span>
-      </div>
-    </div>
+    <!-- 一行结论：读成一句话，不做成一排卡片 -->
+    <p v-if="hasRows && verdicts.length > 0" class="report__summary">
+      <template v-for="(cell, index) in verdicts" :key="cell.key">
+        <span v-if="index > 0" class="report__sep" aria-hidden="true">·</span>
+        <span class="report__stat" :class="`report__stat--${cell.tone}`">
+          <span class="num">{{ cell.count }}</span>
+          <span class="report__lbl">{{ t(cell.key) }}</span>
+        </span>
+      </template>
+    </p>
 
     <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
       <label class="manual__label" for="report-manual">{{ t('queue.manual.label') }}</label>
@@ -154,10 +152,11 @@ function submitManual(): void {
       </div>
     </form>
 
-    <div class="report__body">
-      <slot v-if="hasRows" />
+    <div v-if="hasRows" class="report__body">
+      <slot />
+    </div>
+    <div v-else class="report__empty">
       <EmptyState
-        v-else
         :recent="recent ?? []"
         :remote-mode="mode"
         @pick-files="emit('pick-files')"
@@ -176,116 +175,83 @@ function submitManual(): void {
   min-height: 0;
 }
 
-.report__mode {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 21px;
-  height: 21px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--panel-2);
-  color: var(--ink-2);
+.report__divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
 }
 
-.report__mode--check {
-  border-color: var(--warn-line);
-  background: var(--warn-soft);
-  color: var(--warn);
-}
-
-.report__mode--download {
-  border-color: var(--ok-line);
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.report__unit {
-  flex: none;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-.report__sub {
-  overflow: hidden;
-  min-width: 0;
-  color: var(--ink-3);
-  font-size: var(--fs-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.report__tag {
-  flex: none;
-  padding: 1px 7px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--panel-2);
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  white-space: nowrap;
-}
-
-.report__band {
+.report__summary {
   display: flex;
   flex: none;
   flex-wrap: wrap;
-  gap: 0;
-  margin: 12px 18px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-3);
-  background: var(--panel-2);
-}
-
-.report__cell {
-  display: flex;
-  flex: 1 1 0;
   align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  padding: 10px 15px;
-}
-
-.report__cell + .report__cell {
-  border-left: 1px solid var(--line);
-}
-
-.report__num {
-  color: var(--ink);
-  font-size: var(--fs-5);
-  font-weight: 600;
-  line-height: 1.1;
-}
-
-.report__lbl {
-  overflow: hidden;
+  gap: 4px 10px;
+  margin: 18px 0 0;
+  padding: 0 34px;
   color: var(--ink-3);
-  font-size: var(--fs-1);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--fs-3);
 }
 
-.report__cell--ok .report__num {
+.report__stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.report__stat .num {
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+}
+
+.report__stat--ok .num {
   color: var(--ok);
 }
 
-.report__cell--bad .report__num {
+.report__stat--bad .num {
   color: var(--bad);
 }
 
-.report__cell--warn .report__num {
+.report__stat--warn .num {
   color: var(--warn);
+}
+
+.report__lbl {
+  color: var(--ink-3);
+}
+
+.report__sep {
+  color: var(--ink-3);
+  opacity: 0.7;
 }
 
 .report__body {
   flex: 1 1 auto;
   min-height: 0;
+  padding: 16px 34px 34px;
   overflow-y: auto;
 }
 
-@media (max-width: 940px) {
-  .report__sub {
-    display: none;
+.report__empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.report__empty > * {
+  flex: 1;
+}
+
+@media (max-width: 900px) {
+  .report__summary,
+  .report__body {
+    padding-inline: 20px;
+  }
+
+  .report__body {
+    padding-bottom: 24px;
   }
 }
 </style>
