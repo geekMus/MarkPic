@@ -351,29 +351,29 @@ go test ./...
 它不打成 HTTP 资源，而是由 `internal/ui` 在启动时摊到数据目录的 `ui/<指纹>/` 下，
 窗口用 `file://` 加载——同一次构建指纹相同，不会每次启动都重写。
 
-图标（exe 文件图标、任务栏图标、窗口标题栏与标签页的标记）画的是同一个标记：深蓝渐变圆角方块里一座青色「M 形山」，
-山顶右上一颗暖色太阳——山脊的两个峰同时是 MarkPic 的 M，远看是一张风景，近看是一个字。几处用的是同一套几何
-（24×24 视图坐标：方块 1.25–22.75 圆角 6.2、山脊 `(3.4,19.3) (7.6,11.0) (12,15.4) (16.6,10.6) (20.6,19.3)`、
-地平线 y=19.3 白 16%、太阳 17.15/6.95 r1.62、内描边白 9%）：`web/src/components/AppHeader.vue` 的 `.tb__mark`、
-`web/index.html` 的 favicon data URI，以及 `assets/icon.ico`（山脊的填充渐变与背后那层青光在 ICO 里由 Pillow 画，
-几何值写在 `scripts/make-mark.py`）。exe 的图标来自 `assets/icon.ico`，由
-`cmd/markpic/rsrc_windows_amd64.syso` 打进去（已提交，构建时不需要联网）；窗口自己的图标在运行时从这份资源里读出来挂上去，
-所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
-Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
-删掉它再构建会尝试用 `go run github.com/akavel/rsrc@latest` 重新生成；失败也不影响构建，只是图标变成默认的。
+<img src="assets/build/mark-128.png" width="96" height="96" align="right" alt="MarkPic">
 
-改了那个标记之后，图标要按三步重做（脚本在 `scripts/make-icon.py`）：
+图标只有一个来源：`assets/mark.svg`。画的是一块深色圆角方片，上面一根圆头笔画写出的 m——它的两座尖同时是
+两座山，右上角一颗暖色圆点当太阳；柱体是夜蓝，笔画像从深青扫到薄荷白。远看是一座山，近看是一个字母。
+`web/src/components/AppHeader.vue` 的 `.tb__mark`、`web/index.html` 的 favicon data URI、`assets/icon.ico`
+都是这份几何的副本（三处都必须离线渲染，没法共用文件），改了 SVG 就要同步这三处，然后重新导出：
 
 ```powershell
-# 1. 按同一套几何把标记画成各尺寸 PNG（Pillow 8× 超采样再缩小，尺寸：16 20 24 32 40 48 64 128 256）
-#    python scripts\make-mark.py "$env:TEMP\cmp-icon"
-# 2. 打包成多尺寸 ico
-python scripts\make-icon.py "$env:TEMP\cmp-icon" assets\icon.ico
-# 3. 重新生成资源文件
+# 1. 把 SVG 渲染成各尺寸 PNG（用本机 Edge/Chrome 无头截图，4× 超采样后缩到目标尺寸，写到 assets/build）
+python scripts\make-mark.py
+# 2. 打包成多尺寸 ico（16 24 32 48 64 128 256，全部 32 位 DIB，256 那档存 PNG）
+python scripts\make-icon.py assets\build assets\icon.ico
+# 3. 重新生成资源文件（已提交，构建时不需要联网）
 go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\markpic\rsrc_windows_amd64.syso
 ```
 
-网页里的标签页图标（`web/index.html` 的 `<link rel="icon">`）是同一份 SVG 的内联 data URI，
+`assets/build` 里的 PNG 一起提交，所以打包这一步不依赖浏览器，只有改了 SVG 才需要跑第 1 步。
+exe 的图标来自 `assets/icon.ico`，由 `cmd/markpic/rsrc_windows_amd64.syso` 打进去；窗口自己的图标在运行时从
+这份资源里读出来挂上去，所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
+Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
+删掉它再构建会尝试用 `go run github.com/akavel/rsrc@latest` 重新生成；失败也不影响构建，只是图标变成默认的。
+
+网页里的标签页图标（`web/index.html` 的 `<link rel="icon">`）是同一份 SVG 的 data URI，
 改标记时手工同步一下。
 
 交叉编译到其他平台：

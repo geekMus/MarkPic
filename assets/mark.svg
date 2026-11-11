@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="mpmark-title">
+  <title id="mpmark-title">MarkPic</title>
+
+  <!--
+    品牌标记的唯一几何来源。任务栏图标（assets/icon.ico → cmd/markpic/rsrc_windows_amd64.syso）、
+    浏览器标签页图标（web/index.html 的 data URI）、窗口标题栏（web/src/components/AppHeader.vue 的
+    .tb__mark）全部由这一份导出，改这里然后跑 scripts/make-mark.py 重新生成 PNG/ICO，
+    favicon 与标题栏的内联 SVG 也要同步（它们是同一份几何的副本，因为都要能离线渲染）。
+
+    构图：一块深色圆角方片，上面一根连续的圆头笔画写出的 m（两座山的轮廓），右上角一颗暖色圆点。
+    配色对齐界面的强调色（web/src/assets/main.css 的 --accent #5fd9c9）：笔画左端深青、
+    右端到薄荷白，圆点取暖橙，方片是低饱和的夜蓝渐变。48px 以下只有方片、m、圆点三样东西。
+
+    几何（64 网格）：方片 2..62，圆角 15.5（约 26%，iOS/macOS 那一档）；
+    m 的三根竖笔在 x = 15 / 32.5 / 50，基线 y = 46，两座山尖 y = 20.4 / 21.6；
+    笔画宽 5.0、圆头，山尖用三次贝塞尔收圆，所以缩小到 16px 也不会变成折线。
+  -->
+  <defs>
+    <!-- 方片：从左上偏亮的夜蓝，压到右下近黑，留一点底光让边缘不糊 -->
+    <linearGradient id="mpmark-tile" x1="14" y1="2" x2="50" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#263750"/>
+      <stop offset=".52" stop-color="#101826"/>
+      <stop offset="1" stop-color="#080d16"/>
+    </linearGradient>
+
+    <!-- 笔画：左下深青 → 中间强调色 → 右上薄荷白，和方片的明暗方向相反，笔画才立得住 -->
+    <linearGradient id="mpmark-ridge" x1="15" y1="46" x2="51" y2="20" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1f8fa6"/>
+      <stop offset=".52" stop-color="#5fd9c9"/>
+      <stop offset="1" stop-color="#e9fffb"/>
+    </linearGradient>
+
+    <!-- 右上角的一点暖光，把圆点的位置解释成「日出」而不是「装饰圆」 -->
+    <radialGradient id="mpmark-glow" cx="46.6" cy="14.4" r="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd9a8" stop-opacity=".14"/>
+      <stop offset=".55" stop-color="#5fd9c9" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#5fd9c9" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-tile)"/>
+  <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-glow)"/>
+  <circle cx="46.6" cy="14.4" r="3.2" fill="#ffd9a8"/>
+  <path d="M15 46V30.6C15 25.5 18.9 20.4 24 20.4C29.1 20.4 32.5 25.5 32.5 30.6V46M32.5 30.6C32.5 25.6 36.4 21.6 41.2 21.6C46 21.6 50 25.6 50 30.6V46"
+        stroke="url(#mpmark-ridge)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 内描边：任何底色上都能看出方片的边界，1px 上下都不会变成一圈白边 -->
+  <rect x="2.5" y="2.5" width="59" height="59" rx="15" stroke="#fff" stroke-opacity=".08"/>
+</svg>

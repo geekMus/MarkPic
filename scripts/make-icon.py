@@ -1,9 +1,8 @@
 """把品牌标记的各个尺寸 PNG 打包成 assets/icon.ico。
 
-图标形状的唯一来源是标题栏里的那个 SVG（web/src/components/AppHeader.vue 的
-.tb__mark）。改标记时：先用浏览器按各尺寸渲染成 PNG，再用这个脚本打包，
-然后重新生成 cmd/markpic/rsrc_windows_amd64.syso（见 README 的
-「图标」一节）。
+图标形状的唯一来源是 assets/mark.svg。改标记时先跑 scripts/make-mark.py
+把 SVG 渲染成 assets/build 里的 PNG，再用这个脚本打包，然后重新生成
+cmd/markpic/rsrc_windows_amd64.syso（见 README 的「图标」一节）。
 
 这里自己写 ICO 字节而不是用 Pillow 的 ICO 保存器：Pillow 对大尺寸会用 PNG
 压缩存进 ICO，而 PNG 条目 GDI+（System.Drawing.Icon、部分老工具）读不了，
@@ -12,12 +11,11 @@
 
 用法：
     python scripts/make-icon.py [PNG 目录] [输出 ico]
-默认从 %TEMP%\\cmp-icon 读 mark-<size>.png，写到 assets/icon.ico。
+默认从 assets/build 读 mark-<size>.png，写到 assets/icon.ico。
 """
 
 from __future__ import annotations
 
-import os
 import struct
 import sys
 from io import BytesIO
@@ -62,8 +60,7 @@ def dib_for(img: Image.Image) -> bytes:
 
 
 def main() -> int:
-    src_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
-        os.environ.get("TEMP", ".")) / "cmp-icon"
+    src_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("assets/build")
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("assets/icon.ico")
 
     frames = []

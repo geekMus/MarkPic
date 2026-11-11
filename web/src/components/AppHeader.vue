@@ -89,28 +89,39 @@ function handleDoubleClick(event: MouseEvent): void {
   <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
     <div class="tb__brand">
       <span class="tb__mark" aria-hidden="true">
-        <!-- 标记：深蓝圆角方块里一座「M 形山」+ 一颗暖色太阳。山脊的两个峰同时是
-             MarkPic 的 M；和 assets/icon.ico、web/index.html 的 favicon 是同一套几何
-             （方块 1.25..22.75 r6.2 / 山 3.4-19.3 起 / 太阳 17.15,6.95,1.62），改一处要同步三处。 -->
-        <svg viewBox="0 0 24 24" fill="none">
+        <!-- 标记：深色圆角方片上一根圆头笔画写出的 m（两座山的轮廓），右上角一颗暖色圆点。
+             几何的唯一来源是 assets/mark.svg —— 这里和 web/index.html 的 favicon、assets/icon.ico
+             都是它的副本（三处都必须能离线渲染，所以没法共用一份文件）。改标记时要同步三处，
+             再用 scripts/make-mark.py 重新导出 PNG/ICO。 -->
+        <svg viewBox="0 0 64 64" fill="none">
           <defs>
-            <linearGradient id="mark-bg" x1="3" y1="1" x2="21" y2="23" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#22304d" />
-              <stop offset=".58" stop-color="#131c30" />
-              <stop offset="1" stop-color="#0a0f1c" />
+            <linearGradient id="mpmark-tile" x1="14" y1="2" x2="50" y2="62" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#263750" />
+              <stop offset=".52" stop-color="#101826" />
+              <stop offset="1" stop-color="#080d16" />
             </linearGradient>
-            <linearGradient id="mark-ridge" x1="4" y1="19" x2="20" y2="9" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#1b8ea6" />
-              <stop offset=".55" stop-color="#3fd4e8" />
-              <stop offset="1" stop-color="#c8f8ff" />
+            <linearGradient id="mpmark-ridge" x1="15" y1="46" x2="51" y2="20" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#1f8fa6" />
+              <stop offset=".52" stop-color="#5fd9c9" />
+              <stop offset="1" stop-color="#e9fffb" />
             </linearGradient>
+            <radialGradient id="mpmark-glow" cx="46.6" cy="14.4" r="26" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#ffd9a8" stop-opacity=".14" />
+              <stop offset=".55" stop-color="#5fd9c9" stop-opacity=".07" />
+              <stop offset="1" stop-color="#5fd9c9" stop-opacity="0" />
+            </radialGradient>
           </defs>
-          <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="6.2" fill="url(#mark-bg)" />
-          <ellipse cx="11.6" cy="16.4" rx="9" ry="5.4" fill="#2fd0e4" opacity=".18" />
-          <circle cx="17.15" cy="6.95" r="1.62" fill="#ffd9a8" />
-          <path d="M3.4 19.3 7.6 11 12 15.4 16.6 10.6 20.6 19.3Z" fill="url(#mark-ridge)" opacity=".92" />
-          <path d="M3.4 19.3h17.2" stroke="#fff" stroke-opacity=".16" stroke-width="1.15" stroke-linecap="round" />
-          <rect x="1.25" y="1.25" width="21.5" height="21.5" rx="6.2" fill="none" stroke="#fff" stroke-opacity=".09" stroke-width=".9" />
+          <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-tile)" />
+          <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-glow)" />
+          <circle cx="46.6" cy="14.4" r="3.2" fill="#ffd9a8" />
+          <path
+            d="M15 46V30.6C15 25.5 18.9 20.4 24 20.4C29.1 20.4 32.5 25.5 32.5 30.6V46M32.5 30.6C32.5 25.6 36.4 21.6 41.2 21.6C46 21.6 50 25.6 50 30.6V46"
+            stroke="url(#mpmark-ridge)"
+            stroke-width="5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <rect x="2.5" y="2.5" width="59" height="59" rx="15" stroke="#fff" stroke-opacity=".08" />
         </svg>
       </span>
       <!-- 字标：名字还是命令行里那个，但不带连字符 —— 连字符在 13px 下会读成三个碎词，
