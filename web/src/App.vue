@@ -133,6 +133,20 @@ const dataNote = computed(() => health.value?.dataNote ?? '')
 const settingsNote = computed(() => health.value?.settingsNote ?? '')
 const dryRun = computed(() => settings.dryRun)
 
+// 队列面板标题右边那枚小标签：这一刻这件事的结果落在哪儿。
+// 三个作业视图共用一份队列，只有这一行和底栏按钮能说明「我切到哪了」。
+const jobTag = computed(() => {
+  if (mode.value === 'check') return t('view.tag.readonly')
+  if (mode.value === 'download') {
+    const dir = settings.remoteDir.trim() === '' ? 'images' : settings.remoteDir.trim()
+    return t('view.tag.into', { dir })
+  }
+  if (settings.dryRun) return t('view.tag.dry')
+  const endpoint = settings.endpoint.trim()
+  if (endpoint === '') return t('view.tag.noPicgo')
+  return endpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+})
+
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
 
@@ -478,6 +492,7 @@ onBeforeUnmount(() => {
           :total="totalCount"
           :manual-open="manualOpen"
           :remote-mode="mode"
+          :mode-tag="jobTag"
           :aborted="stats.abortReason !== ''"
           :selected="selectedId"
           :recent="recentPaths"

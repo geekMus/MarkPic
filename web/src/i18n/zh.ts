@@ -373,4 +373,16 @@ export const zh = {
   'palette.cmd.check': '检测：看看远程图片还能不能打开',
   'palette.cmd.download': '下载：把远程图片存回本地',
   'palette.cmd.output': '输出：文档和图片写到哪',
+
+  // 一个队列，三种活：面板标题得说清现在做的是哪一件
+  'view.convert.sub': '把文档里的本地图片传上图床，再把地址换掉',
+  'view.check.sub': '只查远程图打不打得开，一个字都不改',
+  'view.download.sub': '把远程图存回本地，再把地址换掉',
+  'view.tag.dry': '试运行',
+  'view.tag.readonly': '只读',
+  'view.tag.noPicgo': '还没填 PicGo 地址',
+  'view.tag.into': '存到 {dir}',
+  'row.status.queued.convert': '待转换',
+  'row.status.queued.check': '待检测',
+  'row.status.queued.download': '待下载',
 } as const

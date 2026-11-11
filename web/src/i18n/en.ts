@@ -380,4 +380,16 @@ export const en: Record<keyof typeof zh, string> = {
   'palette.cmd.check': 'Check: see whether remote images still load',
   'palette.cmd.download': 'Download: save remote images next to the document',
   'palette.cmd.output': 'Output: where documents and images go',
+
+  // One queue, three jobs: the panel title has to say which one is running
+  'view.convert.sub': 'Send local images to your image host, then rewrite the links',
+  'view.check.sub': 'Only check whether remote images load — no document is touched',
+  'view.download.sub': 'Save remote images next to the document, then rewrite the links',
+  'view.tag.dry': 'dry run',
+  'view.tag.readonly': 'read-only',
+  'view.tag.noPicgo': 'no PicGo address yet',
+  'view.tag.into': 'into {dir}',
+  'row.status.queued.convert': 'to convert',
+  'row.status.queued.check': 'to check',
+  'row.status.queued.download': 'to download',
 }

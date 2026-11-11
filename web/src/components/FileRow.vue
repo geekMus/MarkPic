@@ -90,6 +90,18 @@ const runningLabelKey = computed<MessageKey>(() => {
   }
 })
 
+/** 还没开跑那一格也一样：检测视图里写着「待转换」等于让人以为菜单点错了。 */
+const queuedLabelKey = computed<MessageKey>(() => {
+  switch (props.remoteMode) {
+    case 'download':
+      return 'row.status.queued.download'
+    case 'check':
+      return 'row.status.queued.check'
+    default:
+      return 'row.status.queued.convert'
+  }
+})
+
 const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const result = props.row.result
   if (result) {
     const meta = FILE_STATUS_META[result.status]
@@ -116,7 +128,7 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const
   if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
   if (props.row.phase === 'settled') return { tone: 'neutral', labelKey: 'row.status.finished' }
   if (props.row.missing) return { tone: 'neutral', labelKey: 'row.status.notFound' }
-  return { tone: 'neutral', labelKey: 'row.status.queued' }
+  return { tone: 'neutral', labelKey: queuedLabelKey.value }
 })
 
 const countLabel = computed(() => {

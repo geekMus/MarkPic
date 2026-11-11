@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import type { IconName } from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import FileRow from './FileRow.vue'
 import type { RunPhase, RunRowView } from '../composables/useRun'
@@ -12,6 +13,7 @@ import {
 } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 import { useI18n } from '../i18n'
+import type { MessageKey } from '../i18n'
 
 const props = defineProps<{
   rows: RunRowView[]
@@ -21,6 +23,8 @@ const props = defineProps<{
   manualOpen: boolean
   /** 这一轮在做什么（上传 / 只检测 / 下载回本地），只用来给行内文案挑词。 */
   remoteMode?: 'ignore' | 'check' | 'download'
+  /** 标题右边那句目标信息：图床地址 / 「只读」/「存到 images/」。 */
+  modeTag?: string
   /** 这一轮是不是被提前掐断的（图床连不上）。 */
   aborted?: boolean
   /** 右栏正在看哪一行；只用来画选中态。 */
@@ -52,6 +56,25 @@ const textarea = ref<HTMLTextAreaElement | null>(null)
 const busy = computed(
   () => props.phase === 'preparing' || props.phase === 'running' || props.phase === 'cancelling',
 )
+
+// 三个作业视图共用同一份队列（同一批文件、不同的活），所以「我在哪个菜单」只能靠
+// 面板标题说清楚：图标 + 名字 + 一句干什么 + 结果落在哪儿。少了这一行，
+// 切「检测」「下载」时画面一模一样，看着像点击没生效。
+const MODE_META: Record<
+  'ignore' | 'check' | 'download',
+  { icon: IconName; titleKey: MessageKey; subKey: MessageKey; tone: string }
+> = {
+  ignore: { icon: 'image', titleKey: 'nav.convert', subKey: 'view.convert.sub', tone: 'convert' },
+  check: { icon: 'link', titleKey: 'nav.check', subKey: 'view.check.sub', tone: 'check' },
+  download: {
+    icon: 'download',
+    titleKey: 'nav.download',
+    subKey: 'view.download.sub',
+    tone: 'download',
+  },
+}
+
+const modeMeta = computed(() => MODE_META[props.remoteMode ?? 'ignore'])
 
 watch(
   () => props.manualOpen,
@@ -337,8 +360,13 @@ function onScroll(): void {
   <section class="panel queue">
     <header class="panel__head">
       <div class="panel__title">
-        <h2>{{ t('queue.title') }}</h2>
+        <span class="queue__mode" :class="`queue__mode--${modeMeta.tone}`" aria-hidden="true">
+          <AppIcon :name="modeMeta.icon" :size="13" />
+        </span>
+        <h2>{{ t(modeMeta.titleKey) }}</h2>
         <span v-if="rows.length > 0" class="panel__count num">{{ rows.length }}</span>
+        <span v-if="!busy" class="queue__sub">{{ t(modeMeta.subKey) }}</span>
+        <span v-if="modeTag" class="queue__tag num">{{ modeTag }}</span>
         <span v-if="busy" class="panel__note num queue__running" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}
         </span>
@@ -444,7 +472,10 @@ function onScroll(): void {
       </div>
     </header>
 
-    <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
+    <!-- 列头和手动输入框不跟着滚：滚动条只属于下面的行列表。
+         放在滚动区里的话，滚动条会从标题栏底下一路拉到窗口底部，
+         看着像「滚动条跑到标题上去了」（2026-11-11 用户指出）。 -->
+    <div class="queue__fixed">
       <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
         <label class="manual__label" for="queue-manual">
           {{ t('queue.manual.label') }}
@@ -470,44 +501,44 @@ function onScroll(): void {
         </div>
       </form>
 
-      <template v-if="rows.length > 0">
-        <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 操作 68px -->
-        <div class="ledger__head" aria-hidden="true">
-          <span class="ledger__col">{{ t('queue.col.file') }}</span>
-          <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
-          <span class="ledger__col">{{ t('queue.col.status') }}</span>
-          <span />
-        </div>
+      <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 操作 68px -->
+      <div v-if="rows.length > 0" class="ledger__head" aria-hidden="true">
+        <span class="ledger__col">{{ t('queue.col.file') }}</span>
+        <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
+        <span class="ledger__col">{{ t('queue.col.status') }}</span>
+        <span />
+      </div>
+    </div>
 
-        <ul ref="list" class="queue__list">
-          <!-- 只挂可视区附近的行，上下用占位块撑出完整滚动高度 -->
-          <li
-            v-if="window_.top > 0"
-            class="queue__spacer"
-            :style="{ height: `${window_.top}px` }"
-            aria-hidden="true"
-          />
-          <FileRow
-            v-for="row in visibleRows"
-            :key="row.id"
-            :data-row-id="row.id"
-            :row="row"
-            :busy="busy"
-            :remote-mode="remoteMode"
-            :aborted="aborted"
-            :selected="selected === row.id"
-            @remove="emit('remove', $event)"
-            @reveal="emit('reveal', $event)"
-            @select="emit('select', $event)"
-          />
-          <li
-            v-if="window_.bottom > 0"
-            class="queue__spacer"
-            :style="{ height: `${window_.bottom}px` }"
-            aria-hidden="true"
-          />
-        </ul>
-      </template>
+    <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
+      <ul v-if="rows.length > 0" ref="list" class="queue__list">
+        <!-- 只挂可视区附近的行，上下用占位块撑出完整滚动高度 -->
+        <li
+          v-if="window_.top > 0"
+          class="queue__spacer"
+          :style="{ height: `${window_.top}px` }"
+          aria-hidden="true"
+        />
+        <FileRow
+          v-for="row in visibleRows"
+          :key="row.id"
+          :data-row-id="row.id"
+          :row="row"
+          :busy="busy"
+          :remote-mode="remoteMode"
+          :aborted="aborted"
+          :selected="selected === row.id"
+          @remove="emit('remove', $event)"
+          @reveal="emit('reveal', $event)"
+          @select="emit('select', $event)"
+        />
+        <li
+          v-if="window_.bottom > 0"
+          class="queue__spacer"
+          :style="{ height: `${window_.bottom}px` }"
+          aria-hidden="true"
+        />
+      </ul>
 
       <EmptyState
         v-else-if="!manualOpen"
@@ -543,10 +574,78 @@ function onScroll(): void {
   display: none;
 }
 
+/* 菜单身份那一小枚图标：方、窄、安静，只负责让三个作业视图一眼能分开 */
+.queue__mode {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink-2);
+}
+
+.queue__mode--convert {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.queue__mode--check {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* 一句干什么：窗口窄了先截它，不能把右边的按钮挤掉 */
+.queue__sub {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 结果落在哪儿：图床地址 / 只读 / 存到 images/ */
+.queue__tag {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
 @media (max-width: 900px) {
   .queue__search {
     width: 120px;
   }
+
+  .queue__sub {
+    display: none;
+  }
+
+  .queue__tag {
+    display: none;
+  }
+}
+
+.panel.queue {
+  /* 面板默认是「标题 44px + 内容 1fr + 脚 auto」，这里多出一条固定块：
+     标题 / 列头（或手动输入）/ 剩下的全给滚动区。
+     写成 .panel.queue 是为了压过 main.css 里 .panel 那条同样优先级的规则。 */
+  grid-template-rows: 44px auto minmax(0, 1fr);
+}
+
+/* 固定块让出滚动条那一条宽度（见 main.css 里 *::-webkit-scrollbar 的 10px），
+   列头和行的右端才对得齐 —— 滚动条现在只在行列表里，不在这一块。 */
+.queue__fixed {
+  padding-right: 10px;
 }
 
 .queue__body {
@@ -592,11 +691,8 @@ function onScroll(): void {
   list-style: none;
 }
 
-/* 台账列头：跟着滚动吸顶，和行栅格同一套列宽 */
+/* 台账列头：不参与滚动（在上面那条固定块里），和行栅格同一套列宽 */
 .ledger__head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 76px 96px 68px;
   align-items: center;
