@@ -303,7 +303,7 @@ export const zh = {
   'toast.reconnected': '已恢复实时连接',
   'toast.reconnecting': '实时连接已断开，正在重连',
   'toast.eventsNotReady': '实时进度连接未就绪，转换进度可能不会更新',
-  'toast.queueLocked': '转换进行中，暂不能修改队列',
+  'toast.queueLocked': '有作业正在跑，暂不能修改队列',
   'toast.clearLocked': '转换进行中，暂不能清空队列',
   'toast.queueEmpty': '队列为空，请先添加文件',
   'toast.noRunId': '未获取到运行标识，暂时无法取消',
@@ -404,6 +404,7 @@ export const zh = {
   'check.group.unsupported': '{count} 个没法处理',
   'check.row.pending': '待检测',
   'check.row.sources': '{count} 处引用',
+  'check.scanning': '正在扫 {count} 个文件里的远程图片…',
   'check.empty.noRemote': '这些文件里没有远程图片 —— 检测只看远程地址打不打得开。',
   'check.empty.filtered': '这个筛选下没有地址。',
   'download.unit': '张远程图',
@@ -413,5 +414,6 @@ export const zh = {
   'download.band.reused': '沿用上次',
   'download.band.failed': '失败',
   'download.row.pending': '待定',
+  'download.scanning': '正在扫 {count} 个文件里的图片…',
   'download.empty.noRemote': '这些文件里没有远程图片 —— 本地图片在下载模式下原样保留。',
 } as const

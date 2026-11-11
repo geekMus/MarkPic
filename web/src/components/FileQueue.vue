@@ -57,6 +57,9 @@ const busy = computed(
   () => props.phase === 'preparing' || props.phase === 'running' || props.phase === 'cancelling',
 )
 
+/** 页头下面那条细线的进度：跑完几个文件就往右挪一段。 */
+const progress = computed(() => (props.total > 0 ? props.completed / props.total : 0))
+
 
 watch(
   () => props.manualOpen,
@@ -360,6 +363,9 @@ function onScroll(): void {
       title-key="nav.convert"
       lead-key="view.convert.sub"
       :tag="modeTag"
+      :busy="busy"
+      :progress="progress"
+      :indeterminate="props.rows.length <= 1"
     >
       <template #badge>
         <span v-if="rows.length > 0" class="queue__count num">

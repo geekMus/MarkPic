@@ -308,7 +308,7 @@ export const en: Record<keyof typeof zh, string> = {
   'toast.reconnected': 'Live connection restored',
   'toast.reconnecting': 'Live connection lost — reconnecting',
   'toast.eventsNotReady': 'Live progress is not connected yet; progress may not update',
-  'toast.queueLocked': 'Cannot change the queue while a conversion is running',
+  'toast.queueLocked': 'A run is in progress — the queue is locked',
   'toast.clearLocked': 'Cannot clear the queue while a conversion is running',
   'toast.queueEmpty': 'The queue is empty — add some files first',
   'toast.noRunId': 'No run id yet, so this run cannot be cancelled',
@@ -411,6 +411,7 @@ export const en: Record<keyof typeof zh, string> = {
   'check.group.unsupported': '{count} unsupported',
   'check.row.pending': 'to check',
   'check.row.sources': '{count} refs',
+  'check.scanning': 'Checking the remote images in {count} file(s)…',
   'check.empty.noRemote': 'No remote images in these files — this page only checks whether remote addresses load.',
   'check.empty.filtered': 'Nothing under this filter.',
   'download.unit': 'remote images',
@@ -420,5 +421,6 @@ export const en: Record<keyof typeof zh, string> = {
   'download.band.reused': 'reused',
   'download.band.failed': 'failed',
   'download.row.pending': 'TBD',
+  'download.scanning': 'Looking at the images in {count} file(s)…',
   'download.empty.noRemote': 'No remote images in these files — local images are left untouched in download mode.',
 }

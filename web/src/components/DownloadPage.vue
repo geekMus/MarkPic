@@ -20,6 +20,8 @@ const props = defineProps<{
   tag?: string
   manualOpen: boolean
   recent?: string[]
+  busy?: boolean
+  progress?: number
 }>()
 
 const emit = defineEmits<{
@@ -33,6 +35,15 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/** 还没扫过张数时先别下结论：显示「正在扫」比显示「没有可下载的图」诚实。 */
+const scanning = computed(() => props.rows.some((row) => row.images === null))
+const scanCount = computed(() => props.rows.filter((row) => row.images === null).length)
+
+/** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
+function stagger(index: number): number {
+  return Math.min(index, 8)
+}
 
 type Kind = 'saved' | 'reused' | 'failed' | 'unsupported' | 'pending'
 
@@ -126,6 +137,9 @@ const band = computed(() => {
     :has-rows="rows.length > 0"
     :manual-open="manualOpen"
     :recent="recent"
+    :busy="busy"
+    :progress="progress"
+    :indeterminate="rows.length <= 1"
     @pick-files="emit('pick-files')"
     @pick-folder="emit('pick-folder')"
     @pick-recent="emit('pick-recent', $event)"
@@ -134,9 +148,16 @@ const band = computed(() => {
     @update:manual-open="emit('update:manualOpen', $event)"
   >
     <div class="dl">
-      <p v-if="groups.length === 0" class="dl__none">{{ t('download.empty.noRemote') }}</p>
+      <p v-if="groups.length === 0" class="dl__none">
+        {{ t(scanning ? 'download.scanning' : 'download.empty.noRemote', { count: scanCount }) }}
+      </p>
 
-      <section v-for="group in groups" :key="group.row.id" class="dl__group">
+      <section
+        v-for="(group, gi) in groups"
+        :key="group.row.id"
+        class="dl__group"
+        :style="{ '--i': stagger(gi) }"
+      >
         <header class="dl__file">
           <h3 class="dl__name" :title="group.row.path">{{ group.row.name }}</h3>
           <span class="dl__dir" :title="group.row.dir">{{ group.row.dir }}</span>
@@ -152,12 +173,17 @@ const band = computed(() => {
           </button>
         </header>
         <ul class="dl__list">
-          <li v-for="entry in group.items" :key="entry.item.target + entry.item.line" class="dl__row">
+          <li
+            v-for="(entry, ei) in group.items"
+            :key="entry.item.target + entry.item.line"
+            class="dl__row"
+            :style="{ '--i': stagger(ei) }"
+          >
             <span class="dl__remote mono" :title="entry.item.target">{{ shortUrl(entry.item.target) }}</span>
             <span class="dl__arrow" aria-hidden="true">→</span>
             <span v-if="entry.local" class="dl__local mono" :title="entry.local">{{ entry.local }}</span>
-            <span v-else-if="entry.kind === 'failed' || entry.kind === 'unsupported'" class="dl__local dl__local--none">—</span>
-            <span v-else class="dl__local dl__local--todo">{{ t('download.row.pending') }}</span>
+            <!-- 还没落盘就画一个占位横线：结论由右边的状态标签说，别两处都写「待定」 -->
+            <span v-else class="dl__local dl__local--none">—</span>
             <StatusPill
               :label="t(KIND_META[entry.kind].labelKey)"
               :tone="KIND_META[entry.kind].tone"
@@ -184,6 +210,16 @@ const band = computed(() => {
 }
 
 /* 一个文档一段：段与段之间留白，不画框 */
+.dl__group {
+  animation: row-in 280ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+
+.dl__row {
+  animation: row-in 260ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 16ms);
+}
+
 .dl__group + .dl__group {
   margin-top: 30px;
 }
@@ -271,9 +307,6 @@ const band = computed(() => {
 }
 
 .dl__local--none,
-.dl__local--todo {
-  color: var(--ink-3);
-}
 
 .dl__arrow {
   align-self: center;

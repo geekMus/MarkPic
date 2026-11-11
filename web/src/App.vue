@@ -70,6 +70,8 @@ const {
   busy,
   totalCount,
   completedCount,
+  imageTotal,
+  imageDone,
   revealTarget,
   connect,
   disconnect,
@@ -122,6 +124,17 @@ watch(
 const runningView = computed<View | null>(() => {
   const owner = runningQueuePage()
   return owner === null ? null : viewOfMode(owner)
+})
+
+/** 当前这一页是不是正在跑：页头下面那条细线只在跑的时候出现。 */
+const jobBusy = computed(() => busy.value && runningView.value === view.value)
+
+/** 这一轮的进度（0..1），给页头那条细线用。 */
+const jobProgress = computed(() => {
+  const files = totalCount.value > 0 ? completedCount.value / totalCount.value : 0
+  // 一轮只有一个文件时文件级进度永远停在 0，取图张数进度里更靠前的那个
+  const images = imageTotal.value > 0 ? imageDone.value / imageTotal.value : 0
+  return Math.max(files, Math.min(1, images))
 })
 
 /** 跑着的画面不在眼前时，底栏说一句「转换 正在运行」，否则开始按钮灰着没人知道为什么。 */
@@ -557,89 +570,101 @@ onBeforeUnmount(() => {
       <main class="app__view">
         <!-- 三个作业页各有各的版式：转换是文件表，检测是地址表，下载是「远程 → 本地」映射。
              页面的状态各自保留（useRun 里的 QueuePage），切走再回来还是原样。 -->
-        <FileQueue
-          v-if="view === 'convert'"
-          key="convert"
-          ref="queueRef"
-          :rows="rowViews"
-          :phase="phase"
-          :completed="completedCount"
-          :total="totalCount"
-          :manual-open="manualOpen"
-          :remote-mode="mode"
-          :mode-tag="jobTag"
-          :aborted="stats.abortReason !== ''"
-          :selected="selectedId"
-          :recent="recentPaths"
-          @pick-files="pick('files')"
-          @pick-folder="pick('folder')"
-          @pick-recent="enqueue([$event])"
-          @submit-paths="enqueue"
-          @remove="removeRow"
-          @reveal="revealRow"
-          @select="selectRow"
-          @clear="clearQueue"
-          @update:manual-open="manualOpen = $event"
-        />
-        <CheckPage
-          v-else-if="view === 'check'"
-          key="check"
-          :rows="rowViews"
-          :tag="jobTag"
-          :manual-open="manualOpen"
-          :recent="recentPaths"
-          @pick-files="pick('files')"
-          @pick-folder="pick('folder')"
-          @pick-recent="enqueue([$event])"
-          @submit-paths="enqueue"
-          @clear="clearQueue"
-          @update:manual-open="manualOpen = $event"
-        />
-        <DownloadPage
-          v-else-if="view === 'download'"
-          key="download"
-          :rows="rowViews"
-          :tag="jobTag"
-          :manual-open="manualOpen"
-          :recent="recentPaths"
-          @pick-files="pick('files')"
-          @pick-folder="pick('folder')"
-          @pick-recent="enqueue([$event])"
-          @submit-paths="enqueue"
-          @remove="removeRow"
-          @clear="clearQueue"
-          @update:manual-open="manualOpen = $event"
-        />
-        <OutputPanel
-          v-else-if="view === 'output'"
-          :settings="settings"
-          :dirty="dirty"
-          :loaded="settingsLoaded"
-          :loading="settingsLoading"
-          :saving="settingsSaving"
-          :load-error="settingsError"
-          @update="updateSettings"
-          @save="handleSaveSettings"
-          @discard="discardSettings"
-          @retry="loadSettings"
-          @close="goView(viewOfMode(mode))"
-          @pick-dir="handlePickDir"
-        />
-        <OptionsPanel
-          v-else
-          :settings="settings"
-          :picgo-needed="picgoNeeded"
-          :dirty="dirty"
-          :loaded="settingsLoaded"
-          :loading="settingsLoading"
-          :saving="settingsSaving"
-          :load-error="settingsError"
-          @update="updateSettings"
-          @save="handleSaveSettings"
-          @discard="discardSettings"
-          @retry="loadSettings"
-          @close="goView(viewOfMode(mode))"
-        />
+        <!-- 切页：离开淡出 110ms，进来 180ms 从下方浮起 6px。
+             只做顺切，不做翻转/横移这类大动作 —— 一个工具软件，切页不该抢戏。 -->
+        <Transition name="view" mode="out-in">
+          <FileQueue
+            v-if="view === 'convert'"
+            key="convert"
+            ref="queueRef"
+            :rows="rowViews"
+            :phase="phase"
+            :completed="completedCount"
+            :total="totalCount"
+            :manual-open="manualOpen"
+            :remote-mode="mode"
+            :mode-tag="jobTag"
+            :busy="jobBusy"
+            :progress="jobProgress"
+            :aborted="stats.abortReason !== ''"
+            :selected="selectedId"
+            :recent="recentPaths"
+            @pick-files="pick('files')"
+            @pick-folder="pick('folder')"
+            @pick-recent="enqueue([$event])"
+            @submit-paths="enqueue"
+            @remove="removeRow"
+            @reveal="revealRow"
+            @select="selectRow"
+            @clear="clearQueue"
+            @update:manual-open="manualOpen = $event"
+          />
+          <CheckPage
+            v-else-if="view === 'check'"
+            key="check"
+            :rows="rowViews"
+            :tag="jobTag"
+            :busy="jobBusy"
+            :progress="jobProgress"
+            :manual-open="manualOpen"
+            :recent="recentPaths"
+            @pick-files="pick('files')"
+            @pick-folder="pick('folder')"
+            @pick-recent="enqueue([$event])"
+            @submit-paths="enqueue"
+            @clear="clearQueue"
+            @update:manual-open="manualOpen = $event"
+          />
+          <DownloadPage
+            v-else-if="view === 'download'"
+            key="download"
+            :rows="rowViews"
+            :tag="jobTag"
+            :busy="jobBusy"
+            :progress="jobProgress"
+            :manual-open="manualOpen"
+            :recent="recentPaths"
+            @pick-files="pick('files')"
+            @pick-folder="pick('folder')"
+            @pick-recent="enqueue([$event])"
+            @submit-paths="enqueue"
+            @remove="removeRow"
+            @clear="clearQueue"
+            @update:manual-open="manualOpen = $event"
+          />
+          <OutputPanel
+            v-else-if="view === 'output'"
+            key="output"
+            :settings="settings"
+            :dirty="dirty"
+            :loaded="settingsLoaded"
+            :loading="settingsLoading"
+            :saving="settingsSaving"
+            :load-error="settingsError"
+            @update="updateSettings"
+            @save="handleSaveSettings"
+            @discard="discardSettings"
+            @retry="loadSettings"
+            @close="goView(viewOfMode(mode))"
+            @pick-dir="handlePickDir"
+          />
+          <OptionsPanel
+            v-else
+            key="settings"
+            :settings="settings"
+            :picgo-needed="picgoNeeded"
+            :dirty="dirty"
+            :loaded="settingsLoaded"
+            :loading="settingsLoading"
+            :saving="settingsSaving"
+            :load-error="settingsError"
+            @update="updateSettings"
+            @save="handleSaveSettings"
+            @discard="discardSettings"
+            @retry="loadSettings"
+            @close="goView(viewOfMode(mode))"
+          />
+        </Transition>
 
         <AppFooter
           v-if="isJobView"

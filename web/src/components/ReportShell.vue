@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
+import AnimatedNumber from './AnimatedNumber.vue'
 import AppIcon from './AppIcon.vue'
 import type { IconName } from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
@@ -27,6 +28,11 @@ const props = defineProps<{
   recent?: string[]
   /** 一行结论的几段：4 个地址 · 2 能打开 · 1 打不开。 */
   verdicts: { key: MessageKey; count: number; tone: 'plain' | 'ok' | 'warn' | 'bad' }[]
+  /** 这一页正在跑：页头下面那条细线跟着进度走。 */
+  busy?: boolean
+  progress?: number
+  /** 进度说不准（只有一个文件）时，细线改成扫动。 */
+  indeterminate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +77,9 @@ function submitManual(): void {
       :title-key="titleKey"
       :lead-key="hintKey"
       :tag="tag"
+      :busy="busy"
+      :progress="progress"
+      :indeterminate="indeterminate"
     >
       <template #actions>
         <button
@@ -123,7 +132,7 @@ function submitManual(): void {
       <template v-for="(cell, index) in verdicts" :key="cell.key">
         <span v-if="index > 0" class="report__sep" aria-hidden="true">·</span>
         <span class="report__stat" :class="`report__stat--${cell.tone}`">
-          <span class="num">{{ cell.count }}</span>
+          <AnimatedNumber :value="cell.count" />
           <span class="report__lbl">{{ t(cell.key) }}</span>
         </span>
       </template>

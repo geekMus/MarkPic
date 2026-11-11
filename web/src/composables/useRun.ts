@@ -332,8 +332,10 @@ export function queuePagePaths(): Record<RemoteMode, string[]> {
 /** 这一页里还没预检过的行（`images === null` 的那批）：切到这一页时再扫。 */
 export function queuePagePendingPreview(mode: RemoteMode): string[] {
   if (mode === activePage) savePage()
+  // 只看「还没统计过张数」：跑过一轮但当时没扫到明细的行（images 仍是 null）
+  // 也算待扫，否则它永远停在 0 张，切回来也修不好。
   return pages[mode].rows
-    .filter((row) => row.images === null && row.phase === 'queued')
+    .filter((row) => row.images === null)
     .map((row) => row.path)
 }
 
@@ -421,6 +423,20 @@ const rowViews = computed<RunRowView[]>(() => rows.value.slice())
 const totalCount = computed(() => rows.value.length)
 
 const completedCount = computed(() => live.settled)
+
+/**
+ * 图张数级的进度：文件级进度在「一轮只有一个文件」时永远停在 0，
+ * 页头那条细线就成了一条死线。跑的是哪一页，就用哪一页的「已处理张数」。
+ */
+const imageTotal = computed(() => live.images)
+
+const imageDone = computed(() => {
+  const owner = runningPage.value
+  if (owner === null) return 0
+  if (owner === 'check') return live.remoteChecked
+  if (owner === 'download') return live.localized
+  return live.uploaded + live.reused
+})
 
 const stats = computed<RunStats>(() => {
   const finished = summary.value
@@ -727,7 +743,8 @@ function applyStarted(files: RunFileInfo[]): void {
       existing.uploaded = 0
       existing.total = file.images
       existing.missing = false
-      existing.result = null
+      // 上一轮的明细先留着：这一轮每跑完一个文件，事件会把结果换掉。
+      // 立刻置空会让检测页/下载页在跑的过程中变成空白页（看着像崩了）。
       existing.scored = false
       return existing
     }
@@ -818,7 +835,13 @@ function onSignal(event: RunEvent): void {
       return
     }
     case 'run.finished': {
-      if (!matches(event.runId)) return
+      if (!matches(event.runId)) {
+        // runId 没接上（例如重连之后事件晚到）却还有「哪一页在跑」的记录：
+        // 后端一次只跑一轮，能收到 finished 就说明它收工了，认下这条事件，
+        // 否则底栏的「取消」会一直挂在那里，队列也一直锁着。
+        if (runId.value !== null || runningPage.value === null) return
+        runId.value = event.runId
+      }
       const owner = runningPage.value ?? activePage
       runningPage.value = null
       if (outcomeAnnounced) { runId.value = null; phase.value = 'cancelled'; return }
@@ -1030,7 +1053,9 @@ function resetRowsForRun(): void {
     row.phase = 'queued'
     row.uploaded = 0
     row.total = row.images ?? 0
-    row.result = null
+    // 上一轮的结果先留着：检测页/下载页的正文是「地址表」「远程→本地」，
+    // 一开跑就清空会让正片在跑的时候变成空白页，看着像崩了。
+    // 这一轮每跑完一个文件，事件会把这个文件的结果换掉。
     row.scored = false
   }
   liveReset()
@@ -1252,6 +1277,8 @@ export function useRun() {
     busy,
     totalCount,
     completedCount,
+    imageTotal,
+    imageDone,
     revealTarget,
     connect,
     disconnect,

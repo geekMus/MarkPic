@@ -19,6 +19,8 @@ const props = defineProps<{
   tag?: string
   manualOpen: boolean
   recent?: string[]
+  busy?: boolean
+  progress?: number
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +33,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
+function stagger(index: number): number {
+  return Math.min(index, 8)
+}
 
 type Kind = 'bad' | 'unsupported' | 'pending' | 'ok'
 
@@ -164,9 +171,17 @@ function sourceTitle(addr: AddrRow): string {
   return addr.sources.map((s) => `${s.name}:${s.line}`).join('\n')
 }
 
-const emptyHint = computed<MessageKey>(() =>
-  addresses.value.length === 0 ? 'check.empty.noRemote' : 'check.empty.filtered',
-)
+/**
+ * 还在扫的时候不能说「这些文件里没有远程图片」——扫完才知道。
+ * 检测模式的预检本身就要访问网络，慢的时候要等十几秒。
+ */
+const scanning = computed(() => props.rows.some((row) => row.images === null))
+const scanCount = computed(() => props.rows.filter((row) => row.images === null).length)
+
+const emptyHint = computed<MessageKey>(() => {
+  if (scanning.value) return 'check.scanning'
+  return addresses.value.length === 0 ? 'check.empty.noRemote' : 'check.empty.filtered'
+})
 </script>
 
 <template>
@@ -181,6 +196,9 @@ const emptyHint = computed<MessageKey>(() =>
     :has-rows="rows.length > 0"
     :manual-open="manualOpen"
     :recent="recent"
+    :busy="busy"
+    :progress="progress"
+    :indeterminate="rows.length <= 1"
     @pick-files="emit('pick-files')"
     @pick-folder="emit('pick-folder')"
     @pick-recent="emit('pick-recent', $event)"
@@ -218,9 +236,14 @@ const emptyHint = computed<MessageKey>(() =>
         </button>
       </div>
 
-      <p v-if="groups.length === 0" class="chk__none">{{ t(emptyHint) }}</p>
+      <p v-if="groups.length === 0" class="chk__none">{{ t(emptyHint, { count: scanCount }) }}</p>
 
-      <section v-for="group in groups" :key="group.host" class="chk__group">
+      <section
+        v-for="(group, gi) in groups"
+        :key="group.host"
+        class="chk__group"
+        :style="{ '--i': stagger(gi) }"
+      >
         <header class="chk__host">
           <h3>{{ group.host }}</h3>
           <span class="chk__meta">{{ t('check.group.count', { count: group.list.length }) }}</span>
@@ -232,7 +255,12 @@ const emptyHint = computed<MessageKey>(() =>
           </span>
         </header>
         <ul class="chk__list">
-          <li v-for="addr in group.list" :key="addr.url" class="chk__row">
+          <li
+            v-for="(addr, ai) in group.list"
+            :key="addr.url"
+            class="chk__row"
+            :style="{ '--i': stagger(ai) }"
+          >
             <StatusPill
               :label="t(KIND_META[addr.kind].labelKey)"
               :tone="KIND_META[addr.kind].tone"
@@ -335,6 +363,16 @@ const emptyHint = computed<MessageKey>(() =>
 }
 
 /* 一组 = 一个域名：组与组之间靠留白分开，不画框、不叠卡 */
+.chk__group {
+  animation: row-in 280ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 24ms);
+}
+
+.chk__row {
+  animation: row-in 260ms var(--ease) both;
+  animation-delay: calc(var(--i, 0) * 16ms);
+}
+
 .chk__group + .chk__group {
   margin-top: 30px;
 }

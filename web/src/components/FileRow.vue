@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useId } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
@@ -29,6 +29,24 @@ const props = defineProps<{
 const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
 
 const { danger } = useToasts()
+
+/**
+ * 这一行刚跑完：底色亮一下再褪掉。
+ * 状态从「检测中」直接变成「已下载」，如果什么动静都没有，
+ * 人会觉得它没跑（尤其批量跑的时候）。只闪一次，900ms。
+ */
+const settled = ref(false)
+
+watch(
+  () => props.row.phase,
+  (next) => {
+    if (next !== 'settled') return
+    settled.value = true
+    window.setTimeout(() => {
+      settled.value = false
+    }, 900)
+  },
+)
 
 /** 打开这次写出来的那份文件；失败就把原因说出来，别让按钮像没反应。 */
 async function openOutput(): Promise<void> {
@@ -435,6 +453,7 @@ function replaced(status: ImageStatus): boolean {
 <template>
   <li
     class="item"
+    :class="{ 'item--settled': settled }"
     :data-tone="statusMeta.tone"
     :data-selected="props.selected ? 'yes' : null"
   >
@@ -601,6 +620,19 @@ function replaced(status: ImageStatus): boolean {
 </template>
 
 <style scoped>
+.item--settled {
+  animation: item-settled 900ms var(--ease) both;
+}
+
+@keyframes item-settled {
+  0% {
+    background: var(--accent-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
 .item {
   position: relative;
   border-bottom: 1px solid var(--line);
