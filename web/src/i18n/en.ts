@@ -190,24 +190,29 @@ export const en: Record<keyof typeof zh, string> = {
   'row.output': 'Output',
 
   // Empty state
-  'empty.eyebrow': 'Local images → hosted links',
-  'empty.title': 'Replace local images with image-host links',
+  'empty.title': 'Turn local images into hosted links',
   'empty.text':
-    'Reads the local images referenced by your Markdown, uploads them through the local PicGo, and swaps those paths for image-host links. Writes a copy by default and leaves the originals untouched.',
+    'Reads the local images your Markdown references, uploads them through the local PicGo, and swaps those paths for hosted links.',
+  'empty.drop.title': 'Drop Markdown here',
+  'empty.drop.or': 'or',
   'empty.pickFiles': 'Choose files',
   'empty.pickFolder': 'Choose folder',
   'empty.recent': 'Recent',
-  'empty.foot':
-    'Add several files or a whole folder at once, or paste Windows absolute paths directly.',
-  'empty.spec.title': 'Supported syntax',
+  'empty.pledge.copy': 'Saves a copy; the original stays untouched',
+  'empty.pledge.once': 'Each image uploads once per run',
+  'empty.pledge.fail': 'Failed items keep their text and position',
+  'empty.spec.title': 'All three forms are recognised',
+  'empty.spec.a': '![caption](images/a.png)',
+  'empty.spec.b': '![](<with space.png>)',
+  'empty.spec.c': '<img src="a.png" width="60">',
   'empty.spec.note':
     'Images inside fenced code blocks and inline code are skipped; images that are already remote URLs are left as they are.',
-  'empty.step.add': 'Add Markdown',
-  'empty.step.add.detail': 'Files, folders, or pasted paths',
-  'empty.step.upload': 'Upload through the local PicGo',
-  'empty.step.upload.detail': 'Each image is uploaded once per run',
-  'empty.step.write': 'Write the links back and save',
-  'empty.step.write.detail': 'Failures keep their original text and position',
+  'empty.specimen.file': 'weekly-report.md',
+  'empty.specimen.heading': 'This week',
+  'empty.specimen.alt': 'diagram',
+  'empty.specimen.state': 'the saved copy',
+  'empty.specimen.caption':
+    'After conversion this is the only change in the document — same picture, hosted address.',
 
   // Footer
   'footer.run': 'Start conversion',
