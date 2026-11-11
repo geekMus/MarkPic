@@ -24,6 +24,33 @@ export type Settings = {
 
 export type RemoteMode = 'ignore' | 'check' | 'download'
 
+/**
+ * 侧边栏上的入口。左边三个是「作业视图」——共用同一条队列，区别只在远程图怎么处理
+ * 和目标文案；右边两个是「表单页」——输出写到哪、PicGo 与外观。
+ *
+ * 以前远程图那三档藏在设置里当单选，用户得先知道「设置里有这个开关」才找得到；
+ * 现在它们各自就是菜单上的一项。
+ */
+export type JobView = 'convert' | 'check' | 'download'
+export type FormView = 'output' | 'settings'
+export type View = JobView | FormView
+
+export const JOB_VIEWS: readonly JobView[] = ['convert', 'check', 'download']
+
+/** 作业视图 → 这一轮远程图怎么处理。 */
+export function modeOfView(view: View): RemoteMode {
+  if (view === 'check') return 'check'
+  if (view === 'download') return 'download'
+  return 'ignore'
+}
+
+/** 反过来：给一个远程模式，找出该高亮哪个菜单项。 */
+export function viewOfMode(mode: RemoteMode): JobView {
+  if (mode === 'check') return 'check'
+  if (mode === 'download') return 'download'
+  return 'convert'
+}
+
 export type ImageStatus =
   | 'uploaded'
   | 'reused'

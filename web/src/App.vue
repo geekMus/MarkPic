@@ -8,6 +8,7 @@ import CommandPalette from './components/CommandPalette.vue'
 import type { PaletteCommand } from './components/CommandPalette.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
+import OutputPanel from './components/OutputPanel.vue'
 import ToastStack from './components/ToastStack.vue'
 import {
   describeError,
@@ -26,6 +27,7 @@ import { useToasts } from './composables/useToasts'
 import { useUpdate } from './composables/useUpdate'
 import { useWindowControls } from './composables/useWindowControls'
 import { useI18n } from './i18n'
+import { JOB_VIEWS, modeOfView, viewOfMode, type JobView, type RemoteMode, type View } from './types'
 
 const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
 
@@ -68,8 +70,22 @@ const {
   clearQueue,
 } = useRun()
 
-// 主视图：转换（队列）或设置。设置不再占用弹窗，右侧的队列还能继续看。
-const view = ref<'convert' | 'settings'>('convert')
+// 主视图 = 侧边栏上的菜单项。左边三项是作业视图（共用一条队列，区别只在远程图
+// 怎么处理），右边两项是表单页（结果写到哪 / 怎么跑）。设置不再占用弹窗。
+const view = ref<View>('convert')
+
+/** 作业视图对应的远程图处理方式；表单页没有这个属性。 */
+function jobModeOf(next: View): RemoteMode | null {
+  return JOB_VIEWS.includes(next as JobView) ? modeOfView(next) : null
+}
+
+/**
+ * 这一轮真正会用到的远程图模式。表单页上沿用最后一次的作业视图 ——
+ * 否则在「输出」里改完设置、回队列一开跑，模式就被悄悄重置成「转换」了。
+ */
+const mode = ref<RemoteMode>('ignore')
+const isJobView = computed(() => jobModeOf(view.value) !== null)
+const isFormView = computed(() => !isJobView.value)
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
 const paletteOpen = ref(false)
@@ -111,7 +127,7 @@ const picgo = computed(() => health.value?.picgo ?? null)
 // 服务端给的 needed 是按**已保存**的设置算的，而面板里的选择可能还没保存就开跑
 // （整轮用的就是面板里这份）。这盏灯回答的是「现在能不能开始」，所以按面板里
 // 真正会用的那份设置来判：只检测 / 只下载 / 试运行都不上传。
-const picgoNeeded = computed(() => settings.remote === 'ignore' && !settings.dryRun)
+const picgoNeeded = computed(() => mode.value === 'ignore' && !settings.dryRun)
 const dataDir = computed(() => health.value?.dataDir ?? '')
 const dataNote = computed(() => health.value?.dataNote ?? '')
 const settingsNote = computed(() => health.value?.settingsNote ?? '')
@@ -156,6 +172,12 @@ const paletteCommands = computed<PaletteCommand[]>(() => {
   if (!busy.value && rowViews.value.length > 0) {
     commands.push({ id: 'clear', label: t('palette.cmd.clear'), icon: 'trash', run: clearQueue })
   }
+  // 菜单上的四项就是四个功能，命令面板里也该能直接跳过去：
+  // 以前「检测远程图」只是设置里的一个单选，连个名字都没有。
+  commands.push({ id: 'nav-convert', label: t('palette.cmd.convert'), icon: 'image', run: () => { goView('convert') } })
+  commands.push({ id: 'nav-check', label: t('palette.cmd.check'), icon: 'link', run: () => { goView('check') } })
+  commands.push({ id: 'nav-download', label: t('palette.cmd.download'), icon: 'download', run: () => { goView('download') } })
+  commands.push({ id: 'nav-output', label: t('palette.cmd.output'), icon: 'folder-open', run: () => { goView('output') } })
   commands.push({ id: 'settings', label: t('palette.cmd.settings'), icon: 'settings', run: () => { goView('settings') } })
   commands.push({ id: 'theme', label: t('palette.cmd.theme'), icon: theme.value === 'dark' ? 'moon' : 'sun', run: toggleTheme })
   commands.push({ id: 'about', label: t('palette.cmd.about'), icon: 'info', run: () => { aboutOpen.value = true } })
@@ -223,6 +245,15 @@ function readQueue(): string[] {
   }
 }
 
+/**
+ * 这一轮要用的设置 = 面板里那份 + 当前菜单决定的远程图模式。
+ * 模式不在表单里（它是菜单），所以用覆盖的方式塞进去：既不会让「未保存」变真，
+ * 也不会被当成用户改过的设置写回文件。
+ */
+function jobSettings() {
+  return settingsSnapshot({ remote: mode.value })
+}
+
 /** 启动时把上次的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
 async function restoreQueue(): Promise<void> {
   if (rowViews.value.length > 0 || busy.value) return
@@ -231,7 +262,7 @@ async function restoreQueue(): Promise<void> {
   const added = addPaths(saved)
   if (added.length === 0) return
   try {
-    applyPreview(await preview(added, settingsSnapshot()), added)
+    applyPreview(await preview(added, jobSettings()), added)
   } catch {
     /* 预览失败就当没接回来，行还在，用户点开始也行 */
   }
@@ -246,7 +277,7 @@ async function enqueue(paths: string[]): Promise<void> {
   manualOpen.value = false
   rememberPaths(added)
   try {
-    applyPreview(await preview(added, settingsSnapshot()), added)
+    applyPreview(await preview(added, jobSettings()), added)
   } catch (error) {
     warning(t('error.preview', { detail: describeError(error, t('error.unknown')) }))
   }
@@ -261,12 +292,12 @@ function handleRun(): void {
   if (!canStart.value) return
   void start(
     rowViews.value.map((row) => row.path),
-    settingsSnapshot(),
+    jobSettings(),
   )
 }
 
 async function handleSaveSettings(): Promise<void> {
-  if (await saveSettings()) await refreshHealth()
+  if (await saveSettings({ remote: mode.value })) await refreshHealth()
 }
 
 async function handleReveal(): Promise<void> {
@@ -303,12 +334,14 @@ async function handlePickDir(): Promise<void> {
 }
 
 /** 换视图时把键盘焦点跟着搬过去：否则 Esc 回到队列后，Tab 还是从页面开头走。 */
-function goView(next: 'convert' | 'settings'): void {
-  // 设置改了一半就走开：得说一声，不然下一次打开是那份改了一半的草稿，
-  // 用户还以为是保存了。
-  if (view.value === 'settings' && next !== 'settings' && dirty.value) {
+function goView(next: View): void {
+  // 表单页改了一半就跑去开工：得说一声，不然下一次打开是那份改了一半的草稿，
+  // 用户还以为是保存了。（输出 ↔ 设置之间来回切不算离开，两张单子共用一份草稿。）
+  if (isFormView.value && jobModeOf(next) !== null && dirty.value) {
     warning(t('settings.unsavedLeft'))
   }
+  const nextMode = jobModeOf(next)
+  if (nextMode !== null) mode.value = nextMode
   view.value = next
   void nextTick(() => document.querySelector<HTMLElement>(`.rail__btn[data-nav="${next}"]`)?.focus())
 }
@@ -330,7 +363,7 @@ function handleKeydown(event: KeyboardEvent): void {
   if (
     event.key === '/' &&
     !mod &&
-    view.value === 'convert' &&
+    isJobView.value &&
     !paletteOpen.value &&
     !(event.target as HTMLElement | null)?.closest('input, textarea')
   ) {
@@ -353,8 +386,8 @@ function handleKeydown(event: KeyboardEvent): void {
       aboutOpen.value = false
       return
     }
-    if (view.value === 'settings') {
-      goView('convert')
+    if (isFormView.value) {
+      goView(viewOfMode(mode.value))
       return
     }
     if (manualOpen.value) {
@@ -363,8 +396,8 @@ function handleKeydown(event: KeyboardEvent): void {
     }
   }
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    // 弹窗开着的时候，回车是「保存设置」——后面那个「开始转换」按钮被挡住了
-    if (view.value === 'settings') {
+    // 表单页上回车是「保存」——底栏那个「开始」按钮不在这两页上
+    if (isFormView.value) {
       if (dirty.value) {
         event.preventDefault()
         void handleSaveSettings()
@@ -437,14 +470,14 @@ onBeforeUnmount(() => {
 
       <main class="app__view">
         <FileQueue
-          v-if="view === 'convert'"
+          v-if="isJobView"
           ref="queueRef"
           :rows="rowViews"
           :phase="phase"
           :completed="completedCount"
           :total="totalCount"
           :manual-open="manualOpen"
-          :remote-mode="settings.remote"
+          :remote-mode="mode"
           :aborted="stats.abortReason !== ''"
           :selected="selectedId"
           :recent="recentPaths"
@@ -458,9 +491,8 @@ onBeforeUnmount(() => {
           @clear="clearQueue"
           @update:manual-open="manualOpen = $event"
         />
-        <OptionsPanel
-          v-else
-          inline
+        <OutputPanel
+          v-else-if="view === 'output'"
           :settings="settings"
           :dirty="dirty"
           :loaded="settingsLoaded"
@@ -471,15 +503,30 @@ onBeforeUnmount(() => {
           @save="handleSaveSettings"
           @discard="discardSettings"
           @retry="loadSettings"
-          @close="goView('convert')"
+          @close="goView(viewOfMode(mode))"
           @pick-dir="handlePickDir"
+        />
+        <OptionsPanel
+          v-else
+          :settings="settings"
+          :picgo-needed="picgoNeeded"
+          :dirty="dirty"
+          :loaded="settingsLoaded"
+          :loading="settingsLoading"
+          :saving="settingsSaving"
+          :load-error="settingsError"
+          @update="updateSettings"
+          @save="handleSaveSettings"
+          @discard="discardSettings"
+          @retry="loadSettings"
+          @close="goView(viewOfMode(mode))"
         />
 
         <AppFooter
-          v-if="view === 'convert'"
+          v-if="isJobView"
           :stats="stats"
           :phase="phase"
-          :remote-mode="settings.remote"
+          :remote-mode="mode"
           :busy="busy"
           :can-start="canStart"
           :can-reveal="canReveal"

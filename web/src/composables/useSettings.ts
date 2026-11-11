@@ -38,22 +38,6 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
   'remoteDir',
 ]
 
-export interface RemoteModeOption {
-  value: Settings['remote']
-  labelKey: MessageKey
-  hintKey: MessageKey
-}
-
-export const REMOTE_MODES: readonly RemoteModeOption[] = [
-  { value: 'ignore', labelKey: 'settings.remote.ignore', hintKey: 'settings.remote.ignore.hint' },
-  { value: 'check', labelKey: 'settings.remote.check', hintKey: 'settings.remote.check.hint' },
-  {
-    value: 'download',
-    labelKey: 'settings.remote.download',
-    hintKey: 'settings.remote.download.hint',
-  },
-]
-
 function defaultSettings(): Settings {
   return {
     endpoint: 'http://127.0.0.1:36677',
@@ -178,38 +162,42 @@ function discard(): void {
   adopt(baseline.value)
 }
 
-/** 供发起转换 / 预览时使用的稳定快照。 */
-function snapshot(): Settings {
-  return normalize(draft)
+/** 供发起转换 / 预览时使用的稳定快照。
+ *  override 用来盖住草稿里的值：远程图现在由菜单决定（转换 / 检测 / 下载），
+ *  那不是表单里的改动，不该让草稿变脏。
+ */
+function snapshot(override?: Partial<Settings>): Settings {
+  return normalize({ ...draft, ...override })
 }
 
-async function save(): Promise<boolean> {
+async function save(override?: Partial<Settings>): Promise<boolean> {
   if (saving.value) return false
   if (!loaded.value) {
     warning(t('error.settingsNotLoaded'))
     return false
   }
 
-  const endpoint = draft.endpoint.trim()
+  const merged = { ...draft, ...override }
+  const endpoint = merged.endpoint.trim()
   // 只有真要上传时才非得有 PicGo 地址：只检测 / 只下载远程图、以及试运行都不上传，
   // 这时候拦住「保存」纯属添乱（服务端本来也会把空地址回落成默认值）。
-  const uploads = draft.remote === 'ignore' && !draft.dryRun
+  const uploads = merged.remote === 'ignore' && !merged.dryRun
   if (uploads && endpoint === '') {
     warning(t('error.picgoRequired'))
     return false
   }
-  if (draft.output === 'directory' && draft.outDir.trim() === '') {
+  if (merged.output === 'directory' && merged.outDir.trim() === '') {
     warning(t('error.outDirRequired'))
     return false
   }
-  if (draft.remote !== 'ignore' && draft.remoteDir.trim() === '') {
+  if (merged.remote !== 'ignore' && merged.remoteDir.trim() === '') {
     warning(t('error.remoteDirRequired'))
     return false
   }
 
   saving.value = true
   try {
-    const payload = normalize({ ...draft, endpoint })
+    const payload = normalize({ ...merged, endpoint })
     const persisted = await putSettings(payload)
     adopt(persisted)
     loaded.value = true
@@ -239,6 +227,5 @@ export function useSettings() {
     discard,
     snapshot,
     outputModes: OUTPUT_MODES,
-    remoteModes: REMOTE_MODES,
   }
 }

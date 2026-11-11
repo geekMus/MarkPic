@@ -512,6 +512,7 @@ function onScroll(): void {
       <EmptyState
         v-else-if="!manualOpen"
         :recent="props.recent ?? []"
+        :remote-mode="remoteMode"
         @pick-files="emit('pick-files')"
         @pick-folder="emit('pick-folder')"
         @pick-recent="emit('pick-recent', $event)"

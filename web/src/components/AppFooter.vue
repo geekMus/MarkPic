@@ -28,6 +28,13 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+/** 底栏那个主按钮：三条作业各说各的动词 —— 只写「开始」没人知道会开始什么。 */
+const runKey = computed<MessageKey>(() => {
+  if (props.remoteMode === 'check') return 'footer.run.check'
+  if (props.remoteMode === 'download') return 'footer.run.download'
+  return 'footer.run'
+})
+
 /** 底栏只放 v1.0.0 这样的短号，提交号留给关于对话框。 */
 const versionShort = computed(() => {
   const raw = props.version.trim()
@@ -278,7 +285,7 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         @click="emit('run')"
       >
         <AppIcon name="play" :size="15" />
-        {{ t('footer.run') }}
+        {{ t(runKey) }}
       </button>
     </div>
   </footer>

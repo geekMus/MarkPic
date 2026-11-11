@@ -1,30 +1,38 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
+import type { IconName } from './AppIcon.vue'
 import { useI18n, type MessageKey } from '../i18n'
+import type { FormView, View } from '../types'
 
 const props = defineProps<{
-  /** 当前在哪个视图：转换（队列）或设置。 */
-  view: 'convert' | 'settings'
+  /** 当前在哪个视图：三个作业视图，或输出 / 设置。 */
+  view: View
   /** 侧边栏形态：只有图标的窄条，或图标 + 文字的导航。 */
   mode: 'compact' | 'expanded'
-  /** 设置里有没有还没保存的改动：有就让设置那颗按钮带个小点。 */
+  /** 输出 / 设置里有没有还没保存的改动：有就让那颗按钮带个小点。 */
   dirty?: boolean
 }>()
 
 const emit = defineEmits<{
-  navigate: [view: 'convert' | 'settings']
+  navigate: [view: View]
   about: []
   toggle: []
 }>()
 
 const { t } = useI18n()
 
-// 导航项写在一起，后面加功能（历史、图床、批量任务…）只要往这里加一条、再到 App 里
-// 给一个视图就行；宽度、间距、选中态都不用重新想。
-const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: MessageKey }[] = [
+// 导航项写在一起，后面加功能只要往这里加一条、再到 App 里给一个视图就行；
+// 宽度、间距、选中态都不用重新想。
+const items: { id: View; icon: IconName; key: MessageKey }[] = [
   { id: 'convert', icon: 'image', key: 'nav.convert' },
+  { id: 'check', icon: 'link', key: 'nav.check' },
+  { id: 'download', icon: 'download', key: 'nav.download' },
+  { id: 'output', icon: 'folder-open', key: 'nav.output' },
   { id: 'settings', icon: 'settings', key: 'nav.settings' },
 ]
+
+/** 这两个是表单页，共用一份草稿：哪一页都可能是「还没保存」的那一页。 */
+const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
 </script>
 
 <template>
@@ -45,7 +53,7 @@ const items: { id: 'convert' | 'settings'; icon: 'image' | 'settings'; key: Mess
         <AppIcon :name="item.icon" :size="18" />
         <span v-if="props.mode === 'expanded'" class="rail__label">{{ t(item.key) }}</span>
         <span
-          v-if="item.id === 'settings' && props.dirty && view !== 'settings'"
+          v-if="dirty && FORM_VIEWS.includes(item.id as FormView) && view !== item.id"
           class="rail__dot"
           :aria-label="t('settings.unsaved')"
         />

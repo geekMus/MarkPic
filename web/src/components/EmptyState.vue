@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import RewriteSpecimen from './RewriteSpecimen.vue'
-import { useI18n } from '../i18n'
+import { useI18n, type MessageKey } from '../i18n'
+import { viewOfMode, type JobView, type RemoteMode } from '../types'
 
 const props = defineProps<{
   /** 最近用过的路径（最新的在前）。空数组时整块不出现。 */
   recent: string[]
+  /** 当前菜单：同一套版面，三种作业说三件不同的事。 */
+  remoteMode?: RemoteMode
 }>()
 
 const emit = defineEmits<{
@@ -26,8 +30,37 @@ function shortPath(path: string): string {
 
 const { t } = useI18n()
 
+/** 队列是三条作业共用的，空态文案跟着菜单走。 */
+const mode = computed<JobView>(() => viewOfMode(props.remoteMode ?? 'ignore'))
+
+const titleKey = computed<MessageKey>(() => {
+  if (mode.value === 'check') return 'empty.check.title'
+  if (mode.value === 'download') return 'empty.download.title'
+  return 'empty.title'
+})
+
+const textKey = computed<MessageKey>(() => {
+  if (mode.value === 'check') return 'empty.check.text'
+  if (mode.value === 'download') return 'empty.download.text'
+  return 'empty.text'
+})
+
 /** 三条承诺：用户真正担心的三件事，不是流程步骤。 */
-const PLEDGES = ['empty.pledge.copy', 'empty.pledge.once', 'empty.pledge.fail'] as const
+const pledges = computed<MessageKey[]>(() => {
+  if (mode.value === 'check') {
+    return ['empty.check.pledge.a', 'empty.check.pledge.b', 'empty.check.pledge.c']
+  }
+  if (mode.value === 'download') {
+    return ['empty.download.pledge.a', 'empty.download.pledge.b', 'empty.download.pledge.c']
+  }
+  return ['empty.pledge.copy', 'empty.pledge.once', 'empty.pledge.fail']
+})
+
+const specNoteKey = computed<MessageKey>(() => {
+  if (mode.value === 'check') return 'empty.spec.note.check'
+  if (mode.value === 'download') return 'empty.spec.note.download'
+  return 'empty.spec.note'
+})
 
 /** 三种写法跟着语言走 —— 英文界面里不该冒出「带 空格.png」。 */
 const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
@@ -37,8 +70,8 @@ const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
   <div class="empty">
     <div class="empty__grid">
       <div class="lead">
-        <h2 class="lead__title">{{ t('empty.title') }}</h2>
-        <p class="lead__text">{{ t('empty.text') }}</p>
+        <h2 class="lead__title">{{ t(titleKey) }}</h2>
+        <p class="lead__text">{{ t(textKey) }}</p>
 
         <!-- 整个窗口都接拖放，但以前没人看得出来。把最快的路径摆成第一动作。 -->
         <button type="button" class="drop" @click="emit('pick-files')">
@@ -80,7 +113,7 @@ const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
         </div>
 
         <ul class="pledge">
-          <li v-for="key in PLEDGES" :key="key" class="pledge__item">
+          <li v-for="key in pledges" :key="key" class="pledge__item">
             <AppIcon name="check" :size="13" class="pledge__mark" />
             {{ t(key) }}
           </li>
@@ -88,14 +121,14 @@ const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
       </div>
 
       <div class="side">
-        <RewriteSpecimen />
+        <RewriteSpecimen :mode="mode" />
 
         <section class="spec">
           <h3 class="spec__title">{{ t('empty.spec.title') }}</h3>
           <ul class="spec__list mono">
             <li v-for="key in SPEC_FORMS" :key="key">{{ t(key) }}</li>
           </ul>
-          <p class="spec__note">{{ t('empty.spec.note') }}</p>
+          <p class="spec__note">{{ t(specNoteKey) }}</p>
         </section>
       </div>
     </div>
