@@ -6,6 +6,8 @@ import AppHeader from './components/AppHeader.vue'
 import AppRail from './components/AppRail.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import type { PaletteCommand } from './components/CommandPalette.vue'
+import CheckPage from './components/CheckPage.vue'
+import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
 import OutputPanel from './components/OutputPanel.vue'
@@ -553,9 +555,11 @@ onBeforeUnmount(() => {
       />
 
       <main class="app__view">
+        <!-- 三个作业页各有各的版式：转换是文件表，检测是地址表，下载是「远程 → 本地」映射。
+             页面的状态各自保留（useRun 里的 QueuePage），切走再回来还是原样。 -->
         <FileQueue
-          v-if="isJobView"
-          :key="mode"
+          v-if="view === 'convert'"
+          key="convert"
           ref="queueRef"
           :rows="rowViews"
           :phase="phase"
@@ -574,6 +578,35 @@ onBeforeUnmount(() => {
           @remove="removeRow"
           @reveal="revealRow"
           @select="selectRow"
+          @clear="clearQueue"
+          @update:manual-open="manualOpen = $event"
+        />
+        <CheckPage
+          v-else-if="view === 'check'"
+          key="check"
+          :rows="rowViews"
+          :tag="jobTag"
+          :manual-open="manualOpen"
+          :recent="recentPaths"
+          @pick-files="pick('files')"
+          @pick-folder="pick('folder')"
+          @pick-recent="enqueue([$event])"
+          @submit-paths="enqueue"
+          @clear="clearQueue"
+          @update:manual-open="manualOpen = $event"
+        />
+        <DownloadPage
+          v-else-if="view === 'download'"
+          key="download"
+          :rows="rowViews"
+          :tag="jobTag"
+          :manual-open="manualOpen"
+          :recent="recentPaths"
+          @pick-files="pick('files')"
+          @pick-folder="pick('folder')"
+          @pick-recent="enqueue([$event])"
+          @submit-paths="enqueue"
+          @remove="removeRow"
           @clear="clearQueue"
           @update:manual-open="manualOpen = $event"
         />
@@ -617,7 +650,7 @@ onBeforeUnmount(() => {
           :busy="busy"
           :can-start="canStart"
           :can-reveal="canReveal"
-          :dry-run="dryRun"
+          :dry-run="mode !== 'check' && dryRun"
           :version="version"
           :has-update="hasUpdate"
           @run="handleRun"

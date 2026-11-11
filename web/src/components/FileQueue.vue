@@ -732,47 +732,6 @@ function onScroll(): void {
   text-align: right;
 }
 
-.manual {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  /* 右 18px = 行的内边距 8 + 滚动条 10，跟行右端对齐（固定块本身铺满面板） */
-  padding: 14px 18px 15px 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel-2);
-  animation: manual-in var(--t-base) var(--ease);
-}
-
-.manual__label {
-  color: var(--ink-2);
-  font-size: var(--fs-2);
-  font-weight: 500;
-}
-
-.manual__foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.manual__hint {
-  flex: 1;
-  min-width: 0;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-@keyframes manual-in {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 
 /* 窄窗口：行里不再显示「图片」列（列宽留给文件名），列头跟着一起收 */
 @media (max-width: 820px) {
