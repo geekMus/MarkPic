@@ -7,8 +7,6 @@ import type { FormView, View } from '../types'
 const props = defineProps<{
   /** 当前在哪个视图：三个作业视图，或输出 / 设置。 */
   view: View
-  /** 侧边栏形态：只有图标的窄条，或图标 + 文字的导航。 */
-  mode: 'compact' | 'expanded'
   /** 输出 / 设置里有没有还没保存的改动：有就让那颗按钮带个小点。 */
   dirty?: boolean
   /** 哪个作业页正在跑：在它的图标上点一颗呼吸的小点，切走也看得见。 */
@@ -18,7 +16,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   navigate: [view: View]
   about: []
-  toggle: []
 }>()
 
 const { t } = useI18n()
@@ -38,7 +35,7 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
 </script>
 
 <template>
-  <nav class="rail" :class="{ 'rail--expanded': props.mode === 'expanded' }" :aria-label="t('nav.label')">
+  <nav class="rail" :aria-label="t('nav.label')">
     <div class="rail__stack">
       <button
         v-for="item in items"
@@ -53,7 +50,7 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
         @click="emit('navigate', item.id)"
       >
         <AppIcon :name="item.icon" :size="18" />
-        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t(item.key) }}</span>
+        <span class="rail__label">{{ t(item.key) }}</span>
         <span
           v-if="dirty && FORM_VIEWS.includes(item.id as FormView) && view !== item.id"
           class="rail__dot"
@@ -71,21 +68,9 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
         @click="emit('about')"
       >
         <AppIcon name="info" :size="17" />
-        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t('nav.about') }}</span>
+        <span class="rail__label">{{ t('nav.about') }}</span>
       </button>
 
-      <!-- 展开 / 收起：一个按钮两个方向，图标跟着当前形态走 -->
-      <button
-        type="button"
-        class="rail__btn rail__btn--toggle"
-        :title="props.mode === 'expanded' ? t('nav.collapse') : t('nav.expand')"
-        :aria-label="props.mode === 'expanded' ? t('nav.collapse') : t('nav.expand')"
-        :aria-expanded="props.mode === 'expanded'"
-        @click="emit('toggle')"
-      >
-        <AppIcon :name="props.mode === 'expanded' ? 'chevrons-left' : 'chevrons-right'" :size="17" />
-        <span v-if="props.mode === 'expanded'" class="rail__label">{{ t('nav.collapse') }}</span>
-      </button>
     </div>
   </nav>
 </template>
@@ -103,19 +88,14 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
 .rail__btn--run::after {
   content: '';
   position: absolute;
-  top: 7px;
-  right: 7px;
+  top: 50%;
+  right: 9px;
+  margin-top: -2.5px;
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--accent);
   animation: rail-pulse 1.6s var(--ease) infinite;
-}
-
-.rail--expanded .rail__btn--run::after {
-  top: 50%;
-  right: 9px;
-  margin-top: -2.5px;
 }
 
 @keyframes rail-pulse {
@@ -140,27 +120,18 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 0;
-  min-height: 0;
-}
-
-.rail--expanded {
   align-items: stretch;
+  gap: 10px;
   padding: 4px 2px;
+  min-height: 0;
 }
 
 .rail__stack {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  align-items: center;
-  width: 100%;
-}
-
-.rail--expanded .rail__stack {
   align-items: stretch;
+  width: 100%;
 }
 
 .rail__stack--foot {
@@ -171,11 +142,11 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
   position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 10px;
-  width: 38px;
+  width: auto;
   height: 38px;
-  padding: 0;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: var(--r-3);
   color: var(--ink-3);
@@ -183,12 +154,6 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
     color var(--t-fast) var(--ease),
     background var(--t-fast) var(--ease),
     border-color var(--t-fast) var(--ease);
-}
-
-.rail--expanded .rail__btn {
-  width: auto;
-  justify-content: flex-start;
-  padding: 0 10px;
 }
 
 .rail__btn:hover {
@@ -229,27 +194,14 @@ const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
   line-height: 1;
 }
 
-/* 收起/展开本身不是「当前在哪」，不跟着选中态变色 */
-.rail__btn--toggle {
-  color: var(--ink-3);
-}
 
 @media (max-width: 900px) {
   .rail {
-    padding: 2px 0;
-  }
-
-  .rail--expanded {
     padding: 2px 2px;
   }
 
   .rail__btn {
-    width: 34px;
     height: 34px;
-  }
-
-  .rail--expanded .rail__btn {
-    width: auto;
     padding: 0 8px;
   }
 }

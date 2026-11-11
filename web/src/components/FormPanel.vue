@@ -4,7 +4,9 @@ import { nextTick, onMounted, ref } from 'vue'
 import { useI18n, type MessageKey } from '../i18n'
 
 /**
- * 「输出」和「设置」两页共用的外壳：标题 + 「未保存」+ 关闭、滚动区、底部的还原 / 保存。
+ * 「输出」和「设置」两页共用的外壳：标题 + 「未保存」、滚动区、底部的还原 / 保存。
+ *
+ * 这两页不是弹窗 —— 菜单本身就能切走，标题右边不该再挂一个叉。
  *
  * 两页改的是同一份草稿，所以按钮、快捷键、脏标记必须长得一模一样 —— 复制两遍迟早会走样。
  * 表单内容由各页自己放进 slot。
@@ -25,7 +27,6 @@ const emit = defineEmits<{
   save: []
   discard: []
   retry: []
-  close: []
 }>()
 
 const { t } = useI18n()
@@ -53,17 +54,6 @@ onMounted(() => {
           <span v-if="props.dirty" class="panel__note panel__note--dirty">
             {{ t('settings.unsaved') }}
           </span>
-        </div>
-        <div class="panel__actions">
-          <button
-            type="button"
-            class="icon-btn"
-            :title="t('settings.close')"
-            :aria-label="t('settings.close')"
-            @click="emit('close')"
-          >
-            <AppIcon name="x" :size="15" />
-          </button>
         </div>
       </header>
 

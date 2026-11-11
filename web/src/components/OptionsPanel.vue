@@ -26,7 +26,6 @@ const emit = defineEmits<{
   save: []
   discard: []
   retry: []
-  close: []
 }>()
 
 const { t, lang, setLang } = useI18n()
@@ -72,7 +71,6 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
     @save="emit('save')"
     @discard="emit('discard')"
     @retry="emit('retry')"
-    @close="emit('close')"
   >
     <section class="section">
       <h3 class="section__title">{{ t('settings.section.picgo') }}</h3>

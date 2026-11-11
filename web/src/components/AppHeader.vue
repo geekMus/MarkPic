@@ -110,16 +110,6 @@ function handleDoubleClick(event: MouseEvent): void {
     <div class="tb__tools" data-no-drag>
       <button
         type="button"
-        class="icon-btn"
-        :title="t('palette.open')"
-        :aria-label="t('palette.open')"
-        @click="emit('open-palette')"
-      >
-        <AppIcon name="command" :size="15" />
-      </button>
-
-      <button
-        type="button"
         class="health"
         :data-tone="picgoTone"
         :title="picgoTitle"

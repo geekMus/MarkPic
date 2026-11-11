@@ -43,7 +43,6 @@ export const en: Record<keyof typeof zh, string> = {
   // Settings
   'settings.title': 'Settings',
   'settings.unsaved': 'Unsaved',
-  'settings.close': 'Close settings',
   'settings.discard': 'Revert',
   'settings.save': 'Save settings',
   'settings.saving': 'Saving',
@@ -86,8 +85,6 @@ export const en: Record<keyof typeof zh, string> = {
   'nav.convert': 'Convert',
   'nav.settings': 'Settings',
   'nav.about': 'About',
-  'nav.expand': 'Expand the sidebar',
-  'nav.collapse': 'Collapse the sidebar',
   'queue.title': 'Queue',
   'queue.count': '{count} files',
   'queue.progress': '{done}/{total} done',
@@ -275,23 +272,6 @@ export const en: Record<keyof typeof zh, string> = {
   'about.state.error': 'Check failed',
   'about.state.idle': 'Not checked yet',
 
-  // Command palette
-  'palette.label': 'Command palette',
-  'palette.placeholder': 'Search commands…',
-  'palette.empty': 'No matching command',
-  'palette.move': 'move',
-  'palette.act': 'open',
-  'palette.dismiss': 'close',
-  'palette.open': 'Open the command palette (Ctrl K)',
-  'palette.cmd.pickFiles': 'Choose files…',
-  'palette.cmd.pickFolder': 'Choose a folder…',
-  'palette.cmd.start': 'Start the run',
-  'palette.cmd.cancel': 'Cancel this run',
-  'palette.cmd.clear': 'Clear the queue',
-  'palette.cmd.settings': 'Open settings',
-  'palette.cmd.theme': 'Switch theme',
-  'palette.cmd.about': 'About and updates',
-  'palette.cmd.reveal': 'Open the output location',
 
   // Toasts
   'toast.region': 'Notifications',
@@ -379,10 +359,6 @@ export const en: Record<keyof typeof zh, string> = {
   'nav.output': 'Output',
   'footer.run.check': 'Start checking',
   'footer.run.download': 'Start downloading',
-  'palette.cmd.convert': 'Convert: upload local images to the image host',
-  'palette.cmd.check': 'Check: see whether remote images still load',
-  'palette.cmd.download': 'Download: save remote images next to the document',
-  'palette.cmd.output': 'Output: where documents and images go',
 
   // One queue, three jobs: the panel title has to say which one is running
   'view.convert.sub': 'Send local images to your image host, then rewrite the links',

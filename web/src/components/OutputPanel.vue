@@ -26,7 +26,6 @@ const emit = defineEmits<{
   save: []
   discard: []
   retry: []
-  close: []
   'pick-dir': []
 }>()
 
@@ -60,7 +59,6 @@ function checkedValue(event: Event): boolean {
     @save="emit('save')"
     @discard="emit('discard')"
     @retry="emit('retry')"
-    @close="emit('close')"
   >
     <section class="section">
       <h3 class="section__title">{{ t('output.section.doc') }}</h3>

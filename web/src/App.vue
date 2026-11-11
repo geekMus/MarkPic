@@ -4,8 +4,6 @@ import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
 import AppRail from './components/AppRail.vue'
-import CommandPalette from './components/CommandPalette.vue'
-import type { PaletteCommand } from './components/CommandPalette.vue'
 import CheckPage from './components/CheckPage.vue'
 import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
@@ -145,33 +143,8 @@ const runningElsewhere = computed<string>(() => {
 })
 const aboutOpen = ref(false)
 const manualOpen = ref(false)
-const paletteOpen = ref(false)
 // 选中哪一行：只用来给那一行描边，明细由行自己展开。
 const selectedId = ref<string | null>(null)
-
-// 侧边栏有两种形态：窄条（只有图标）和展开（图标 + 文字）。
-// 这是「这台机器上我习惯哪种」的偏好，和语言、主题一样存在浏览器里，
-// 不写进 settings.json —— 换台机器想要另一种形态，不该被配置文件绑住。
-const RAIL_KEY = 'markpic.rail'
-
-function readRailMode(): 'compact' | 'expanded' {
-  try {
-    return localStorage.getItem(RAIL_KEY) === 'expanded' ? 'expanded' : 'compact'
-  } catch {
-    return 'compact'
-  }
-}
-
-const railMode = ref<'compact' | 'expanded'>(readRailMode())
-
-function toggleRail(): void {
-  railMode.value = railMode.value === 'compact' ? 'expanded' : 'compact'
-  try {
-    localStorage.setItem(RAIL_KEY, railMode.value)
-  } catch {
-    /* 存不进去也没关系，这一轮里照样能切 */
-  }
-}
 
 function selectRow(id: string): void {
   selectedId.value = id
@@ -206,54 +179,6 @@ const jobTag = computed(() => {
 
 const canStart = computed(() => !busy.value && rowViews.value.length > 0)
 const canReveal = computed(() => revealTarget.value !== null)
-
-/** 路径只留最后一段：命令面板里一排长路径读不出谁是谁。 */
-/** 命令面板里的最近路径：最后两段，同名目录才分得清；完整路径放在右列。 */
-function shortName(path: string): string {
-  const parts = path.replace(/[\\/]+$/, '').split(/[\\/]+/)
-  return parts.length >= 2 ? parts.slice(-2).join('\\') : parts[0] ?? path
-}
-
-// 命令面板只列「现在真的能做」的事：跑着的时候不出现「开始」，没开始的时候不出现「取消」。
-const paletteCommands = computed<PaletteCommand[]>(() => {
-  const commands: PaletteCommand[] = []
-  if (!busy.value) {
-    commands.push({ id: 'pick-files', label: t('palette.cmd.pickFiles'), icon: 'file-plus', run: () => void pick('files') })
-    commands.push({ id: 'pick-folder', label: t('palette.cmd.pickFolder'), icon: 'folder-plus', run: () => void pick('folder') })
-    // 最近用过的路径：名字在前，整条路径当提示，回车就等于重新入队
-    for (const path of recentPaths.value.slice(0, 3)) {
-      commands.push({
-        id: `recent-${path}`,
-        label: shortName(path),
-        hint: path,
-        icon: 'folder',
-        run: () => void enqueue([path]),
-      })
-    }
-  }
-  if (canStart.value) {
-    commands.push({ id: 'start', label: t('palette.cmd.start'), icon: 'play', hint: 'Ctrl ↵', run: handleRun })
-  }
-  if (busy.value) {
-    commands.push({ id: 'cancel', label: t('palette.cmd.cancel'), icon: 'x', run: cancel })
-  }
-  if (canReveal.value) {
-    commands.push({ id: 'reveal', label: t('palette.cmd.reveal'), icon: 'folder-open', run: () => void handleReveal() })
-  }
-  if (!busy.value && rowViews.value.length > 0) {
-    commands.push({ id: 'clear', label: t('palette.cmd.clear'), icon: 'trash', run: clearQueue })
-  }
-  // 菜单上的四项就是四个功能，命令面板里也该能直接跳过去：
-  // 以前「检测远程图」只是设置里的一个单选，连个名字都没有。
-  commands.push({ id: 'nav-convert', label: t('palette.cmd.convert'), icon: 'image', run: () => { goView('convert') } })
-  commands.push({ id: 'nav-check', label: t('palette.cmd.check'), icon: 'link', run: () => { goView('check') } })
-  commands.push({ id: 'nav-download', label: t('palette.cmd.download'), icon: 'download', run: () => { goView('download') } })
-  commands.push({ id: 'nav-output', label: t('palette.cmd.output'), icon: 'folder-open', run: () => { goView('output') } })
-  commands.push({ id: 'settings', label: t('palette.cmd.settings'), icon: 'settings', run: () => { goView('settings') } })
-  commands.push({ id: 'theme', label: t('palette.cmd.theme'), icon: theme.value === 'dark' ? 'moon' : 'sun', run: toggleTheme })
-  commands.push({ id: 'about', label: t('palette.cmd.about'), icon: 'info', run: () => { aboutOpen.value = true } })
-  return commands
-})
 
 function dialogFallback(): void {
   warning(t('toast.dialogFallback'))
@@ -469,24 +394,13 @@ function handleKeydown(event: KeyboardEvent): void {
     event.key === '/' &&
     !mod &&
     isJobView.value &&
-    !paletteOpen.value &&
     !(event.target as HTMLElement | null)?.closest('input, textarea')
   ) {
     event.preventDefault()
     queueRef.value?.openSearch()
     return
   }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-    if (paletteOpen.value) return
-    event.preventDefault()
-    paletteOpen.value = true
-    return
-  }
   if (event.key === 'Escape') {
-    if (paletteOpen.value) {
-      paletteOpen.value = false
-      return
-    }
     if (aboutOpen.value) {
       aboutOpen.value = false
       return
@@ -544,7 +458,6 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <AppHeader
-      @open-palette="paletteOpen = true"
       :picgo="picgo"
       :picgo-needed="picgoNeeded"
       :health-checking="healthLoading"
@@ -556,15 +469,13 @@ onBeforeUnmount(() => {
       @toggle-theme="toggleTheme"
     />
 
-    <div class="app__body" :class="{ 'app__body--wide': railMode === 'expanded' }">
+    <div class="app__body">
       <AppRail
         :view="view"
         :running="runningView"
         :dirty="dirty"
-        :mode="railMode"
         @navigate="goView($event)"
         @about="aboutOpen = true"
-        @toggle="toggleRail"
       />
 
       <main class="app__view">
@@ -645,7 +556,6 @@ onBeforeUnmount(() => {
             @save="handleSaveSettings"
             @discard="discardSettings"
             @retry="loadSettings"
-            @close="goView(viewOfMode(mode))"
             @pick-dir="handlePickDir"
           />
           <OptionsPanel
@@ -662,7 +572,6 @@ onBeforeUnmount(() => {
             @save="handleSaveSettings"
             @discard="discardSettings"
             @retry="loadSettings"
-            @close="goView(viewOfMode(mode))"
           />
         </Transition>
 
@@ -692,8 +601,6 @@ onBeforeUnmount(() => {
         {{ t('drop.hint') }}
       </span>
     </div>
-
-    <CommandPalette v-if="paletteOpen" :commands="paletteCommands" @close="paletteOpen = false" />
 
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
 
@@ -740,15 +647,12 @@ onBeforeUnmount(() => {
    这一层只负责「放得下」，具体排版交给各视图自己。 */
 .app__body {
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-columns: 196px minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }
 
 /* 侧边栏展开时把导航文字放出来，内容区相应让位。 */
-.app__body--wide {
-  grid-template-columns: 196px minmax(0, 1fr);
-}
 
 .app__view {
   display: flex;
@@ -773,7 +677,7 @@ onBeforeUnmount(() => {
   }
 
   .app__body {
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: 168px minmax(0, 1fr);
     gap: 10px;
     padding-bottom: 8px;
   }

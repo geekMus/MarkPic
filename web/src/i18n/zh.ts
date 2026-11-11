@@ -42,7 +42,6 @@ export const zh = {
   // 设置
   'settings.title': '设置',
   'settings.unsaved': '未保存',
-  'settings.close': '关闭设置',
   'settings.discard': '还原',
   'settings.save': '保存设置',
   'settings.saving': '保存中',
@@ -84,8 +83,6 @@ export const zh = {
   'nav.convert': '转换',
   'nav.settings': '设置',
   'nav.about': '关于',
-  'nav.expand': '展开侧边栏',
-  'nav.collapse': '收起侧边栏',
   'queue.title': '队列',
   'queue.count': '{count} 个文件',
   'queue.progress': '{done}/{total} 已完成',
@@ -270,23 +267,6 @@ export const zh = {
   'about.state.error': '检查失败',
   'about.state.idle': '还没有检查过',
 
-  // 命令面板
-  'palette.label': '命令面板',
-  'palette.placeholder': '搜索命令…',
-  'palette.empty': '没有匹配的命令',
-  'palette.move': '选择',
-  'palette.act': '执行',
-  'palette.dismiss': '关闭',
-  'palette.open': '打开命令面板（Ctrl K）',
-  'palette.cmd.pickFiles': '选择文件…',
-  'palette.cmd.pickFolder': '选择文件夹…',
-  'palette.cmd.start': '开始转换',
-  'palette.cmd.cancel': '取消这一轮',
-  'palette.cmd.clear': '清空队列',
-  'palette.cmd.settings': '打开设置',
-  'palette.cmd.theme': '切换主题',
-  'palette.cmd.about': '关于与更新',
-  'palette.cmd.reveal': '打开输出位置',
 
   // 通知
   'toast.region': '通知',
@@ -372,10 +352,6 @@ export const zh = {
   'nav.output': '输出',
   'footer.run.check': '开始检测',
   'footer.run.download': '开始下载',
-  'palette.cmd.convert': '转换：把本地图片传到图床',
-  'palette.cmd.check': '检测：看看远程图片还能不能打开',
-  'palette.cmd.download': '下载：把远程图片存回本地',
-  'palette.cmd.output': '输出：文档和图片写到哪',
 
   // 一个队列，三种活：面板标题得说清现在做的是哪一件
   'view.convert.sub': '把文档里的本地图片传上图床，再把地址换掉',
