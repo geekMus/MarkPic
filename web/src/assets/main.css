@@ -46,9 +46,9 @@
   --line-2: rgba(17, 26, 43, 0.14);
   --line-3: rgba(17, 26, 43, 0.22);
 
-  /* 滚动条：比 --line-3 再实一点，因为药丸只有 6px 宽，太淡就等于没有。 */
-  --scroll: rgba(17, 26, 43, 0.18);
-  --scroll-hover: rgba(17, 26, 43, 0.3);
+  /* 滚动条：比 --line-3 再实一点，因为药丸只有 4px 宽，太淡就等于没有。 */
+  --scroll: rgba(17, 26, 43, 0.2);
+  --scroll-hover: rgba(17, 26, 43, 0.32);
   --scroll-active: rgba(14, 116, 144, 0.55);
 
   --accent: #0e7490;
@@ -128,8 +128,8 @@
   --line-3: rgba(255, 255, 255, 0.16);
 
   /* 深色下同样的药丸：白的一层淡，拖起来时换成强调色的。 */
-  --scroll: rgba(255, 255, 255, 0.14);
-  --scroll-hover: rgba(255, 255, 255, 0.26);
+  --scroll: rgba(255, 255, 255, 0.16);
+  --scroll-hover: rgba(255, 255, 255, 0.28);
   --scroll-active: rgba(95, 217, 201, 0.5);
 
   --accent: #5fd9c9;
@@ -303,14 +303,16 @@ button {
 }
 
 /* 细滚动条
-   WebView2（Windows）用的是占位式滚动条：实测 12px 槽，::‑webkit‑scrollbar
-   这几条真能改外观，所以按设计稿来写；别的引擎交给上面那组标准属性。
-   形状：槽里一枚 6px 的药丸，平时只是「有这条东西」，手放到可滚动的区域上才
-   亮一档，按住拖动时染成强调色 —— 既不会在深色面板边上糊成一道灰缝，
-   也不会在长列表里抢注意力。 */
+   WebView2（Windows）用的是占位式滚动条：实测槽宽由这里的 width 决定，
+   ::‑webkit‑scrollbar 这几条真能改外观，所以按设计稿来写；别的引擎交给下面
+   那组标准属性。
+   形状：10px 槽里一枚 4px 的药丸 —— 只有「这儿能滚」这一条信息，别的一律不要。
+   粗细任何状态下都不变，只换颜色：手放上去亮一档，按住拖动时染成强调色。
+   会变粗的滚动条一靠近就跳一下，比颜色变化吵得多。
+   槽越窄，药丸越要留一点点实色，不然在深色面板边上就彻底看不见了。 */
 /* 标准属性只留给「不认 webkit 伪元素」的引擎：Chromium 只要看到
    scrollbar-width / scrollbar-color，就会把下面的 ::-webkit-scrollbar 全部作废
-   （实测槽宽从 12px 退回系统的 10px，画的药丸也就不见了），所以必须隔开。 */
+   （实测槽宽退回系统的 10px、画的药丸消失），所以必须隔开。 */
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
@@ -319,8 +321,8 @@ button {
 }
 
 *::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   background: transparent;
 }
 
@@ -338,15 +340,14 @@ button {
 }
 
 *::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
+  border: 3px solid transparent;  /* 10 − 3×2 = 4px 的药丸 */
   border-radius: var(--r-pill);
   background: var(--scroll);
   background-clip: content-box;
 }
 
-/* 手放到列表上：颜色亮一档，药丸也从 6px 长到 8px（槽宽是固定的，不会挤动内容）。 */
+/* 手放到列表上：只亮一档，粗细不动（改 border-width 会让药丸在指针进出时跳一下）。 */
 *:hover::-webkit-scrollbar-thumb {
-  border-width: 2px;
   background-color: var(--scroll-hover);
 }
 
