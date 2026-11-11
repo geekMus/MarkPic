@@ -75,12 +75,19 @@ try {
     # 图标资源：.syso 生成一次就跟着仓库走，之后无需联网。
     # 注意 Go 只链接「主包目录」里的 .syso，所以它必须放在 cmd/markpic 下。
     # 失败不影响构建，只是 exe 用默认图标。
-    $ico = Join-Path $root 'assets\icon.ico'
+    # 两块图标，顺序不能反：亮色在前，它既是 exe 自己的图标，也是运行时默认的窗口图标；
+    # 暗色在后，界面转成暗色时窗口图标换成它（见 cmd/markpic/chrome_windows.go）。
+    $icos = @(
+        (Join-Path $root 'assets\icon-light.ico'),
+        (Join-Path $root 'assets\icon-dark.ico')
+    )
     $syso = Join-Path $root 'cmd\markpic\rsrc_windows_amd64.syso'
-    if ((Test-Path $ico) -and -not (Test-Path $syso)) {
+    $icosPresent = ($icos | Where-Object { -not (Test-Path $_) }).Count -eq 0
+    if ($icosPresent -and -not (Test-Path $syso)) {
         Write-Host '==> 生成 Windows 图标资源' -ForegroundColor Cyan
         try {
-            if ((Invoke-Native -Command $goExe -Arguments @('run', 'github.com/akavel/rsrc@latest', '-ico', $ico, '-arch', 'amd64', '-o', $syso)) -ne 0) {
+            $icoArg = ($icos -join ',')
+            if ((Invoke-Native -Command $goExe -Arguments @('run', 'github.com/akavel/rsrc@latest', '-ico', $icoArg, '-arch', 'amd64', '-o', $syso)) -ne 0) {
                 Write-Warning '图标资源生成失败（不影响构建，exe 将使用默认图标）'
             }
         }

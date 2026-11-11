@@ -1,6 +1,7 @@
-"""把 assets/mark.svg 光栅化成各尺寸 PNG：mark-16.png … mark-256.png。
+"""把品牌标记的两套 SVG 光栅化成各尺寸 PNG：<variant>/mark-16.png … mark-256.png。
 
-图标只有一份几何来源，就是 `assets/mark.svg`。这个脚本不画图，只负责「渲染」：
+几何来源是 `assets/mark-dark.svg` 与 `assets/mark-light.svg`（形状逐字相同，只有配色不同）。
+这个脚本不画图，只负责「渲染」：
 用一个本机已有的 Chromium（Edge 或 Chrome，Windows 上一定有 Edge）按 4 倍尺寸
 无头截一张透明背景的 PNG，再按非透明区域裁掉四周留白、用预乘 alpha 的 LANCZOS
 缩到目标尺寸。这样做出来的 16px 一档边缘才立得住，直接画会把圆头笔画糊成一块。
@@ -10,8 +11,10 @@
 
 用法：
     python scripts/make-mark.py [输出目录]
-默认写 assets/build/。之后用 scripts/make-icon.py assets/build assets/icon.ico
-打包成 ico，再用 rsrc 生成 cmd/markpic/rsrc_windows_amd64.syso（见 README「图标」）。
+默认写 assets/build/<dark|light>/。之后用 scripts/make-icon.py 打包成两个 ico
+（assets/icon-dark.ico、assets/icon-light.ico），再用 rsrc 一起生成
+cmd/markpic/rsrc_windows_amd64.syso（见 README「图标」）。注意 ico 的顺序：
+亮色放前面，它既是 exe 自己的图标，也是运行时的默认窗口图标。
 
 可以用环境变量 MARKPIC_BROWSER 指定浏览器可执行文件。
 """
@@ -28,7 +31,11 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SVG = ROOT / "assets" / "mark.svg"
+# 顺序即 ico 里的顺序：亮色在前（exe 图标与默认窗口图标），暗色在后。
+VARIANTS = [
+    ("light", ROOT / "assets" / "mark-light.svg"),
+    ("dark", ROOT / "assets" / "mark-dark.svg"),
+]
 SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256]
 
 # 渲染画布至少这么大：Chromium 无头模式的窗口有最小尺寸，给 256 会被撑到
@@ -57,9 +64,9 @@ WRAP = """<!doctype html><meta charset="utf-8">
 CLASS_ATTR = 'class="mark"'
 
 
-def inline_svg() -> str:
+def inline_svg(svg: Path) -> str:
     """把 svg 文件内容塞进页面，顺带补上 class 让 CSS 能定尺寸。"""
-    text = SVG.read_text(encoding="utf-8")
+    text = svg.read_text(encoding="utf-8")
     for tag in ("<svg", ):
         text = text.replace(tag, f'{tag} {CLASS_ATTR}', 1)
     return text
@@ -79,10 +86,10 @@ def find_browser() -> str | None:
     return None
 
 
-def render(browser: str, canvas: int, work: Path) -> Image.Image:
-    """让浏览器把 mark.svg 渲染成 canvas×canvas 的透明 PNG。"""
+def render(browser: str, canvas: int, work: Path, svg: Path) -> Image.Image:
+    """让浏览器把一份 SVG 渲染成 canvas×canvas 的透明 PNG。"""
     wrap = work / "wrap.html"
-    wrap.write_text(WRAP.format(canvas=canvas, svg=inline_svg()), encoding="utf-8")
+    wrap.write_text(WRAP.format(canvas=canvas, svg=inline_svg(svg)), encoding="utf-8")
     out = work / f"raw-{canvas}.png"
     cmd = [
         browser,
@@ -115,9 +122,10 @@ def trim(img: Image.Image) -> Image.Image:
 
 
 def main() -> int:
-    out_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "assets" / "build"
-    if not SVG.exists():
-        print(f"missing {SVG}")
+    out_root = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "assets" / "build"
+    missing = [str(svg) for _, svg in VARIANTS if not svg.exists()]
+    if missing:
+        print(f"missing {', '.join(missing)}")
         return 1
     browser = find_browser()
     if not browser:
@@ -125,21 +133,24 @@ def main() -> int:
         return 1
     print(f"browser: {browser}")
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mark-") as tmp:
         work = Path(tmp)
+        for variant, svg in VARIANTS:
+            out_dir = out_root / variant
+            out_dir.mkdir(parents=True, exist_ok=True)
+            print(f"{variant}: {svg.relative_to(ROOT)} -> {out_dir.relative_to(ROOT)}")
 
-        # 每种目标尺寸单独一次渲染，尺寸 = max(512, 目标×4)，再缩下来。
-        for size in SIZES:
-            canvas = max(MIN_CANVAS, size * SUPERSAMPLE)
-            canvas = (canvas + 1) // 2 * 2
-            raw = render(browser, canvas, work)
-            tile = trim(raw)
-            # 预乘 alpha 再缩，否则透明边上会渗出灰边
-            small = tile.convert("RGBa").resize((size, size), Image.Resampling.LANCZOS)
-            small = small.convert("RGBA")
-            small.save(out_dir / f"mark-{size}.png", optimize=True)
-            print(f"  mark-{size}.png  ({tile.width}px tile -> {size}px)")
+            # 每种目标尺寸单独一次渲染，尺寸 = max(512, 目标×4)，再缩下来。
+            for size in SIZES:
+                canvas = max(MIN_CANVAS, size * SUPERSAMPLE)
+                canvas = (canvas + 1) // 2 * 2
+                raw = render(browser, canvas, work, svg)
+                tile = trim(raw)
+                # 预乘 alpha 再缩，否则透明边上会渗出灰边
+                small = tile.convert("RGBa").resize((size, size), Image.Resampling.LANCZOS)
+                small = small.convert("RGBA")
+                small.save(out_dir / f"mark-{size}.png", optimize=True)
+                print(f"  mark-{size}.png  ({tile.width}px tile -> {size}px)")
     return 0
 
 

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-labelledby="mpmark-title">
+  <title id="mpmark-title">MarkPic</title>
+
+  <!--
+    品牌标记的几何（亮色配色）。
+
+    同一份几何有两个配色：这一份是亮色（浅色界面、白色任务栏，也是 exe / 安装包自己的
+    图标）。两个文件的形状逐字相同，只有颜色不同 —— 改形状时两个文件一起改，然后跑
+    scripts/make-mark.py 重新导出。
+
+    导出物：assets/build/{dark,light}/mark-*.png → assets/icon-{dark,light}.ico →
+    cmd/markpic/rsrc_windows_amd64.syso（exe 图标与运行时的窗口图标都从这份资源里取）。
+    浏览器标签页图标是 web/index.html 里的 data URI，标题栏是 web/src/components/BrandMark.vue。
+
+    构图：一块深色圆角方片，上面一根连续的圆头笔画写出的 m（两座山的轮廓），右上角一颗暖色圆点。
+    配色对齐界面的强调色（web/src/assets/main.css 的 --accent #5fd9c9）：笔画左端深青、
+    右端到薄荷白，圆点取暖橙，方片是低饱和的夜蓝渐变。48px 以下只有方片、m、圆点三样东西。
+
+    几何（64 网格）：方片 2..62，圆角 15.5（约 26%，iOS/macOS 那一档）；
+    m 的三根竖笔在 x = 15 / 32.5 / 50，基线 y = 46，两座山尖 y = 20.4 / 21.6；
+    笔画宽 5.0、圆头，山尖用三次贝塞尔收圆，所以缩小到 16px 也不会变成折线。
+  -->
+  <defs>
+    <!-- 方片：一层薄荷白的纸，右下略深一点，方片才有厚度 -->
+    <linearGradient id="mpmark-tile" x1="14" y1="2" x2="50" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f4fcfa"/>
+      <stop offset=".52" stop-color="#e6f5f2"/>
+      <stop offset="1" stop-color="#cfe9e4"/>
+    </linearGradient>
+
+    <!-- 笔画：浅底上要立住的是笔画，所以整条压深成深青 → 薄荷绿 -->
+    <linearGradient id="mpmark-ridge" x1="15" y1="46" x2="51" y2="20" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0b5d6b"/>
+      <stop offset=".52" stop-color="#0f7f78"/>
+      <stop offset="1" stop-color="#129a89"/>
+    </linearGradient>
+
+    <!-- 圆点周围的一点白 bloom：白底上解释「太阳在这里」，不然圆点像脏了一粒 -->
+    <radialGradient id="mpmark-glow" cx="46.6" cy="14.4" r="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity=".8"/>
+      <stop offset=".55" stop-color="#ffffff" stop-opacity=".32"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-tile)"/>
+  <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-glow)"/>
+  <circle cx="46.6" cy="14.4" r="3.2" fill="#d4891f"/>
+  <path d="M15 46V30.6C15 25.5 18.9 20.4 24 20.4C29.1 20.4 32.5 25.5 32.5 30.6V46M32.5 30.6C32.5 25.6 36.4 21.6 41.2 21.6C46 21.6 50 25.6 50 30.6V46"
+        stroke="url(#mpmark-ridge)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 内描边：白底上方片的边界全靠这一圈，颜色跟着笔画走但只留 14% -->
+  <rect x="2.5" y="2.5" width="59" height="59" rx="15" stroke="#0b5d6b" stroke-opacity=".14"/>
+</svg>

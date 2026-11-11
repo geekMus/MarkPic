@@ -2,10 +2,15 @@
   <title id="mpmark-title">MarkPic</title>
 
   <!--
-    品牌标记的唯一几何来源。任务栏图标（assets/icon.ico → cmd/markpic/rsrc_windows_amd64.syso）、
-    浏览器标签页图标（web/index.html 的 data URI）、窗口标题栏（web/src/components/AppHeader.vue 的
-    .tb__mark）全部由这一份导出，改这里然后跑 scripts/make-mark.py 重新生成 PNG/ICO，
-    favicon 与标题栏的内联 SVG 也要同步（它们是同一份几何的副本，因为都要能离线渲染）。
+    品牌标记的几何（暗色配色）。
+
+    同一份几何有两个配色：这一份是暗色（深色界面、深色任务栏），assets/mark-light.svg
+    是亮色（浅色界面、白色任务栏，也是 exe / 安装包自己的图标）。两个文件的形状逐字相同，
+    只有颜色不同 —— 改形状时两个文件一起改，然后跑 scripts/make-mark.py 重新导出。
+
+    导出物：assets/build/{dark,light}/mark-*.png → assets/icon-{dark,light}.ico →
+    cmd/markpic/rsrc_windows_amd64.syso（exe 图标与运行时的窗口图标都从这份资源里取）。
+    浏览器标签页图标是 web/index.html 里的 data URI，标题栏是 web/src/components/BrandMark.vue。
 
     构图：一块深色圆角方片，上面一根连续的圆头笔画写出的 m（两座山的轮廓），右上角一颗暖色圆点。
     配色对齐界面的强调色（web/src/assets/main.css 的 --accent #5fd9c9）：笔画左端深青、

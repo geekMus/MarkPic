@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
+import BrandMark from './BrandMark.vue'
 import StatusPill from './StatusPill.vue'
 import { useTheme } from '../composables/useTheme'
 import { useWindowControls } from '../composables/useWindowControls'
@@ -88,41 +89,10 @@ function handleDoubleClick(event: MouseEvent): void {
 <template>
   <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
     <div class="tb__brand">
-      <span class="tb__mark" aria-hidden="true">
-        <!-- 标记：深色圆角方片上一根圆头笔画写出的 m（两座山的轮廓），右上角一颗暖色圆点。
-             几何的唯一来源是 assets/mark.svg —— 这里和 web/index.html 的 favicon、assets/icon.ico
-             都是它的副本（三处都必须能离线渲染，所以没法共用一份文件）。改标记时要同步三处，
-             再用 scripts/make-mark.py 重新导出 PNG/ICO。 -->
-        <svg viewBox="0 0 64 64" fill="none">
-          <defs>
-            <linearGradient id="mpmark-tile" x1="14" y1="2" x2="50" y2="62" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#263750" />
-              <stop offset=".52" stop-color="#101826" />
-              <stop offset="1" stop-color="#080d16" />
-            </linearGradient>
-            <linearGradient id="mpmark-ridge" x1="15" y1="46" x2="51" y2="20" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#1f8fa6" />
-              <stop offset=".52" stop-color="#5fd9c9" />
-              <stop offset="1" stop-color="#e9fffb" />
-            </linearGradient>
-            <radialGradient id="mpmark-glow" cx="46.6" cy="14.4" r="26" gradientUnits="userSpaceOnUse">
-              <stop stop-color="#ffd9a8" stop-opacity=".14" />
-              <stop offset=".55" stop-color="#5fd9c9" stop-opacity=".07" />
-              <stop offset="1" stop-color="#5fd9c9" stop-opacity="0" />
-            </radialGradient>
-          </defs>
-          <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-tile)" />
-          <rect x="2" y="2" width="60" height="60" rx="15.5" fill="url(#mpmark-glow)" />
-          <circle cx="46.6" cy="14.4" r="3.2" fill="#ffd9a8" />
-          <path
-            d="M15 46V30.6C15 25.5 18.9 20.4 24 20.4C29.1 20.4 32.5 25.5 32.5 30.6V46M32.5 30.6C32.5 25.6 36.4 21.6 41.2 21.6C46 21.6 50 25.6 50 30.6V46"
-            stroke="url(#mpmark-ridge)"
-            stroke-width="5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <rect x="2.5" y="2.5" width="59" height="59" rx="15" stroke="#fff" stroke-opacity=".08" />
-        </svg>
+      <span class="tb__mark">
+        <!-- 标记跟着主题换配色：亮色用浅底那版（和 exe / favicon 的默认图标一致），
+             暗色用深底那版。几何与 assets/mark-{light,dark}.svg 逐字相同。 -->
+        <BrandMark :theme="props.theme" />
       </span>
       <!-- 字标：名字还是命令行里那个，但不带连字符 —— 连字符在 13px 下会读成三个碎词，
            换成两颗小圆点做节奏；md 仍是唯一被点亮的那段（它是这个工具真正在做的事）。

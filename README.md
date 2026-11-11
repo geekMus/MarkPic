@@ -351,30 +351,41 @@ go test ./...
 它不打成 HTTP 资源，而是由 `internal/ui` 在启动时摊到数据目录的 `ui/<指纹>/` 下，
 窗口用 `file://` 加载——同一次构建指纹相同，不会每次启动都重写。
 
-<img src="assets/build/mark-128.png" width="96" height="96" align="right" alt="MarkPic">
+<img src="assets/build/light/mark-128.png" width="96" height="96" align="right" alt="MarkPic">
 
-图标只有一个来源：`assets/mark.svg`。画的是一块深色圆角方片，上面一根圆头笔画写出的 m——它的两座尖同时是
-两座山，右上角一颗暖色圆点当太阳；柱体是夜蓝，笔画像从深青扫到薄荷白。远看是一座山，近看是一个字母。
-`web/src/components/AppHeader.vue` 的 `.tb__mark`、`web/index.html` 的 favicon data URI、`assets/icon.ico`
-都是这份几何的副本（三处都必须离线渲染，没法共用文件），改了 SVG 就要同步这三处，然后重新导出：
+图标有两套配色，形状是同一份：一块圆角方片，上面一根圆头笔画写出的 m——它的两座尖同时是两座山，
+右上角一颗暖色圆点当太阳。远看是一座山，近看是一个字母。
+
+- `assets/mark-light.svg`：亮色。方片退成一层薄荷白的纸，笔画压深成深青 → 薄荷绿，圆点压成琥珀。
+  浅色界面、白色任务栏、以及 **exe / 安装包自己的图标** 都用这一套（我们主打亮色）。
+- `assets/mark-dark.svg`：暗色。夜蓝方片，笔画像从深青扫到薄荷白，圆点回暖橙。
+
+两个 SVG 的形状逐字相同，只有颜色不同——改形状时两个一起改。几何（64 网格）写在 SVG 的注释里：
+方片 2..62、圆角 15.5，m 的三根竖笔在 x = 15 / 32.5 / 50，基线 46，两座山尖 20.4 / 21.6，笔画宽 5。
+十来个像素的尺寸下只剩方片、m、圆点三样东西。
+
+界面里跟着主题换：窗口标题栏（`web/src/components/BrandMark.vue`，内联 SVG）、浏览器标签页
+（`web/index.html` 的两条 data URI，暗色那条带 `prefers-color-scheme`），以及任务栏 / Alt-Tab
+（运行时从 exe 资源里取，见下）。这三处都必须离线渲染，没法共用文件，所以改完 SVG 要重新生成：
 
 ```powershell
-# 1. 把 SVG 渲染成各尺寸 PNG（用本机 Edge/Chrome 无头截图，4× 超采样后缩到目标尺寸，写到 assets/build）
+# 1. 把两份 SVG 渲染成各尺寸 PNG（用本机 Edge/Chrome 无头截图，4× 超采样后缩到目标尺寸）
 python scripts\make-mark.py
-# 2. 打包成多尺寸 ico（16 24 32 48 64 128 256，全部 32 位 DIB，256 那档存 PNG）
-python scripts\make-icon.py assets\build assets\icon.ico
-# 3. 重新生成资源文件（已提交，构建时不需要联网）
-go run github.com/akavel/rsrc@latest -ico assets\icon.ico -arch amd64 -o cmd\markpic\rsrc_windows_amd64.syso
+# 2. 打包成两个多尺寸 ico（16 24 32 48 64 128 256，全部 32 位 DIB，256 那档存 PNG）
+python scripts\make-icon.py assets\build\light assets\icon-light.ico
+python scripts\make-icon.py assets\build\dark  assets\icon-dark.ico
+# 3. 生成资源文件（已提交，构建时不需要联网）。顺序不能反：亮色在前 = exe 的图标 = 默认窗口图标，
+#    暗色在后 = 界面转暗时换上去的那块。
+go run github.com/akavel/rsrc@latest -ico assets\icon-light.ico,assets\icon-dark.ico -arch amd64 -o cmd\markpic\rsrc_windows_amd64.syso
+# 4. 重新生成 web/index.html 里的 favicon data URI
+python scripts\make-favicon.py
 ```
 
 `assets/build` 里的 PNG 一起提交，所以打包这一步不依赖浏览器，只有改了 SVG 才需要跑第 1 步。
-exe 的图标来自 `assets/icon.ico`，由 `cmd/markpic/rsrc_windows_amd64.syso` 打进去；窗口自己的图标在运行时从
-这份资源里读出来挂上去，所以任务栏和 Alt-Tab 拿到的也是它，而不是窗口类的默认图标。
-Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。
-删掉它再构建会尝试用 `go run github.com/akavel/rsrc@latest` 重新生成；失败也不影响构建，只是图标变成默认的。
-
-网页里的标签页图标（`web/index.html` 的 `<link rel="icon">`）是同一份 SVG 的 data URI，
-改标记时手工同步一下。
+窗口图标在运行时从这份资源里读出来挂上去，所以任务栏和 Alt-Tab 拿到的也是我们的标记，而不是窗口类
+的默认图标；`applyChromeTheme` 每次跟着主题换一次，亮色界面挂浅底那块、暗色挂深底那块。
+Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。删掉它再构建会尝试用
+`go run github.com/akavel/rsrc@latest` 重新生成；失败也不影响构建，只是图标变成默认的。
 
 交叉编译到其他平台：
 

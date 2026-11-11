@@ -19,6 +19,7 @@ package main
 
 import (
 	"math"
+	"sort"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -187,9 +188,7 @@ func installWindowChrome(target any) {
 	// 先按浅色画；前端挂载后会立刻同步真实主题。
 	applyChromeTheme(false)
 
-	// 窗口自己不设图标的话，任务栏和 Alt-Tab 拿到的是窗口类的默认图标 ——
-	// 一个空白方块，而不是我们的标记。
-	setWindowIcon(uintptr(hwnd))
+	// 图标由 applyChromeTheme 一起挂上：主题和图标是同一件事（见那里的注释）。
 }
 
 // initProcessIdentity 在创建窗口之前声明「这个进程是谁」，让任务栏的图标与
@@ -202,23 +201,30 @@ func initProcessIdentity() {
 	procSetAppUserModelID.Call(uintptr(unsafe.Pointer(id)))
 }
 
-// setWindowIcon 把 exe 自带的那份图标（由 rsrc 从 assets/icon.ico 生成）挂到
-// 窗口上。资源 id 是 rsrc 决定的，这里直接枚举 RT_GROUP_ICON，免得写死一个
-// 将来会变的数字。
-func setWindowIcon(hwnd uintptr) {
+// setWindowIcon 把 exe 自带的图标挂到窗口上，按主题挑亮色那块还是暗色那块。
+//
+// 资源里有两块图标，顺序由 rsrc 的 -ico 决定（见 README「图标」）：亮色在前，
+// 暗色在后；枚举出来的 id 是整数、升序，所以 groups[0] 就是亮色，也是 exe
+// 自己显示在资源管理器里的那块。
+func setWindowIcon(hwnd uintptr, dark bool) {
 	hInst, _, _ := procGetModuleHandle.Call(0)
 	if hInst == 0 {
 		return
 	}
 
-	var group uintptr
+	var groups []uintptr
 	cb := windows.NewCallback(func(_, _, name, _ uintptr) uintptr {
-		group = name
-		return 0 // 返回 0 停止枚举，取第一个就够了
+		groups = append(groups, name)
+		return 1 // 全部收下，下面再按主题挑
 	})
 	procEnumResourceNames.Call(hInst, rtGroupIcon, cb, 0)
-	if group == 0 {
+	if len(groups) == 0 {
 		return
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i] < groups[j] })
+	group := groups[0]
+	if dark && len(groups) > 1 {
+		group = groups[1]
 	}
 
 	iconCx, _, _ := procGetSystemMetrics.Call(smCxIcon)
@@ -344,7 +350,7 @@ func frameThickness() (int32, int32) {
 	return int32(sx + pad), int32(sy + pad)
 }
 
-// applyChromeTheme 让窗口边框 / 标题栏跟随前端主题。
+// applyChromeTheme 让窗口边框 / 标题栏 / 任务栏图标跟随前端主题。
 func applyChromeTheme(dark bool) {
 	hwnd := hwndValue()
 	if hwnd == 0 {
@@ -368,6 +374,10 @@ func applyChromeTheme(dark bool) {
 		backdrop := int32(dwmsbtMica)
 		procDwmSetAttribute.Call(hwnd, dwmwaSystemBackdropType, uintptr(unsafe.Pointer(&backdrop)), unsafe.Sizeof(backdrop))
 	}
+
+	// 任务栏和 Alt-Tab 上的图标也跟着明暗换：亮色界面用浅底那版（方块退成
+	// 一层薄荷白的纸，靠深青笔画认人），暗色界面用深底那版。
+	setWindowIcon(hwnd, dark)
 }
 
 // cursorPos 打包成 WM_NCLBUTTONDOWN 需要的 lParam（屏幕坐标）。
