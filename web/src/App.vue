@@ -8,7 +8,6 @@ import CheckPage from './components/CheckPage.vue'
 import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
-import OutputPanel from './components/OutputPanel.vue'
 import ToastStack from './components/ToastStack.vue'
 import {
   describeError,
@@ -543,21 +542,6 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @update:manual-open="manualOpen = $event"
           />
-          <OutputPanel
-            v-else-if="view === 'output'"
-            key="output"
-            :settings="settings"
-            :dirty="dirty"
-            :loaded="settingsLoaded"
-            :loading="settingsLoading"
-            :saving="settingsSaving"
-            :load-error="settingsError"
-            @update="updateSettings"
-            @save="handleSaveSettings"
-            @discard="discardSettings"
-            @retry="loadSettings"
-            @pick-dir="handlePickDir"
-          />
           <OptionsPanel
             v-else
             key="settings"
@@ -572,6 +556,7 @@ onBeforeUnmount(() => {
             @save="handleSaveSettings"
             @discard="discardSettings"
             @retry="loadSettings"
+            @pick-dir="handlePickDir"
           />
         </Transition>
 

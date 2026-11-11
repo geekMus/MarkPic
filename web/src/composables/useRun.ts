@@ -954,6 +954,9 @@ function enqueue(event: RunEvent): void {
  * 用在两种时刻：页面刚打开（刷新过，内存里的 runId 已经没了）、以及断线重连之后
  * （断的那段时间里 file.finished 全丢了）。文件清单来自快照，已完成的结果直接贴回
  * 对应的行，还在跑的标成「上传中」。
+ *
+ * 但「上一次会话已经跑完的那一轮」不接管：它属于历史，不是这一页的队列。刚打开应用
+ * 时页面上还没有任何行，接管它会把别的页的文件搬过来、把本页队列整个盖掉。
  */
 function adoptSnapshot(snapshot: CurrentRun): void {
   if (!snapshot.runId) return
@@ -962,6 +965,9 @@ function adoptSnapshot(snapshot: CurrentRun): void {
   // 已经结束、而且这个页面早就见过它（比如用户跑完又清空了队列）：
   // 重连时别把旧结果重新变出来。
   if (!snapshot.running && lastAdoptedRunId === snapshot.runId) return
+  // 上一次会话已经收工的一轮不进队列：页面上还没有行时接管它，等于把那一轮的文件
+  // 当成这一页的队列（还会把 localStorage 里别的页的路径覆盖掉）。
+  if (!snapshot.running && rows.value.length === 0) return
   lastAdoptedRunId = snapshot.runId
 
   runId.value = snapshot.runId
@@ -974,11 +980,15 @@ function adoptSnapshot(snapshot: CurrentRun): void {
   // 接管的这一轮还在跑：它算当前页的作业，加文件/开始要继续拦住。
   runningPage.value = snapshot.running ? activePage : null
 
-  applyStarted(snapshot.files ?? [])
+  // 还在跑的一轮才重建队列；已经收工的一轮只把结果贴回**已有的行**（断线重连那一路），
+  // 不会新造行、也不会动这份队列的组成。
+  if (snapshot.running) applyStarted(snapshot.files ?? [])
 
   for (const result of snapshot.results ?? []) {
-    const row = rowForResult(result.id, result.path) ?? rowFromResult(result)
-    if (!rowAt(result.id) && !rowIndex.has(row.id)) pushRow(row)
+    const matched = rowForResult(result.id, result.path)
+    const row = matched ?? (snapshot.running ? rowFromResult(result) : null)
+    if (row === null) continue
+    if (!rowAt(row.id) && !rowIndex.has(row.id)) pushRow(row)
     absorbResult(row, result)
   }
   if (snapshot.running) {

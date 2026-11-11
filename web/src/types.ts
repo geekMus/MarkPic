@@ -32,7 +32,7 @@ export type RemoteMode = 'ignore' | 'check' | 'download'
  * 现在它们各自就是菜单上的一项。
  */
 export type JobView = 'convert' | 'check' | 'download'
-export type FormView = 'output' | 'settings'
+export type FormView = 'settings'
 export type View = JobView | FormView
 
 export const JOB_VIEWS: readonly JobView[] = ['convert', 'check', 'download']

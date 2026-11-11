@@ -1,23 +1,27 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import AppIcon from './AppIcon.vue'
 import FormPanel from './FormPanel.vue'
+import { OUTPUT_MODES } from '../composables/useSettings'
 import { useTheme, type ThemeChoice } from '../composables/useTheme'
 import { useI18n, type Lang, type MessageKey } from '../i18n'
 import type { Settings } from '../types'
 
 /**
- * 「设置」页：这一轮怎么跑 —— PicGo 在哪、并发多重试几次、界面长什么样。
+ * 「设置」页：把所有旋钮放在一张单子上。
  *
- * 输出写到哪搬到了「输出」页，远程图片怎么处理变成了侧边栏上的「检测」「下载」。
- * 设置里剩下的每一条都真的只是设置，不再藏着一半的功能。
+ * 顺序按一轮作业的走向排：先连上 PicGo（图往哪传）、再定并发与重试，
+ * 然后是结果写到哪（文档、下载回来的图、备份与试运行），最后是界面自己的偏好。
+ * 以前「输出」占一个菜单，可它没有任何「切换」的性质，只是设置的另一个章节。
  */
-defineProps<{
+const props = defineProps<{
   settings: Settings
   dirty: boolean
   loaded: boolean
   loading: boolean
   saving: boolean
   loadError: string | null
-  /** 当前这一轮会不会上传图片：只有「转换」且不是试运行才会。 */
+  /** 当前这一轮会不会上传图片：只有「上传本地图片」且不是试运行才会。 */
   picgoNeeded: boolean
 }>()
 
@@ -26,12 +30,20 @@ const emit = defineEmits<{
   save: []
   discard: []
   retry: []
+  'pick-dir': []
 }>()
 
 const { t, lang, setLang } = useI18n()
 const { choice: themeChoice, setChoice: setTheme } = useTheme()
 
-/** 外观是界面自己的偏好，跟 PicGo / 并发这些转换设置不同，改完立即生效。 */
+/** 当前选中方式那一句说明，跟在分段控件下面。 */
+const outputHintKey = computed<MessageKey>(
+  () =>
+    OUTPUT_MODES.find(mode => mode.value === props.settings.output)?.hintKey ??
+    'settings.output.sidecar.hint',
+)
+
+/** 外观是界面自己的偏好，跟转换设置不同，改完立即生效。 */
 const THEME_OPTIONS: readonly { value: ThemeChoice; labelKey: MessageKey }[] = [
   { value: 'system', labelKey: 'theme.system' },
   { value: 'light', labelKey: 'theme.light' },
@@ -132,6 +144,99 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
         <span>
           {{ t('settings.reuse') }}
           <span class="check__hint">{{ t('settings.reuse.hint') }}</span>
+        </span>
+      </label>
+    </section>
+
+    <section class="section">
+      <h3 class="section__title">{{ t('output.section.doc') }}</h3>
+      <div class="segmented" role="group" :aria-label="t('output.section.doc')">
+        <button
+          v-for="mode in OUTPUT_MODES"
+          :key="mode.value"
+          type="button"
+          class="segmented__item"
+          :aria-pressed="settings.output === mode.value"
+          @click="emit('update', { output: mode.value })"
+        >
+          {{ t(mode.labelKey) }}
+        </button>
+      </div>
+      <p class="check__hint">{{ t(outputHintKey) }}</p>
+
+      <label v-if="settings.output === 'sidecar'" class="field">
+        <span class="field__label">{{ t('settings.suffix') }}</span>
+        <input
+          class="input mono"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          :value="settings.suffix"
+          @input="emit('update', { suffix: textValue($event) })"
+        />
+        <span class="field__hint">{{ t('settings.suffix.hint', { suffix: settings.suffix }) }}</span>
+      </label>
+
+      <div v-if="settings.output === 'directory'" class="field">
+        <span class="field__label">{{ t('settings.outDir') }}</span>
+        <div class="field__row">
+          <input
+            class="input mono"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="D:\output"
+            :value="settings.outDir"
+            @input="emit('update', { outDir: textValue($event) })"
+          />
+          <button type="button" class="btn btn--secondary" @click="emit('pick-dir')">
+            <AppIcon name="folder-open" :size="14" />
+            {{ t('common.choose') }}
+          </button>
+        </div>
+      </div>
+
+      <p v-if="settings.output === 'in-place'" class="notice">
+        {{ t('settings.inPlace.warning') }}
+      </p>
+    </section>
+
+    <section class="section">
+      <h3 class="section__title">{{ t('output.section.images') }}</h3>
+      <label class="field">
+        <span class="field__label">{{ t('settings.remoteDir') }}</span>
+        <input
+          class="input mono"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="images"
+          :value="settings.remoteDir"
+          @input="emit('update', { remoteDir: textValue($event) })"
+        />
+        <span class="field__hint">{{ t('settings.remoteDir.hint') }}</span>
+      </label>
+    </section>
+
+    <section class="section">
+      <h3 class="section__title">{{ t('output.section.write') }}</h3>
+      <label class="check">
+        <input
+          type="checkbox"
+          :checked="settings.backup"
+          @change="emit('update', { backup: checkedValue($event) })"
+        />
+        <span>{{ t('settings.backup') }}</span>
+      </label>
+      <label class="check">
+        <input
+          type="checkbox"
+          :checked="settings.dryRun"
+          @change="emit('update', { dryRun: checkedValue($event) })"
+        />
+        <span>
+          {{ t('settings.dryRun') }}
+          <span class="check__hint">{{ t('output.dryRun.hint') }}</span>
         </span>
       </label>
     </section>

@@ -91,7 +91,7 @@ const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
             {{ t('empty.pickFolder') }}
           </button>
           <button type="button" class="btn btn--ghost" @click="emit('manual')">
-            <AppIcon name="terminal" :size="14" />
+            <AppIcon name="clipboard" :size="14" />
             {{ t('queue.manual.toggle') }}
           </button>
         </div>
@@ -148,7 +148,9 @@ const SPEC_FORMS = ['empty.spec.a', 'empty.spec.b', 'empty.spec.c'] as const
   place-items: center;
   /* 内容比容器高时，居中会把顶部推到滚动区外面、再也滚不回来。 */
   align-items: safe center;
-  padding: clamp(28px, 4vw, 48px) clamp(24px, 4.5vw, 56px);
+  /* 左右留白交给外层（面板在 34px 上），这里只留纵向呼吸 ——
+     否则空态的左边会比页头再往里缩一截，看着不像同一页。 */
+  padding: clamp(10px, 1.6vw, 20px) 0;
 }
 
 .empty__grid {

@@ -26,12 +26,11 @@ const items: { id: View; icon: IconName; key: MessageKey }[] = [
   { id: 'convert', icon: 'image', key: 'nav.convert' },
   { id: 'check', icon: 'link', key: 'nav.check' },
   { id: 'download', icon: 'download', key: 'nav.download' },
-  { id: 'output', icon: 'folder-open', key: 'nav.output' },
   { id: 'settings', icon: 'settings', key: 'nav.settings' },
 ]
 
 /** 这两个是表单页，共用一份草稿：哪一页都可能是「还没保存」的那一页。 */
-const FORM_VIEWS: readonly FormView[] = ['output', 'settings']
+const FORM_VIEWS: readonly FormView[] = ['settings']
 </script>
 
 <template>

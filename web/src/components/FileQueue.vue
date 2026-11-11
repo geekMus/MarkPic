@@ -405,7 +405,7 @@ function onScroll(): void {
             :aria-pressed="manualOpen"
             @click="emit('update:manualOpen', !manualOpen)"
           >
-            <AppIcon name="terminal" :size="16" />
+            <AppIcon name="clipboard" :size="16" />
           </button>
 
           <!-- 队列几百上千行时，按文件名找比滚轮靠谱 -->
@@ -476,36 +476,37 @@ function onScroll(): void {
       </template>
     </PageHead>
 
+    <!-- 手动输入是一条全宽的条，和检测 / 下载两页同一个位置、同一套内边距。 -->
+    <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
+          <label class="manual__label" for="queue-manual">
+            {{ t('queue.manual.label') }}
+          </label>
+          <textarea
+            id="queue-manual"
+            ref="textarea"
+            v-model="manualText"
+            class="textarea"
+            rows="3"
+            spellcheck="false"
+            placeholder="D:\docs\post.md"
+            @keydown.enter.exact.prevent="submitManual"
+          />
+          <div class="manual__foot">
+            <span class="manual__hint">{{ t('queue.manual.hint') }}</span>
+            <button type="button" class="btn btn--ghost btn--sm" @click="closeManual">
+              {{ t('common.cancel') }}
+            </button>
+            <button type="submit" class="btn btn--secondary btn--sm" :disabled="manualText.trim() === ''">
+              {{ t('queue.manual.submit') }}
+            </button>
+          </div>
+    </form>
+
     <!-- 列头和手动输入框不跟着滚：滚动条只属于下面的行列表。
          放在滚动区里的话，滚动条会从标题栏底下一路拉到窗口底部，
          看着像「滚动条跑到标题上去了」（2026-11-11 用户指出）。 -->
-    <div class="queue__fixed">
-      <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
-        <label class="manual__label" for="queue-manual">
-          {{ t('queue.manual.label') }}
-        </label>
-        <textarea
-          id="queue-manual"
-          ref="textarea"
-          v-model="manualText"
-          class="textarea"
-          rows="3"
-          spellcheck="false"
-          placeholder="D:\docs\post.md"
-          @keydown.enter.exact.prevent="submitManual"
-        />
-        <div class="manual__foot">
-          <span class="manual__hint">{{ t('queue.manual.hint') }}</span>
-          <button type="button" class="btn btn--ghost btn--sm" @click="closeManual">
-            {{ t('common.cancel') }}
-          </button>
-          <button type="submit" class="btn btn--secondary btn--sm" :disabled="manualText.trim() === ''">
-            {{ t('queue.manual.submit') }}
-          </button>
-        </div>
-      </form>
-
-      <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 76px / 状态 96px / 操作 68px -->
+    <div v-if="rows.length > 0" class="queue__fixed">
+      <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 64px / 状态 92px / 操作 64px -->
       <div v-if="rows.length > 0" class="ledger__head" aria-hidden="true">
         <span class="ledger__col">{{ t('queue.col.file') }}</span>
         <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
@@ -593,23 +594,27 @@ function onScroll(): void {
 }
 
 .panel.queue {
-  /* 面板默认是「标题 44px + 内容 1fr + 脚 auto」，这里多出一条固定块：
-     标题 / 列头（或手动输入）/ 剩下的全给滚动区。
+  /* 纵向骨架和检测 / 下载两页一致：页头、手动输入条、列头、正文。
+     用 flex 列而不是 grid 行 —— 手动输入条是条件渲染的，行数会变。
      写成 .panel.queue 是为了压过 main.css 里 .panel 那条同样优先级的规则。 */
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
 }
 
 /* 固定块（列头 / 手动输入）整条铺满面板宽度：底下的背景与分隔线要顶到右边缘，
    否则右端会缺一小块、看着像列头没占满。真正需要让出滚动条的只有里面的文字，
    所以把 10px 的让位放进 .ledger__head 自己的 padding-right（8px 行内边距 + 10px 滚动条）。 */
 .queue__fixed {
-  padding: 20px 24px 0;
+  flex: none;
+  padding: 20px 34px 0;
 }
 
 .queue__body {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  padding: 0 24px 24px;
+  min-height: 0;
+  padding: 16px 34px 34px;
 }
 
 .queue__running {
@@ -659,8 +664,8 @@ function onScroll(): void {
   column-gap: 8px;
   flex: none;
   height: 26px;
-  margin-bottom: 4px;
-  padding: 0 10px 0 0;
+  margin-bottom: 6px;
+  padding: 0 18px 0 0;
 }
 
 .ledger__col {

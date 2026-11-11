@@ -109,7 +109,7 @@ function submitManual(): void {
           :aria-pressed="manualOpen"
           @click="emit('update:manualOpen', !manualOpen)"
         >
-          <AppIcon name="terminal" :size="16" />
+          <AppIcon name="clipboard" :size="16" />
         </button>
 
         <span class="report__divider" aria-hidden="true" />
@@ -197,7 +197,7 @@ function submitManual(): void {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 10px;
-  margin: 18px 0 0;
+  margin: 20px 0 0;
   padding: 0 34px;
   color: var(--ink-3);
   font-size: var(--fs-3);
@@ -244,9 +244,10 @@ function submitManual(): void {
 }
 
 .report__empty {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
-  display: flex;
+  padding: 16px 34px 34px;
 }
 
 .report__empty > * {
