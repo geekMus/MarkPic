@@ -576,7 +576,7 @@ function onScroll(): void {
   padding: 0 3px;
   border-radius: 999px;
   background: var(--bad);
-  color: #fff;
+  color: var(--on-bad);
   font-size: 9.5px;
   font-weight: 600;
   line-height: 15px;

@@ -319,6 +319,8 @@ async function openDataDir(): Promise<void> {
   margin: 14px 0 0;
   overflow: hidden;
   border-radius: var(--r-pill);
+  /* 凹槽（--track）比面板再暗一档：以前这个令牌根本没定义，整条槽是透明的，
+     下载进度只剩那截青色在裸奔。 */
   background: var(--track);
 }
 

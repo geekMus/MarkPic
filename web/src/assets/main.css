@@ -64,9 +64,15 @@
   --bad-soft: #fbe9e7;
   --bad-line: #f0c3bf;
 
+  /* 凹槽：进度条、滑块这一类「嵌进面板里」的轨道，比面板暗一档。 */
+  --track: #e7ecf3;
+
   --ink-solid: #12161f;
   --ink-solid-hover: #1d2430;
   --on-solid: #ffffff;
+  /* 实心状态色（红点计数、徽标）上面的字。深色里那些状态色本身变成了浅粉/浅绿，
+     白字压上去就成了一张模糊的纸片 —— 所以「压在上面」的那一档也要跟着翻面。 */
+  --on-bad: #ffffff;
 
   --focus: #0e7490;
   --ring: rgba(14, 116, 144, 0.22);
@@ -134,10 +140,14 @@
   --bad-soft: rgba(247, 155, 146, 0.12);
   --bad-line: rgba(247, 155, 146, 0.26);
 
+  /* 深色的「暗一档」是往画布那侧走，不是往亮处走。 */
+  --track: #0d1118;
+
   /* 深色下主按钮反过来：一块近白的「键帽」，像 Raycast 的实体按键。 */
   --ink-solid: #e8ecf4;
   --ink-solid-hover: #ffffff;
   --on-solid: #10141b;
+  --on-bad: #1b0f0d;
 
   --focus: #8ef2e4;
   --ring: rgba(142, 242, 228, 0.26);
@@ -238,6 +248,16 @@ textarea,
 select {
   font: inherit;
   color: inherit;
+}
+
+/* 没有写背景的按钮不该继承 UA 的那块「系统按钮色」。
+ *
+ * 浅色下 ButtonFace 是 #efefef，贴在白面板上几乎看不见，所以这个坑一直没暴露；
+ * 深色下 color-scheme: dark 会把它解析成 #6b6b6b —— 一块比画布亮得多的中灰，
+ * 侧边栏那几个只在悬停/选中时才有底色的图标按钮，平时就是三块灰砖。
+ * 这里统一兜底成透明，具体按钮各自再给底色（.btn--primary、.rail__btn--on 等）。 */
+button {
+  background-color: transparent;
 }
 
 ::selection {
