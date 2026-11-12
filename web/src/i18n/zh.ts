@@ -144,6 +144,7 @@ export const zh = {
   'row.reason.localMissing': '其中 {count} 张本地图找不到',
   'row.reason.remoteKept': '其中 {count} 处远程图原样保留',
   'row.details.empty': '这个文件里没有可处理的本地图片。',
+  'row.lede.dryRun': '试运行：扫到 {count} 处本地图片，文件没有改动',
   'row.lede.scanLocal': '扫到 {count} 处本地图片',
   'row.lede.uploaded': '换掉 {count} 处链接',
   'row.lede.reused': '{count} 处沿用已有地址',

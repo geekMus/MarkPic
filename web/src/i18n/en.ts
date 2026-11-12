@@ -146,6 +146,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.reason.localMissing': '{count} local image(s) not found',
   'row.reason.remoteKept': '{count} remote image(s) left as they are',
   'row.details.empty': 'This file has no local images to process.',
+  'row.lede.dryRun': 'Dry run: found {count} local image(s); nothing was written',
   'row.lede.scanLocal': 'Found {count} local image reference(s)',
   'row.lede.uploaded': '{count} link(s) swapped',
   'row.lede.reused': '{count} reused an existing link',

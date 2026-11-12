@@ -206,6 +206,11 @@ const lede = computed(() => {
   } else if (result.status === 'preview') {
     // 预检只是扫了一遍：没有「替换」也没有「失败」，只有「扫到什么」。
     if (total === 0) return t('row.lede.noImages')
+    // 试运行跑完还是「预览」态（什么都没写），得把「跑过了、只是没动文件」说出来，
+    // 否则点完「开始上传」这一页一个字都不变，像没反应。
+    if (props.row.phase === 'settled') {
+      return t('row.lede.dryRun', { count: total })
+    }
     parts.push(() => t('row.lede.scanLocal', { count: total }))
     if (missingCount.value > 0) parts.push(() => t('row.lede.missing', { count: missingCount.value }))
   } else {
