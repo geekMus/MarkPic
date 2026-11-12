@@ -130,7 +130,7 @@ const band = computed(() => {
     mode="download"
     icon="download"
     tone="ok"
-    title-key="nav.download"
+    title-key="page.download"
     hint-key="view.download.sub"
     :tag="tag"
     :verdicts="band"

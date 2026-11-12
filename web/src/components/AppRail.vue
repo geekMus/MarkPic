@@ -22,10 +22,10 @@ const { t } = useI18n()
 
 // 导航项写在一起，后面加功能只要往这里加一条、再到 App 里给一个视图就行；
 // 宽度、间距、选中态都不用重新想。
-const items: { id: View; icon: IconName; key: MessageKey }[] = [
-  { id: 'convert', icon: 'image', key: 'nav.convert' },
-  { id: 'check', icon: 'link', key: 'nav.check' },
-  { id: 'download', icon: 'download', key: 'nav.download' },
+const items: { id: View; icon: IconName; key: MessageKey; desc?: MessageKey }[] = [
+  { id: 'convert', icon: 'image', key: 'nav.convert', desc: 'nav.convert.desc' },
+  { id: 'check', icon: 'link', key: 'nav.check', desc: 'nav.check.desc' },
+  { id: 'download', icon: 'download', key: 'nav.download', desc: 'nav.download.desc' },
   { id: 'settings', icon: 'settings', key: 'nav.settings' },
 ]
 
@@ -44,8 +44,8 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
         :data-nav="item.id"
         :class="{ 'rail__btn--on': view === item.id, 'rail__btn--run': running === item.id }"
         :aria-pressed="view === item.id"
-        :title="t(item.key)"
-        :aria-label="t(item.key)"
+        :title="t(item.desc ?? item.key)"
+        :aria-label="t(item.desc ?? item.key)"
         @click="emit('navigate', item.id)"
       >
         <AppIcon :name="item.icon" :size="18" />
@@ -191,7 +191,9 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--fs-2);
+  font-size: var(--fs-3);
+  font-weight: 500;
+  letter-spacing: 0.02em;
   line-height: 1;
 }
 

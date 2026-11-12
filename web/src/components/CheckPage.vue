@@ -189,7 +189,7 @@ const emptyHint = computed<MessageKey>(() => {
     mode="check"
     icon="link"
     tone="warn"
-    title-key="nav.check"
+    title-key="page.check"
     hint-key="view.check.sub"
     :tag="tag"
     :verdicts="band"

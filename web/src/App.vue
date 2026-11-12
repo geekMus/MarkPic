@@ -632,7 +632,7 @@ onBeforeUnmount(() => {
    这一层只负责「放得下」，具体排版交给各视图自己。 */
 .app__body {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
+  grid-template-columns: 168px minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
 }

@@ -77,7 +77,14 @@ export const en: Record<keyof typeof zh, string> = {
 
   // Queue
   'nav.label': 'Main navigation',
-  'nav.convert': 'Upload locals',
+  'nav.convert': 'Upload',
+  'nav.convert.desc': 'Upload local images',
+  'nav.check.desc': 'Check remote images',
+  'nav.download.desc': 'Download remote images',
+  'page.convert': 'Upload local images',
+  'page.check': 'Check remote images',
+  'page.download': 'Download remote images',
+
   'nav.settings': 'Settings',
   'nav.about': 'About',
   'queue.count': '{count} files',
@@ -347,8 +354,8 @@ export const en: Record<keyof typeof zh, string> = {
   'empty.specimen.caption.check': 'Checking never writes: each remote address is followed by its verdict, broken ones with their status code.',
 
   // Menu and footer
-  'nav.check': 'Check remotes',
-  'nav.download': 'Download remotes',
+  'nav.check': 'Check',
+  'nav.download': 'Download',
   'footer.run.check': 'Start checking',
   'footer.run.download': 'Start downloading',
 

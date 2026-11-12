@@ -75,7 +75,16 @@ export const zh = {
 
   // 队列
   'nav.label': '主导航',
-  'nav.convert': '上传本地图片',
+  'nav.convert': '上传',
+  // 菜单上只放两个字：四个入口一样长，读起来才是一列，不会最后一个孤零零掉下来。
+  // 完整说法留在页头（page.*），鼠标悬停也看得到（nav.convert.desc）。
+  'nav.convert.desc': '上传本地图片',
+  'nav.check.desc': '检测远程图片',
+  'nav.download.desc': '下载远程图片',
+  'page.convert': '上传本地图片',
+  'page.check': '检测远程图片',
+  'page.download': '下载远程图片',
+
   'nav.settings': '设置',
   'nav.about': '关于',
   'queue.count': '{count} 个文件',
@@ -340,8 +349,8 @@ export const zh = {
   'empty.specimen.caption.check': '检测不改文档：每条网络地址后面直接跟结论，打不开的写明状态码。',
 
   // 菜单与底栏
-  'nav.check': '检测远程图片',
-  'nav.download': '下载远程图片',
+  'nav.check': '检测',
+  'nav.download': '下载',
   'footer.run.check': '开始检测',
   'footer.run.download': '开始下载',
 

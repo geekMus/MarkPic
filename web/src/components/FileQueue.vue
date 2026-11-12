@@ -367,7 +367,7 @@ function onScroll(): void {
     <PageHead
       icon="image"
       tone="accent"
-      title-key="nav.convert"
+      title-key="page.convert"
       lead-key="view.convert.sub"
       :tag="modeTag"
       :busy="busy"
