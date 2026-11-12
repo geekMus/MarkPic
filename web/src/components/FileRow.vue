@@ -166,56 +166,66 @@ const shortDir = computed(() => {
   return parts.length > 0 ? parts[parts.length - 1] : props.row.dir
 })
 
-const reason = computed(() => {
+/**
+ * 展开后的第一句：这一篇里的图到底怎么样。
+ *
+ * 早先这里是「预览 · 1 张图片未处理」——「预览」不是结论，「未处理」也不是
+ * 事实（预检根本没试过），两句话加起来什么也没说。现在按模式直接讲清楚：
+ * 扫到几张、换掉几处、几个地址能打开、几张存回了本地。
+ */
+const lede = computed(() => {
   const result = props.row.result
+  const mode = props.remoteMode ?? 'ignore'
   if (!result) {
     if (props.row.phase === 'cancelled') return t('row.reason.cancelled')
     if (props.row.missing) return t('row.reason.noFiles')
-    return ''
+    if (props.row.phase === 'running') return t('row.lede.running')
+    return t('row.lede.waiting')
   }
-  if (result.status === 'cancelled' && props.aborted) return t('row.reason.aborted')
+  // 整篇失败时，原因比数目要紧：「连不上 PicGo」比「3 张没成功」有用。
   if (result.error) {
-    // 「所有本地图片都处理失败」这种总括句不解释原因：图床没开的时候，行上只有
-    // 「失败」两个字，真正的原因（连不上 PicGo、服务没开）藏在逐图明细里，得展开
-    // 才看得见。一处都没成的时候，把第一张的真原因顶到行上来。
     const nothingDone = (result.uploaded ?? 0) === 0 && (result.localized ?? 0) === 0
     if (nothingDone) {
-      const first = (result.items ?? []).find((item) => item.status === 'failed' && item.error)
+      const first = items.value.find((item) => item.status === 'failed' && item.error)
       if (first?.error) return first.error
     }
     return result.error
   }
-  if (result.failed > 0) {
-    // 「没下载回来」和「本地图片读不出来」是两回事：都写成「未处理」的话，
-    // 用户不知道是去改文档里的地址，还是去看磁盘。
-    const remote = result.remoteFailed ?? 0
-    if (remote > 0) {
-      // 下载模式下，「地址本来坏了」和「这次没下来」在用户眼里是同一件事：
-      // 都算「没下载回来」。按地址去重，和页脚、清单同一个口径 ——
-      // 早先这里只数下载失败的，于是行里说 1 个、页脚说 2 个。
-      const total = deadCount(result)
-      return t('row.reason.remoteFailed', { count: total })
+
+  const total = items.value.length
+  const bad = items.value.filter((item) => item.status === 'remote-bad').length
+  const parts: (() => string)[] = []
+
+  if (mode === 'check') {
+    if (total === 0) return t('row.lede.noImages')
+    parts.push(() => t('row.lede.check', { total, ok: total - bad - remoteUnsupportedCount.value, bad }))
+  } else if (mode === 'download') {
+    if (total === 0) return t('row.lede.noImages')
+    parts.push(() => t('row.lede.download', { total, saved: localizedUniqueCount.value }))
+    if (localKeptCount.value > 0) parts.push(() => t('row.lede.kept', { count: localKeptCount.value }))
+  } else if (result.status === 'preview') {
+    // 预检只是扫了一遍：没有「替换」也没有「失败」，只有「扫到什么」。
+    if (total === 0) return t('row.lede.noImages')
+    parts.push(() => t('row.lede.scanLocal', { count: total }))
+    if (missingCount.value > 0) parts.push(() => t('row.lede.missing', { count: missingCount.value }))
+  } else {
+    if ((result.uploaded ?? 0) > 0) parts.push(() => t('row.lede.uploaded', { count: result.uploaded ?? 0 }))
+    if (reusedCount.value > 0) parts.push(() => t('row.lede.reused', { count: reusedCount.value }))
+    if (localKeptCount.value > 0) parts.push(() => t('row.lede.kept', { count: localKeptCount.value }))
+  }
+
+  if (skippedOnly.value > 0) parts.push(() => t('row.lede.skipped', { count: skippedOnly.value }))
+  if (failureCount.value > 0) parts.push(() => t('row.lede.failed', { count: failureCount.value }))
+  if (mode !== 'check') {
+    const dead = deadCount(result)
+    if (dead > 0) parts.push(() => t('row.lede.dead', { count: dead }))
+    if (remoteUnsupportedCount.value > 0) {
+      parts.push(() => t('row.lede.unsupported', { count: remoteUnsupportedCount.value }))
     }
-    return t('row.reason.failed', { count: result.failed })
   }
-  const dead = result.dead ?? 0
-  if (dead > 0) {
-    // 同一个死链被引用多次时只报地址数：行里说「3 个地址打不开」而清单里
-    // 只有 1 个地址，读的人会以为坏了三张图。
-    return t('row.reason.dead', { count: deadCount(result) })
-  }
-  // 检测/下载模式不碰本地图，但缺图是文档自己的毛病，不单列会看着像一切正常。
-  if (localMissingCount.value > 0) {
-    return t('row.reason.localMissing', { count: localMissingCount.value })
-  }
-  // 默认模式不碰远程图：一篇只有远程图的文档会落到「无图」，不说一句就像它
-  // 一张图都没有。
-  const remoteKept = result.remoteKept ?? 0
-  if (remoteKept > 0) {
-    return t('row.reason.remoteKept', { count: remoteKept })
-  }
-  const warning = result.warnings?.[0]
-  return warning ?? ''
+
+  if (parts.length === 0) return result.warnings?.[0] ?? t('row.lede.noImages')
+  return parts.map((part) => part()).join(t('row.lede.join'))
 })
 
 const percent = computed(() => {
@@ -250,11 +260,14 @@ const reusedCount = computed(
   () => items.value.filter(item => item.status === 'reused' || item.status === 'cached').length,
 )
 
+/** 引用的本地文件根本不在：预检就能看出来，不试上传。 */
+const missingCount = computed(() => items.value.filter(item => item.status === 'missing').length)
+
+/** 真试过、真没成的那几张（本地文件不存在不算，那是另一个问题）。 */
+const failureCount = computed(() => items.value.filter(item => item.status === 'failed').length)
+
 /** 预检模式下所有待上传的引用都还没有真正上传，单独数一遍，别混进「跳过」。 */
 const pendingCount = computed(() => items.value.filter(item => item.status === 'pending').length)
-
-/** 下载回本地：有几张远程图落到了磁盘上。 */
-const localizedCount = computed(() => items.value.filter(item => item.status === 'localized').length)
 
 /**
  * 上面那个数按引用处算：同一张图在这篇文档里被引用 20 次就是 20，
@@ -315,25 +328,16 @@ const skippedOnly = computed(() =>
  * 「替换」这个数在只碰远程图的模式里是句废话（永远是 0），
  * 那种时候把版面让给「下载」「本地保留」「检测」。
  */
-const remoteSeenCount = computed(
-  () => items.value.filter(item => item.status === 'remote-ok' || item.status === 'remote-bad').length,
-)
-
-const showReplacedStat = computed(
-  () =>
-    (props.row.result?.uploaded ?? 0) > 0 ||
-    (pendingCount.value === 0 &&
-      localizedCount.value === 0 &&
-      localKeptCount.value === 0 &&
-      remoteSeenCount.value === 0 &&
-      remoteUnsupportedCount.value === 0),
-)
-
 /**
  * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
  * （路径根本没匹配到文件的行不展开，见 canExpand，所以这里只剩「没有本地图片」一种情况。）
  */
 const emptyDetailsText = computed(() => t('row.details.empty'))
+
+/** 预检的时候文件还没写出去，说「输出」会让人以为已经生成好了。 */
+const outputLabel = computed<MessageKey>(() =>
+  props.row.result?.status === 'preview' ? 'row.output.planned' : 'row.output',
+)
 
 /** 有逐图明细才能展开：判据直接看结果里的 items，不再绕「缺文件」那一层推断。 */
 const canExpand = computed(() => (props.row.result?.items?.length ?? 0) > 0)
@@ -373,7 +377,8 @@ function itemDetail(item: ImageItem): string {
   // 远程相关的状态：有错误就说错误，没有就显示下载后的本地相对路径
   if (item.status === 'localized') return item.url ?? ''
   if (item.status === 'remote-bad') return item.error ?? t('row.status.remoteBad')
-  if (item.status === 'remote-ok') return item.url ?? ''
+  // 检测模式下，这一列的「结果」是结论，不是把地址再抄一遍（地址就在左边）
+  if (item.status === 'remote-ok') return t('row.item.remoteOk')
   if (item.status === 'local-kept') return t('row.item.localKept')
   // 待上传/已取消的引用：状态列已经写了，这里再重复一句就是噪音
   if (item.status === 'pending' || item.status === 'cancelled') return ''
@@ -449,15 +454,6 @@ function toggleExpanded(): void {
   }
 }
 
-/** 只有真正改写过的引用才配得上一条强调色的替换箭头。 */
-function replaced(status: ImageStatus): boolean {
-  return (
-    status === 'uploaded' ||
-    status === 'reused' ||
-    status === 'cached' ||
-    status === 'localized'
-  )
-}
 </script>
 
 <template>
@@ -511,8 +507,7 @@ function replaced(status: ImageStatus): boolean {
 
       <div v-if="expanded && canExpand" :id="detailsId" class="details">
         <div class="details__head">
-          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
-          <span v-if="reason" class="details__why" :title="reason">{{ reason }}</span>
+          <p class="details__lede" :title="lede">{{ lede }}</p>
           <span class="details__ops">
             <button
               type="button"
@@ -535,50 +530,6 @@ function replaced(status: ImageStatus): boolean {
             </button>
           </span>
         </div>
-      <div class="details__stats">
-        <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
-        <span v-if="showReplacedStat" class="stat">
-          <span class="stat__n num">{{ row.result?.uploaded ?? 0 }}</span>
-          <span class="stat__k">{{ t('row.stat.uploaded') }}</span>
-        </span>
-        <span v-if="localizedCount > 0" class="stat">
-          <span class="stat__n num">{{ localizedUniqueCount }}</span>
-          <span class="stat__k">{{ t('row.stat.localized') }}</span>
-        </span>
-        <span v-if="localKeptCount > 0" class="stat">
-          <span class="stat__n num">{{ localKeptCount }}</span>
-          <span class="stat__k">{{ t('row.stat.localKept') }}</span>
-        </span>
-        <span v-if="reusedCount > 0" class="stat">
-          <span class="stat__n num">{{ reusedCount }}</span>
-          <span class="stat__k">{{ t('row.stat.reused') }}</span>
-        </span>
-        <span v-if="pendingCount > 0" class="stat">
-          <span class="stat__n num">{{ pendingCount }}</span>
-          <span class="stat__k">{{ t('row.stat.pending') }}</span>
-        </span>
-        <span v-if="remoteUnsupportedCount > 0" class="stat">
-          <span class="stat__n num">{{ remoteUnsupportedCount }}</span>
-          <span class="stat__k">{{ t('row.stat.remoteUnsupported') }}</span>
-        </span>
-        <span v-if="skippedOnly > 0" class="stat">
-          <span class="stat__n num">{{ skippedOnly }}</span>
-          <span class="stat__k">{{ t('row.stat.skipped') }}</span>
-        </span>
-        <span v-if="(row.result?.failed ?? 0) > 0" class="stat">
-          <span class="stat__n num stat__n--bad">{{ row.result?.failed }}</span>
-          <span class="stat__k">{{ t('row.stat.failed') }}</span>
-        </span>
-      </div>
-
-      <div v-if="items.length > 0" class="items__head" aria-hidden="true">
-        <span>{{ t('row.col.line') }}</span>
-        <span>{{ t('row.col.status') }}</span>
-        <span>{{ t('row.col.ref') }}</span>
-        <span />
-        <span>{{ t('row.col.result') }}</span>
-      </div>
-
       <ul
         v-if="items.length > 0"
         ref="itemsEl"
@@ -595,16 +546,12 @@ function replaced(status: ImageStatus): boolean {
           :data-status="item.status"
         >
           <span class="items__line mono">L{{ item.line }}</span>
-          <span class="items__status">{{ itemLabel(item) }}</span>
           <span class="items__target mono" :title="redactUrl(item.absolutePath || item.target)">
-            {{ redactUrl(item.absolutePath || item.target) }}
+            {{ redactUrl(item.target) }}
           </span>
-          <span v-if="replaced(item.status)" class="items__arrow items__arrow--on" aria-hidden="true">
-            <AppIcon name="chevron-down" :size="12" class="items__arrow-icon" />
+          <span class="items__result" :title="itemDetail(item) || itemLabel(item)">
+            {{ itemDetail(item) || itemLabel(item) }}
           </span>
-          <!-- 没被改写的引用不给箭头：单独一个灰箭头飘在那里只会被当成噪点 -->
-          <span v-else class="items__arrow" aria-hidden="true" />
-          <span class="items__result mono" :title="itemDetail(item)">{{ itemDetail(item) }}</span>
         </li>
         <li
           v-if="itemWindow.padBottom > 0"
@@ -617,7 +564,7 @@ function replaced(status: ImageStatus): boolean {
       <p v-else class="details__empty">{{ emptyDetailsText }}</p>
 
       <p v-if="row.result?.outputPath" class="details__out">
-        <span>{{ t('row.output') }}</span>
+        <span>{{ t(outputLabel) }}</span>
         <span class="mono">{{ row.result.outputPath }}</span>
         <button type="button" class="btn btn--ghost btn--sm" @click="openOutput">
           {{ t('common.open') }}
@@ -917,19 +864,21 @@ function replaced(status: ImageStatus): boolean {
   margin-bottom: 10px;
 }
 
-.details__why {
+.details__lede {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  color: var(--warn);
+  margin: 0;
+  color: var(--ink-2);
   font-size: var(--fs-2);
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.55;
 }
 
-.item[data-tone='danger'] .details__why {
+.item[data-tone='danger'] .details__lede {
   color: var(--bad);
+}
+
+.item[data-tone='warning'] .details__lede {
+  color: var(--warn);
 }
 
 .details__ops {
@@ -937,47 +886,6 @@ function replaced(status: ImageStatus): boolean {
   flex: none;
   gap: 2px;
   margin-left: auto;
-}
-
-.details__stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0;
-  margin-bottom: 2px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-/* 一眼看数：数字在前、单位在后，平铺成一行，不加一个个小胶囊。 */
-.details__stats .stat + .stat::before {
-  content: '·';
-  margin: 0 8px;
-  color: var(--line-3);
-}
-
-.stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-.stat__n {
-  color: var(--ink-2);
-  font-size: var(--fs-2);
-  font-weight: 600;
-  line-height: 1;
-}
-
-.stat__n--bad {
-  color: var(--bad);
-}
-
-.stat__k {
-  color: var(--ink-3);
-  font-size: var(--fs-1);
 }
 
 .items {
@@ -998,19 +906,9 @@ function replaced(status: ImageStatus): boolean {
   border: 0;
 }
 
-.items__head {
-  display: grid;
-  grid-template-columns: 46px 58px minmax(0, 1fr) 16px minmax(0, 1.05fr);
-  column-gap: 8px;
-  padding: 8px 0 4px;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  letter-spacing: 0.04em;
-}
-
 .items__row {
   display: grid;
-  grid-template-columns: 46px 58px minmax(0, 1fr) 16px minmax(0, 1.05fr);
+  grid-template-columns: 40px minmax(0, 1.15fr) minmax(0, 1fr);
   align-items: center;
   column-gap: 8px;
   min-height: 30px;
@@ -1024,29 +922,6 @@ function replaced(status: ImageStatus): boolean {
 .items__line {
   color: var(--ink-3);
   font-size: var(--fs-1);
-}
-
-.items__status {
-  color: var(--ink-2);
-  font-size: var(--fs-1);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.items__row[data-status='uploaded'] .items__status {
-  color: var(--ok);
-}
-
-.items__row[data-status='reused'] .items__status {
-  color: var(--accent-ink);
-}
-
-.items__row[data-status='missing'] .items__status {
-  color: var(--warn);
-}
-
-.items__row[data-status='failed'] .items__status {
-  color: var(--bad);
 }
 
 .items__target,
@@ -1066,26 +941,22 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .items__row[data-status='uploaded'] .items__result,
-.items__row[data-status='reused'] .items__result {
+.items__row[data-status='reused'] .items__result,
+.items__row[data-status='localized'] .items__result {
   color: var(--accent-ink);
 }
 
-.items__row[data-status='failed'] .items__result {
+.items__row[data-status='remote-ok'] .items__result {
+  color: var(--ok);
+}
+
+.items__row[data-status='missing'] .items__result {
+  color: var(--warn);
+}
+
+.items__row[data-status='failed'] .items__result,
+.items__row[data-status='remote-bad'] .items__result {
   color: var(--bad);
-}
-
-.items__arrow {
-  display: grid;
-  place-items: center;
-  color: var(--line-3);
-}
-
-.items__arrow-icon {
-  transform: rotate(-90deg);
-}
-
-.items__arrow--on {
-  color: var(--accent);
 }
 
 .details__empty {
@@ -1154,10 +1025,9 @@ function replaced(status: ImageStatus): boolean {
   }
 
   .items__row {
-    grid-template-columns: 46px 58px minmax(0, 1fr);
+    grid-template-columns: 40px minmax(0, 1fr);
   }
 
-  .items__arrow,
   .items__result {
     display: none;
   }
