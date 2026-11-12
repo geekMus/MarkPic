@@ -401,8 +401,10 @@ function itemDetail(item: ImageItem): string {
  * 那样按行 id 记实测高度。
  * ------------------------------------------------------------------ */
 
-/** 超过这个条数才启用虚拟滚动：几百行全渲染反而更简单，也不会有滚动条。 */
-const VIRTUAL_THRESHOLD = 200
+/** 超过这个条数就收进定高的小窗口：一百张图的文档不能让卡片撑成三千像素。 */
+const LIST_LIMIT = 12
+/** 超过这个条数才启用虚拟滚动：几十行全渲染反而更简单，也不会有滚动条。 */
+const VIRTUAL_THRESHOLD = 60
 /** 明细行高度（`.items__row` 的 min-height 30px，单行不换行）。 */
 const ITEM_HEIGHT = 30
 /** 可视区上下各多渲染几行，滚动时不至于露白。 */
@@ -414,6 +416,7 @@ const itemsEl = ref<HTMLElement | null>(null)
 const itemsScrollTop = ref(0)
 const itemsViewport = ref(ITEM_VIEWPORT)
 
+const bounded = computed(() => items.value.length > LIST_LIMIT)
 const virtualItems = computed(() => items.value.length > VIRTUAL_THRESHOLD)
 
 const itemWindow = computed(() => {
@@ -539,8 +542,8 @@ function toggleExpanded(): void {
         v-if="items.length > 0"
         ref="itemsEl"
         class="items"
-        :class="{ 'items--virtual': virtualItems }"
-        :style="virtualItems ? { maxHeight: ITEM_VIEWPORT + 'px' } : undefined"
+        :class="{ 'items--scroll': bounded }"
+        :style="bounded ? { maxHeight: ITEM_VIEWPORT + 'px' } : undefined"
         @scroll="onItemsScroll"
       >
         <li v-if="itemWindow.padTop > 0" class="items__pad" :style="{ height: itemWindow.padTop + 'px' }" aria-hidden="true" />
@@ -898,8 +901,8 @@ function toggleExpanded(): void {
   flex-direction: column;
 }
 
-/* 虚拟滚动：只有明细多到需要它时才出滚动条，几百行的文档照旧整段展开。 */
-.items--virtual {
+/* 明细长了就给一个定高窗口：卡片高度不随图片数增长，滚动留在这一块里。 */
+.items--scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
