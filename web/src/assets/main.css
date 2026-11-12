@@ -1009,25 +1009,21 @@ button {
 }
 
 .view-leave-active {
-  transition:
-    opacity 90ms var(--ease-in),
-    transform 90ms var(--ease-in);
+  transition: opacity 80ms linear;
 }
 
 .view-leave-to {
   opacity: 0;
-  transform: translateY(-5px);
 }
 
 .view-enter-active {
-  transition:
-    opacity 240ms var(--ease-out),
-    transform 240ms var(--ease-out);
+  transition: opacity 160ms var(--ease);
 }
 
+/* 只做淡入淡出，不做位移：一页内容整块上下挪 10px，看着就是「跳一下」。
+   这两页的正文密度不一样，任何位移都会被放大成错位感。 */
 .view-enter-from {
   opacity: 0;
-  transform: translateY(10px) scale(0.998);
 }
 
 /* 缩放窗口期间（useResizing.ts 打标记）：阴影与毛玻璃要重新合成，过渡还会和

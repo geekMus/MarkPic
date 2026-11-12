@@ -1,3 +1,11 @@
+<script lang="ts">
+/**
+ * 两页各自记住自己滚到哪了。放在模块作用域：组件切走会被卸载，
+ * 跟着实例走的 Map 每次都会重新变空（写错过一次，切回来还是滚到顶）。
+ */
+const scrollMemory = new Map<string, number>()
+</script>
+
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
 import PageHead from './PageHead.vue'
@@ -40,9 +48,20 @@ const { t } = useI18n()
 
 /* 切到这一页时把焦点搬进来：键盘用户按 Ctrl+, 之后 Tab 应该从这里开始 */
 const panel = ref<HTMLElement | null>(null)
+const bodyEl = ref<HTMLElement | null>(null)
+
+function onBodyScroll(event: Event): void {
+  scrollMemory.set(props.anchor, (event.target as HTMLElement).scrollTop)
+}
 
 onMounted(() => {
-  void nextTick(() => panel.value?.focus())
+  void nextTick(() => {
+    // preventScroll：焦点搬进来的时候别顺手把正文滚到顶。
+    panel.value?.focus({ preventScroll: true })
+    const el = bodyEl.value
+    const kept = scrollMemory.get(props.anchor) ?? 0
+    if (el && kept > 0) el.scrollTop = kept
+  })
 })
 </script>
 
@@ -67,7 +86,7 @@ onMounted(() => {
         </template>
       </PageHead>
 
-      <div class="form__body">
+      <div ref="bodyEl" class="form__body" @scroll.passive="onBodyScroll">
         <template v-if="props.loaded">
           <slot />
         </template>
