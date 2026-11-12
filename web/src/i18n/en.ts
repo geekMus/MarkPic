@@ -109,6 +109,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.done': 'Done',
   'row.status.partial': 'Partial',
   'row.status.noImages': 'No images',
+  'row.status.noLocal': 'No local images',
   'row.status.failed': 'Failed',
   'row.status.preview': 'Scanned',
   'row.status.uploading': 'Uploading',

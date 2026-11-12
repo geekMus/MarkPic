@@ -170,15 +170,20 @@ const localCount = computed(() => {
   return result.items.filter((item) => isLocalRef(item.target)).length
 })
 
-/** 一张本地图都没有的卡：底色要跟别的卡分开，免得混在队里看不出来。 */
+/**
+ * 一张图都没有的卡才画成「空卡」（斜纹底）。只有远程图的文档图是有的、
+ * 只是不用上传，不该跟它长得一样 —— 它单独标「无本地图」。
+ */
 const emptyCard = computed(
-  () => (props.remoteMode ?? 'ignore') === 'ignore' && localCount.value === 0,
+  () => (props.remoteMode ?? 'ignore') === 'ignore' && items.value.length === 0,
 )
 
 const countLabel = computed(() => {
   const mode = props.remoteMode ?? 'ignore'
   if (mode === 'ignore' && localCount.value !== null) {
-    return localCount.value === 0 ? t('row.status.noImages') : t('row.count', { count: localCount.value })
+    if (items.value.length === 0) return t('row.status.noImages')
+    if (localCount.value === 0) return t('row.status.noLocal')
+    return t('row.count', { count: localCount.value })
   }
   const images = props.row.result?.images ?? props.row.images
   if (images === null || images === undefined) {
@@ -668,7 +673,7 @@ function toggleExpanded(): void {
    滚动高度是按行元素量的，用 flex 的 gap 会让每一行少算 10px。 */
 .item {
   position: relative;
-  padding: 0 0 10px;
+  padding: 0 0 12px;
   list-style: none;
 }
 
@@ -696,10 +701,28 @@ function toggleExpanded(): void {
 }
 
 /* 一张图都没有的卡：虚线边框 + 透空底，一眼能挑出来批量清掉 */
+/* 空卡：透到页面底色，再叠一层很淡的斜纹 —— 和实心渐变的卡片是两种材质 */
 .card[data-empty='yes'] {
-  background: color-mix(in srgb, var(--panel-2) 42%, transparent);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0 9px,
+      color-mix(in srgb, var(--ink) 5%, transparent) 9px 10px
+    ),
+    var(--canvas);
   border-style: dashed;
   border-color: var(--line-3);
+  box-shadow: none;
+}
+
+.card[data-empty='yes'] .item__name {
+  color: var(--ink-2);
+}
+
+.card[data-empty='yes'] .item__mark {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-3);
 }
 
 .card[data-empty='yes']:hover {
@@ -732,7 +755,7 @@ function toggleExpanded(): void {
   gap: 12px;
   min-width: 0;
   width: 100%;
-  padding: 13px 6px 13px 16px;
+  padding: 14px 6px 14px 18px;
   border: 0;
   background: none;
   color: inherit;

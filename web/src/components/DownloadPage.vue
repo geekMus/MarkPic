@@ -7,7 +7,7 @@ import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
-import { copyText } from '../composables/useDeadLinks'
+import { copyText, shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 
 /**
@@ -176,12 +176,15 @@ const band = computed(() => {
       <section
         v-for="group in groups"
         :key="group.row.id"
-        class="dl__group"
+        class="group-card"
       >
-        <header class="dl__file">
-          <h3 class="dl__name" :title="group.row.path">{{ group.row.name }}</h3>
+        <header class="group-card__head">
+          <span class="group-card__icon" aria-hidden="true">
+            <AppIcon name="doc" :size="14" />
+          </span>
+          <h3 class="group-card__title" :title="group.row.path">{{ group.row.name }}</h3>
           <span class="dl__dir" :title="group.row.dir">{{ group.row.dir }}</span>
-          <span class="dl__meta">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span class="group-card__meta">{{ t('row.count', { count: group.items.length }) }}</span>
           <button
             type="button"
             class="icon-btn icon-btn--sm dl__drop"
@@ -192,7 +195,7 @@ const band = computed(() => {
             <AppIcon name="x" :size="13" />
           </button>
         </header>
-        <ul class="dl__list">
+        <ul class="dl__list group-rows">
           <li
             v-for="entry in group.items"
             :key="entry.item.target + entry.item.line"
@@ -215,7 +218,7 @@ const band = computed(() => {
               :tone="KIND_META[entry.kind].tone"
               :compact="true"
             />
-            <span v-if="entry.item.error" class="dl__err">{{ entry.item.error }}</span>
+            <span v-if="entry.item.error" class="dl__err">{{ shortReason(entry.item.error) }}</span>
           </li>
         </ul>
       </section>
@@ -239,35 +242,9 @@ const band = computed(() => {
 }
 
 /* 一个文档一段：段与段之间留白，不画框 */
-.dl__group {
-}
-
-.dl__row {
-}
-
-.dl__group + .dl__group {
-  margin-top: 30px;
-}
-
-.dl__file {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 10px 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.dl__name {
-  max-width: 42%;
-  overflow: hidden;
-  color: var(--ink-2);
-  font-size: var(--fs-2);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .dl__dir {
+  flex: 0 1 auto;
+  max-width: 34%;
   overflow: hidden;
   min-width: 0;
   color: var(--ink-3);
@@ -277,29 +254,15 @@ const band = computed(() => {
   white-space: nowrap;
 }
 
-.dl__meta {
-  flex: none;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
 .dl__drop {
   flex: none;
-  margin-left: auto;
   opacity: 0;
+  transition: opacity 140ms var(--ease);
 }
 
-.dl__file:hover .dl__drop,
+.group-card:hover .dl__drop,
 .dl__drop:focus-visible {
   opacity: 1;
-}
-
-.dl__list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 6px 0 0;
-  list-style: none;
 }
 
 .dl__row {
@@ -307,12 +270,11 @@ const band = computed(() => {
   grid-template-columns: minmax(0, 1.02fr) 18px minmax(0, 0.98fr) auto;
   align-items: baseline;
   gap: 14px;
-  padding: 13px 12px 13px 10px;
-  border-radius: var(--r-2);
+  padding: 13px 16px;
 }
 
 .dl__row:hover {
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
 }
 
 .dl__remote,

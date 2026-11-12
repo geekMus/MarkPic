@@ -191,6 +191,16 @@ export function formatBrokenReport(
  * 不行再退回老办法：临时塞一个 textarea、选中、execCommand('copy')。
  * 后者虽然过时，但它是唯一在「页面没拿到剪贴板权限」时还能用的路。
  */
+/**
+ * 后端的错误有时把整条地址又抄一遍（「…没法检测或下载：data:image/png;base64,…」），
+ * 地址已经写在行首，这里只留原因本身。
+ */
+export function shortReason(text: string, max = 110): string {
+  const cut = text.search(/[：:]\s*(?:https?|ftp|data|file):/i)
+  const head = cut > 0 ? text.slice(0, cut) : text
+  return head.length > max ? `${head.slice(0, max)}…` : head
+}
+
 export async function copyText(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text)

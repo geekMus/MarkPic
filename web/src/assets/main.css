@@ -995,6 +995,77 @@ button {
   min-height: 0;
 }
 
+/* 分组卡：检测页「一个站点」、下载页「一篇文档」各是一张卡，
+   外壳与上传页的卡片同一套（描边、渐变、圆角、阴影）。 */
+.group-card {
+  overflow: hidden;
+  border: 1px solid var(--card-edge);
+  border-radius: var(--r-4);
+  background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+  box-shadow: var(--shadow-card);
+}
+
+.group-card + .group-card {
+  margin-top: 14px;
+}
+
+.group-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.group-card__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink-3);
+}
+
+.group-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card__meta {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
+.group-card__meta--bad {
+  color: var(--bad);
+}
+
+.group-card__meta--warn {
+  color: var(--warn);
+}
+
+.group-rows {
+  margin: 0;
+  padding: 4px 0 6px;
+  list-style: none;
+}
+
+.group-rows > li + li {
+  border-top: 1px solid var(--line);
+}
+
 /* 缩放窗口期间（useResizing.ts 打标记）：阴影与毛玻璃要重新合成，过渡还会和
    重排抢时间 —— 这两样在拖拽时停掉，松手 180ms 后自动恢复。
    注意：顶部那层青色光晕（body::before）**不能**一起关掉。它是标题栏唯一的

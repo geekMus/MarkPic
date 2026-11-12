@@ -109,6 +109,7 @@ export const zh = {
   'row.status.done': '完成',
   'row.status.partial': '部分失败',
   'row.status.noImages': '无图片',
+  'row.status.noLocal': '无本地图',
   'row.status.failed': '失败',
   'row.status.preview': '已扫描',
   'row.status.uploading': '上传中',

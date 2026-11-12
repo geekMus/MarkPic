@@ -628,7 +628,7 @@ function onScroll(): void {
   flex-direction: column;
   min-height: 0;
   /* 卡片之间靠每张卡自己的下边距隔开（高度是量出来的，不能依赖 gap） */
-  padding: 20px 34px 24px;
+  padding: 22px 34px 28px;
 }
 
 .queue__running {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AppIcon from './AppIcon.vue'
 import ReportShell from './ReportShell.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
-import { copyText } from '../composables/useDeadLinks'
+import { copyText, shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 
 /**
@@ -247,19 +248,22 @@ const emptyHint = computed<MessageKey>(() => {
       <section
         v-for="group in groups"
         :key="group.host"
-        class="chk__group"
+        class="group-card"
       >
-        <header class="chk__host">
-          <h3>{{ group.host }}</h3>
-          <span class="chk__meta">{{ t('check.group.count', { count: group.list.length }) }}</span>
-          <span v-if="group.bad > 0" class="chk__meta chk__meta--bad">
+        <header class="group-card__head">
+          <span class="group-card__icon" aria-hidden="true">
+            <AppIcon name="link" :size="14" />
+          </span>
+          <h3 class="group-card__title chk__hostname" :title="group.host">{{ group.host }}</h3>
+          <span class="group-card__meta">{{ t('check.group.count', { count: group.list.length }) }}</span>
+          <span v-if="group.bad > 0" class="group-card__meta group-card__meta--bad">
             {{ t('check.group.bad', { count: group.bad }) }}
           </span>
-          <span v-if="group.unsupported > 0" class="chk__meta chk__meta--warn">
+          <span v-if="group.unsupported > 0" class="group-card__meta group-card__meta--warn">
             {{ t('check.group.unsupported', { count: group.unsupported }) }}
           </span>
         </header>
-        <ul class="chk__list">
+        <ul class="chk__list group-rows">
           <li
             v-for="addr in group.list"
             :key="addr.url"
@@ -285,7 +289,7 @@ const emptyHint = computed<MessageKey>(() => {
               v-if="addr.error"
               class="chk__err"
               :class="{ 'chk__err--warn': addr.kind === 'unsupported' }"
-            >{{ addr.error }}</span>
+            >{{ shortReason(addr.error) }}</span>
           </li>
         </ul>
       </section>
@@ -377,64 +381,20 @@ const emptyHint = computed<MessageKey>(() => {
 }
 
 /* 一组 = 一个域名：组与组之间靠留白分开，不画框、不叠卡 */
-.chk__group {
-}
-
-.chk__row {
-}
-
-.chk__group + .chk__group {
-  margin-top: 30px;
-}
-
-.chk__host {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 10px 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.chk__host h3 {
-  color: var(--ink-2);
+.chk__hostname {
   font-family: var(--mono);
-  font-size: var(--fs-2);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.chk__meta {
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-.chk__meta--bad {
-  color: var(--bad);
-}
-
-.chk__meta--warn {
-  color: var(--warn);
-}
-
-.chk__list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 6px 0 0;
-  list-style: none;
 }
 
 .chk__row {
   display: grid;
-  grid-template-columns: 96px minmax(0, 1fr) auto;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 14px;
-  padding: 13px 12px 13px 10px;
-  border-radius: var(--r-2);
+  padding: 13px 16px;
 }
 
 .chk__row:hover {
-  background: var(--panel-2);
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
 }
 
 .chk__addr {
