@@ -388,6 +388,7 @@ export const zh = {
   'download.band.saved': '已取回',
   'download.band.reused': '沿用上次',
   'download.band.failed': '失败',
+  'download.band.unsupported': '没法处理',
   'download.row.pending': '待定',
   'download.scanning': '正在扫 {count} 个文件里的图片…',
   'download.empty.noRemote': '这些文件里没有远程图片 —— 本地图片在下载模式下原样保留。',

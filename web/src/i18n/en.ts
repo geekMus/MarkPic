@@ -393,6 +393,7 @@ export const en: Record<keyof typeof zh, string> = {
   'download.band.saved': 'saved',
   'download.band.reused': 'reused',
   'download.band.failed': 'failed',
+  'download.band.unsupported': 'unsupported',
   'download.row.pending': 'TBD',
   'download.scanning': 'Looking at the images in {count} file(s)…',
   'download.empty.noRemote': 'No remote images in these files — local images are left untouched in download mode.',

@@ -56,7 +56,18 @@ function isRemoteRef(target: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)
 }
 
+/**
+ * ftp://、data: 这类地址不是「还没取回」，是根本取不回来。
+ * 预览阶段后端不做网络动作，也就不会给它们打结论 —— 这里按地址本身先判掉，
+ * 免得下载页把「永远下不了」写成「待定」。
+ */
+function unsupportedTarget(target: string): boolean {
+  if (/^https?:/i.test(target)) return false
+  return /^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)
+}
+
 function kindOf(item: ImageItem): Kind {
+  if (unsupportedTarget(item.target)) return 'unsupported'
   if (item.status === 'localized') return item.reused ? 'reused' : 'saved'
   // 下载回来失败（404、连不上、不是图片）在结果里是 remote-bad，不是 failed：
   // failed 留给「写文档/落盘」这类本地失败。
@@ -78,7 +89,9 @@ function localOf(dir: string, item: ImageItem): string {
 }
 
 function shortUrl(url: string): string {
-  return url.replace(/^([a-z][a-z0-9+.-]*):\/\//i, '')
+  const text = url.replace(/^([a-z][a-z0-9+.-]*):\/\//i, '')
+  // data: 后面可能是几 KB 的 base64，塞进一行会把整张表撑坏
+  return text.length > 56 ? `${text.slice(0, 56)}…` : text
 }
 
 const groups = computed(() => {
@@ -97,6 +110,7 @@ const counts = computed(() => {
   let saved = 0
   let reused = 0
   let failed = 0
+  let unsupported = 0
   let pending = 0
   for (const group of groups.value) {
     for (const entry of group.items) {
@@ -104,10 +118,11 @@ const counts = computed(() => {
       if (entry.kind === 'saved') saved += 1
       else if (entry.kind === 'reused') reused += 1
       else if (entry.kind === 'failed') failed += 1
+      else if (entry.kind === 'unsupported') unsupported += 1
       else pending += 1
     }
   }
-  return { total, saved, reused, failed, pending }
+  return { total, saved, reused, failed, unsupported, pending }
 })
 
 const band = computed(() => {
@@ -118,6 +133,7 @@ const band = computed(() => {
   if (counts.value.saved > 0) cells.push({ key: 'download.band.saved', count: counts.value.saved, tone: 'ok' })
   if (counts.value.reused > 0) cells.push({ key: 'download.band.reused', count: counts.value.reused, tone: 'ok' })
   if (counts.value.failed > 0) cells.push({ key: 'download.band.failed', count: counts.value.failed, tone: 'bad' })
+  if (counts.value.unsupported > 0) cells.push({ key: 'download.band.unsupported', count: counts.value.unsupported, tone: 'warn' })
   return cells
 })
 </script>
