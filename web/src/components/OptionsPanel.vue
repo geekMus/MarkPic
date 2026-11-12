@@ -74,6 +74,9 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
 <template>
   <FormPanel
     title-key="settings.title"
+    icon="settings"
+    tone="accent"
+    lead-key="settings.lead"
     anchor="settings-title"
     :dirty="dirty"
     :loaded="loaded"

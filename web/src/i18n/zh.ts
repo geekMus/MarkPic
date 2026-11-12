@@ -37,6 +37,7 @@ export const zh = {
   'language.en': 'English',
 
   // 设置
+  'settings.lead': 'PicGo 地址、并发、写到哪、存在哪 —— 都在这页，改完点保存',
   'settings.title': '设置',
   'settings.unsaved': '未保存',
   'settings.discard': '还原',

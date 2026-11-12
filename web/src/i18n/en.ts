@@ -38,6 +38,7 @@ export const en: Record<keyof typeof zh, string> = {
   'language.en': 'English',
 
   // Settings
+  'settings.lead': 'PicGo address, concurrency, where files go — all here; save when done',
   'settings.title': 'Settings',
   'settings.unsaved': 'Unsaved',
   'settings.discard': 'Revert',

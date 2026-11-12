@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import AppIcon from './AppIcon.vue'
+import PageHead from './PageHead.vue'
 import { nextTick, onMounted, ref } from 'vue'
 import { useI18n, type MessageKey } from '../i18n'
+import type { IconName } from './AppIcon.vue'
 
 /**
  * 「输出」和「设置」两页共用的外壳：标题 + 「未保存」、滚动区、底部的还原 / 保存。
@@ -14,6 +16,11 @@ import { useI18n, type MessageKey } from '../i18n'
 const props = defineProps<{
   /** 页面标题的 i18n 键。 */
   titleKey: MessageKey
+  /** 页头那颗图标的语义与配色，和作业页保持一致。 */
+  icon: IconName
+  tone: 'accent' | 'warn' | 'ok'
+  /** 标题下面那行说明。 */
+  leadKey: MessageKey
   /** aria-labelledby 的锚点：同一时刻页面上只该有一个。 */
   anchor: string
   dirty: boolean
@@ -44,20 +51,23 @@ onMounted(() => {
     <section
       ref="panel"
       tabindex="-1"
-      class="dlg__panel dlg__panel--inline"
+      class="panel form"
       role="region"
       :aria-labelledby="props.anchor"
     >
-      <header class="panel__head">
-        <div class="panel__title">
-          <h2 :id="props.anchor">{{ t(props.titleKey) }}</h2>
-          <span v-if="props.dirty" class="panel__note panel__note--dirty">
-            {{ t('settings.unsaved') }}
-          </span>
-        </div>
-      </header>
+      <PageHead
+        :id="props.anchor"
+        :icon="props.icon"
+        :tone="props.tone"
+        :title-key="props.titleKey"
+        :lead-key="props.leadKey"
+      >
+        <template #badge>
+          <span v-if="props.dirty" class="form__dirty">{{ t('settings.unsaved') }}</span>
+        </template>
+      </PageHead>
 
-      <div class="dlg__body">
+      <div class="form__body">
         <template v-if="props.loaded">
           <slot />
         </template>
@@ -74,7 +84,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <footer v-if="props.loaded" class="panel__foot">
+      <footer v-if="props.loaded" class="panel__foot panel__foot--form">
         <span class="form__kbd">
           <span class="kbd">Ctrl</span>
           <span class="kbd">Enter</span>
@@ -102,6 +112,26 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 和作业页同一套纵向骨架：页头 30px 上下留白，正文 34px 左右留白。 */
+.panel.form {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  flex: 1 1 auto;
+  width: 100%;
+}
+
+.form__body {
+  min-height: 0;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 18px 34px 24px;
+}
+
+.form__dirty {
+  color: var(--warn);
+  font-size: var(--fs-1);
+  font-weight: 500;
+}
+
 .form__kbd {
   display: inline-flex;
   align-items: center;

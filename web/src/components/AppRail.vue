@@ -58,7 +58,8 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
       </button>
     </div>
 
-    <div class="rail__stack rail__stack--foot">
+    <!-- 关于不是功能，是入口：贴着「设置」往下放，别让它一个人飘在侧边栏最底。 -->
+    <div class="rail__about">
       <button
         type="button"
         class="rail__btn"
@@ -69,7 +70,6 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
         <AppIcon name="info" :size="17" />
         <span class="rail__label">{{ t('nav.about') }}</span>
       </button>
-
     </div>
   </nav>
 </template>
@@ -118,9 +118,9 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
 .rail {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: stretch;
-  gap: 10px;
+  gap: 16px;
   padding: 4px 2px;
   min-height: 0;
 }
@@ -133,8 +133,10 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
   width: 100%;
 }
 
-.rail__stack--foot {
-  padding-top: 8px;
+/* 一条极淡的分隔线：功能在上面，「关于」在下面 */
+.rail__about {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
 }
 
 .rail__btn {

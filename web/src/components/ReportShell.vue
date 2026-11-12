@@ -241,7 +241,9 @@ function submitManual(): void {
   flex: 1 1 auto;
   min-height: 0;
   padding: 16px 34px 34px;
-  overflow-y: auto;
+  /* 和队列页一样常留滚动条位置，切换菜单时正文不左右跳。 */
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
 }
 
 .report__empty {

@@ -18,6 +18,8 @@ const props = withDefaults(defineProps<{
   tone: 'accent' | 'warn' | 'ok'
   titleKey: MessageKey
   leadKey: MessageKey
+  /** 给 h2 一个锚点 id：外层 role="region" 的 aria-labelledby 指向它。 */
+  id?: string
   /** 标题后面那个目标信息，例如「只读」「存到 images/」。 */
   tag?: string
   /** 这一页正在跑：页头下面那条进度线才出现。 */
@@ -43,7 +45,7 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
         <span class="pagehead__mark" :class="`pagehead__mark--${tone}`">
           <AppIcon :name="icon" :size="14" />
         </span>
-        <h2 class="pagehead__title">{{ t(titleKey) }}</h2>
+        <h2 :id="id" class="pagehead__title">{{ t(titleKey) }}</h2>
         <slot name="badge" />
         <span v-if="tag" class="pagehead__tag num">{{ tag }}</span>
       </div>

@@ -637,8 +637,6 @@ onBeforeUnmount(() => {
   min-height: 0;
 }
 
-/* 侧边栏展开时把导航文字放出来，内容区相应让位。 */
-
 .app__view {
   display: flex;
   flex-direction: column;
@@ -662,13 +660,8 @@ onBeforeUnmount(() => {
   }
 
   .app__body {
-    grid-template-columns: 168px minmax(0, 1fr);
     gap: 10px;
     padding-bottom: 8px;
-  }
-
-  .app__body--wide {
-    grid-template-columns: 176px minmax(0, 1fr);
   }
 }
 
