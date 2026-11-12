@@ -194,7 +194,6 @@ function submitManual(): void {
 }
 
 .report__summary {
-  animation: fade-in 260ms var(--ease-out) 60ms both;
   display: flex;
   flex: none;
   flex-wrap: wrap;

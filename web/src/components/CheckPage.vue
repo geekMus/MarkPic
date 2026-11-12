@@ -35,9 +35,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 
 /** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
-function stagger(index: number): number {
-  return Math.min(index, 8)
-}
 
 type Kind = 'bad' | 'unsupported' | 'pending' | 'ok'
 
@@ -239,10 +236,9 @@ const emptyHint = computed<MessageKey>(() => {
       <p v-if="groups.length === 0" class="chk__none">{{ t(emptyHint, { count: scanCount }) }}</p>
 
       <section
-        v-for="(group, gi) in groups"
+        v-for="group in groups"
         :key="group.host"
         class="chk__group"
-        :style="{ '--i': stagger(gi) }"
       >
         <header class="chk__host">
           <h3>{{ group.host }}</h3>
@@ -256,10 +252,9 @@ const emptyHint = computed<MessageKey>(() => {
         </header>
         <ul class="chk__list">
           <li
-            v-for="(addr, ai) in group.list"
+            v-for="addr in group.list"
             :key="addr.url"
             class="chk__row"
-            :style="{ '--i': stagger(ai) }"
           >
             <StatusPill
               :label="t(KIND_META[addr.kind].labelKey)"
@@ -367,13 +362,9 @@ const emptyHint = computed<MessageKey>(() => {
 
 /* 一组 = 一个域名：组与组之间靠留白分开，不画框、不叠卡 */
 .chk__group {
-  animation: row-in 280ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 24ms);
 }
 
 .chk__row {
-  animation: row-in 260ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 16ms);
 }
 
 .chk__group + .chk__group {

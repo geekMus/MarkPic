@@ -41,9 +41,6 @@ const scanning = computed(() => props.rows.some((row) => row.images === null))
 const scanCount = computed(() => props.rows.filter((row) => row.images === null).length)
 
 /** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
-function stagger(index: number): number {
-  return Math.min(index, 8)
-}
 
 type Kind = 'saved' | 'reused' | 'failed' | 'unsupported' | 'pending'
 
@@ -153,10 +150,9 @@ const band = computed(() => {
       </p>
 
       <section
-        v-for="(group, gi) in groups"
+        v-for="group in groups"
         :key="group.row.id"
         class="dl__group"
-        :style="{ '--i': stagger(gi) }"
       >
         <header class="dl__file">
           <h3 class="dl__name" :title="group.row.path">{{ group.row.name }}</h3>
@@ -174,10 +170,9 @@ const band = computed(() => {
         </header>
         <ul class="dl__list">
           <li
-            v-for="(entry, ei) in group.items"
+            v-for="entry in group.items"
             :key="entry.item.target + entry.item.line"
             class="dl__row"
-            :style="{ '--i': stagger(ei) }"
           >
             <span class="dl__remote mono" :title="entry.item.target">{{ shortUrl(entry.item.target) }}</span>
             <span class="dl__arrow" aria-hidden="true">→</span>
@@ -214,13 +209,9 @@ const band = computed(() => {
 
 /* 一个文档一段：段与段之间留白，不画框 */
 .dl__group {
-  animation: row-in 280ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 24ms);
 }
 
 .dl__row {
-  animation: row-in 260ms var(--ease) both;
-  animation-delay: calc(var(--i, 0) * 16ms);
 }
 
 .dl__group + .dl__group {

@@ -449,33 +449,28 @@ function onRowClick(): void {
   if (canExpand.value) toggleExpanded()
 }
 
-/* 展开/收起的高度动画：先量出自然高度，再在 0 与它之间过渡。
-   没有这层，点「查看详情」是一瞬间蹦出一大块，读起来很生硬。 */
+/* 展开/收起只动高度：文字从头到尾都是实心的，不做淡入。
+   点「查看详情」，明细是「拉开」的；里面的字一出现就能读。 */
 function onAccEnter(el: Element): void {
   const node = el as HTMLElement
   const height = node.scrollHeight
   node.style.height = '0px'
-  node.style.opacity = '0'
   requestAnimationFrame(() => {
     node.style.height = `${height}px`
-    node.style.opacity = '1'
   })
 }
 
 function onAccLeave(el: Element): void {
   const node = el as HTMLElement
   node.style.height = `${node.scrollHeight}px`
-  node.style.opacity = '1'
   requestAnimationFrame(() => {
     node.style.height = '0px'
-    node.style.opacity = '0'
   })
 }
 
 function onAccDone(el: Element): void {
   const node = el as HTMLElement
   node.style.height = ''
-  node.style.opacity = ''
 }
 
 function toggleExpanded(): void {
@@ -898,12 +893,9 @@ function toggleExpanded(): void {
   margin: 0;
   padding: 12px 14px 14px;
   border-top: 1px solid var(--line);
-  /* 高度由展开动画写在行内；这里只负责把高度与透明度的变化放顺 */
+  /* 高度由展开动画写在行内；透明度不参与过渡，字一直是实的 */
   overflow: hidden;
-  transition:
-    height 240ms var(--ease-out),
-    opacity 180ms var(--ease),
-    padding 240ms var(--ease-out);
+  transition: height 240ms var(--ease-out);
 }
 
 /* 明细的第一行：状态本身就是一句结论，下面才是逐图台账 */
