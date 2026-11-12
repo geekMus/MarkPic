@@ -155,7 +155,26 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const
   return { tone: 'neutral', labelKey: queuedLabelKey.value }
 })
 
+/** 本地引用：不是带 scheme 的网址，也不是「C:」这类盘符开头的写法。 */
+function isLocalRef(target: string): boolean {
+  return !/^[a-z][a-z0-9+.-]*:/i.test(target) || /^[a-z]:[\\/]/i.test(target)
+}
+
+/**
+ * 上传页只数本地图片。混着远程图的那篇，数目里带上它会让人以为
+ * 「2 张图等着传」，其实两张都是网络地址、原样保留。
+ */
+const localCount = computed(() => {
+  const result = props.row.result
+  if (!result) return null
+  return result.items.filter((item) => isLocalRef(item.target)).length
+})
+
 const countLabel = computed(() => {
+  const mode = props.remoteMode ?? 'ignore'
+  if (mode === 'ignore' && localCount.value !== null) {
+    return localCount.value === 0 ? t('row.status.noImages') : t('row.count', { count: localCount.value })
+  }
   const images = props.row.result?.images ?? props.row.images
   if (images === null || images === undefined) {
     return props.row.missing ? '—' : t('row.count.pending')
@@ -211,13 +230,15 @@ const lede = computed(() => {
     if (localKeptCount.value > 0) parts.push(() => t('row.lede.kept', { count: localKeptCount.value }))
   } else if (result.status === 'preview') {
     // 预检只是扫了一遍：没有「替换」也没有「失败」，只有「扫到什么」。
-    if (total === 0) return t('row.lede.noImages')
+    // 这里说的是「本地图片」的处数，混进来的远程图不算。
+    const local = localCount.value ?? total
+    if (local === 0) return t('row.status.noImages')
     // 试运行跑完还是「预览」态（什么都没写），得把「跑过了、只是没动文件」说出来，
     // 否则点完「开始上传」这一页一个字都不变，像没反应。
     if (props.row.phase === 'settled') {
-      return t('row.lede.dryRun', { count: total })
+      return t('row.lede.dryRun', { count: local })
     }
-    parts.push(() => t('row.lede.scanLocal', { count: total }))
+    parts.push(() => t('row.lede.scanLocal', { count: local }))
     if (missingCount.value > 0) parts.push(() => t('row.lede.missing', { count: missingCount.value }))
   } else {
     if ((result.uploaded ?? 0) > 0) parts.push(() => t('row.lede.uploaded', { count: result.uploaded ?? 0 }))
