@@ -261,15 +261,19 @@ $env:MARKPIC_UPDATE_MANIFEST = 'http://127.0.0.1:8080/version.json'
 
 ### 发版
 
-```powershell
-.\scripts\release.ps1 -Version 1.0.1 -Notes "修了几个对齐问题"
-```
+推送到 `main` 就行，`.github/workflows/release.yml` 会自动完成：
 
-脚本会用这个版本号编译 `bin\MarkPic-v1.0.1-windows-amd64.exe`，
-算出 SHA-256 与大小，写进 `version.json`，并打印后续的 `gh release create` / `git tag` 命令。
+1. 读根目录 `package.json` 的版本号（想发下一个版本，先把它改成新版本号再推送）；
+2. 查同名 tag：`v` + 版本号已存在就绿灯结束，连推几个提交也只会发一次；
+3. 重建前端、跑测试、编译 `bin\MarkPic-v<版本>-windows-amd64.exe`；
+4. 按提交主题前缀分组写 Release 记录（界面/资源 → 新功能，改进/重构/更名 → 改进，修复 → 修复，其余 → 其他）；
+5. 先把 exe 传上 release，再把下载地址、SHA-256 与大小写进 `version.json` 推回 `main`。
 
-顺序很重要：**先把 exe 传到 release，再推 `version.json`**。
-反过来的话，老版本会在下载地址还不存在时看到「有新版本」。
+只有 `main` 能发布：`push` 只监听 `main`，其他分支手动触发也会被 job 级检查拦下。
+发布完全复用仓库自己的脚本（`build.ps1`，清单格式与 `release.ps1` 一致）；本地手动发版依旧可用 `.\scripts\release.ps1`。
+
+顺序铁律不变：**先把 exe 传到 release，再推 `version.json`**——反过来，老版本会在下载地址还不存在时看到「有新版本」。
+若日后给 `main` 配了分支保护，`GITHUB_TOKEN` 推不动它，需要换带推送权限的 PAT，或那一版手动发。
 
 ## 开发与打包
 
@@ -416,6 +420,7 @@ internal/settings/        设置读写
 internal/uploadcache/     上传结果缓存（同一张图不重复上传）
 internal/update/          自动更新（下载、校验、替换、重启）
 web/                      Vue 3 + TypeScript 前端源码（Vite 工程）
+.github/workflows/        CI：推送到 main 自动构建并发布 Release
 scripts/                  开发与构建脚本（dev.ps1 / start.ps1 / build.ps1 / test.ps1 / release.ps1 / _tools.ps1）
 tools/bench/              性能与功能基准（造语料、假图床、逐篇校验；不参与打包）
 tools/mockpicgo/          开发用假图床（可控延迟/失败率，用来测界面表现；不参与打包）

@@ -1,0 +1,190 @@
+# 推送到 main 后自动构建并发版。规则：
+#   - 版本号取根目录 package.json 的 version：想发下一个版本，先把它改成新版本号再推送；
+#   - 同名 tag 已存在就跳过（绿灯结束），连推几个提交也只会发一次；
+#   - Release 记录按提交主题前缀分组：界面/资源 → 新功能，改进/重构/更名 → 改进，修复 → 修复，其余 → 其他；
+#   - 顺序铁律：先把 exe 传上 release，再把 version.json 推回 main——老版本不能在下载地址
+#     还不存在时看到「有新版本」；
+#   - 只有 main 分支会发布：push 只监听 main，手动触发（workflow_dispatch）也被 job 级 if 拦下。
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: 读取版本并查重
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 读取 package.json 的版本号
+        id: ver
+        run: |
+          v=$(jq -r .version package.json)
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::package.json 里的 version（$v）不是 x.y.z 格式"
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: 这个版本是否已经发过
+        id: check
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ steps.ver.outputs.version }}" >/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "v${{ steps.ver.outputs.version }} 已发过，本次跳过。"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: 构建并发布
+    needs: prepare
+    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.skip != 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # Release 记录需要完整历史
+          fetch-tags: true # 用上一个 tag 圈定记录范围
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: 重建前端、跑测试、编译 exe
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $v = $env:VERSION
+          ./scripts/build.ps1 -Web -Test -Version $v -Output "bin/MarkPic-v$v-windows-amd64.exe"
+
+      - name: 生成 Release 记录
+        id: notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $v = $env:VERSION
+          $prev = "$(git describe --tags --abbrev=0 HEAD 2>$null)".Trim()
+          $subjects = if ($prev) { git log --format='%s' "$prev..HEAD" } else { git log --format='%s' }
+
+          $groups = [ordered]@{
+            '新功能' = [System.Collections.Generic.List[string]]::new()
+            '改进'   = [System.Collections.Generic.List[string]]::new()
+            '修复'   = [System.Collections.Generic.List[string]]::new()
+            '其他'   = [System.Collections.Generic.List[string]]::new()
+          }
+          foreach ($s in $subjects) {
+            $t = "$s".Trim()
+            if (-not $t -or $t -match '^release v\d') { continue }
+            if     ($t -match '^(界面|资源)[：:]')      { $groups['新功能'].Add($t) }
+            elseif ($t -match '^(改进|重构|更名)[：:]')  { $groups['改进'].Add($t) }
+            elseif ($t -match '^修复[：:]')             { $groups['修复'].Add($t) }
+            else                                        { $groups['其他'].Add($t) }
+          }
+
+          $now = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time')
+          $lines = [System.Collections.Generic.List[string]]::new()
+          $lines.Add("## v$v（$($now.ToString('yyyy-MM-dd'))）")
+          $icons = @{ '新功能' = '✨'; '改进' = '🔧'; '修复' = '🐛'; '其他' = '📝' }
+          foreach ($key in $groups.Keys) {
+            if ($groups[$key].Count -eq 0) { continue }
+            $lines.Add('')
+            $lines.Add("### $($icons[$key]) $key")
+            foreach ($item in $groups[$key]) { $lines.Add("- $item") }
+          }
+          if ($lines.Count -eq 1) {
+            $lines.Add('')
+            $lines.Add('维护性更新。')
+          }
+          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/notes.md", ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+
+          if (-not $prev) {
+            $oneLine = '首个版本。'
+          } else {
+            $oneLine = "本次更新：新功能 $($groups['新功能'].Count) 项，改进 $($groups['改进'].Count) 项，修复 $($groups['修复'].Count) 项。"
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "notes=$oneLine" -Encoding utf8
+
+      - name: 创建 release 并上传 exe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $v = $env:VERSION
+          gh release create "v$v" "bin/MarkPic-v$v-windows-amd64.exe" --title "v$v" --notes-file notes.md --target "$env:GITHUB_SHA"
+
+      - name: 回写 version.json 并推回 main
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          NOTES: ${{ steps.notes.outputs.notes }}
+        run: |
+          $v = $env:VERSION
+          $tag = "v$v"
+          $asset = "MarkPic-v$v-windows-amd64.exe"
+          $sha = (Get-FileHash -Algorithm SHA256 "bin/$asset").Hash.ToLower()
+          $size = (Get-Item "bin/$asset").Length
+          $now = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time')
+          $manifest = [ordered]@{
+            version   = $v
+            tag       = $tag
+            published = $now.ToString('yyyy-MM-dd')
+            notes     = $env:NOTES
+            windows   = [ordered]@{
+              amd64 = [ordered]@{
+                url    = "https://github.com/geekMus/MarkPic/releases/download/$tag/$asset"
+                sha256 = $sha
+                size   = $size
+              }
+            }
+          }
+          $json = ($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n"
+          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/version.json", $json + "`n", [Text.UTF8Encoding]::new($false))
+
+          # 前端重建可能让 internal/ui/dist 与提交不一致（本地忘了重建时），恢复成提交的内容，保持工作树干净。
+          git checkout -- internal/ui/dist
+          git clean -fd internal/ui/dist
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add version.json
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host 'version.json 无变化，跳过推送。'
+          }
+          else {
+            git commit -m "release $tag [skip ci]"
+            git fetch origin main
+            git rebase origin/main
+            git push origin HEAD:main
+          }
