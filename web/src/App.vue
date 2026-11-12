@@ -482,7 +482,7 @@ onBeforeUnmount(() => {
              页面的状态各自保留（useRun 里的 QueuePage），切走再回来还是原样。 -->
         <!-- 切页：离开淡出 110ms，进来 180ms 从下方浮起 6px。
              只做顺切，不做翻转/横移这类大动作 —— 一个工具软件，切页不该抢戏。 -->
-        <Transition name="view" mode="out-in">
+        <Transition name="view">
           <FileQueue
             v-if="view === 'convert'"
             key="convert"
@@ -638,6 +638,7 @@ onBeforeUnmount(() => {
 }
 
 .app__view {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;

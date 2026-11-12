@@ -1008,8 +1008,12 @@ button {
   }
 }
 
+/* 切页只做交叉淡入淡出：不位移、也不留空档。退场那一页脱离文档流叠在上面，
+   所以新页从第一帧就落在最终位置，中间没有「什么都没有」的一瞬。 */
 .view-leave-active {
-  transition: opacity 80ms linear;
+  position: absolute;
+  inset: 0;
+  transition: opacity 140ms linear;
 }
 
 .view-leave-to {
@@ -1017,11 +1021,9 @@ button {
 }
 
 .view-enter-active {
-  transition: opacity 160ms var(--ease);
+  transition: opacity 180ms var(--ease);
 }
 
-/* 只做淡入淡出，不做位移：一页内容整块上下挪 10px，看着就是「跳一下」。
-   这两页的正文密度不一样，任何位移都会被放大成错位感。 */
 .view-enter-from {
   opacity: 0;
 }
