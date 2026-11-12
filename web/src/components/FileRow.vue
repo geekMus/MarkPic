@@ -26,7 +26,13 @@ const props = defineProps<{
   selected?: boolean
 }>()
 
-const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
+const emit = defineEmits<{
+  remove: [id: string]
+  reveal: [path: string]
+  select: [id: string]
+  /** 卡片正在做高度动画：外面的虚拟列表这段时间先别重新量行高。 */
+  animating: [active: boolean]
+}>()
 
 const { danger } = useToasts()
 
@@ -471,6 +477,7 @@ function onAccLeave(el: Element): void {
 function onAccDone(el: Element): void {
   const node = el as HTMLElement
   node.style.height = ''
+  emit('animating', false)
 }
 
 function toggleExpanded(): void {
@@ -539,12 +546,17 @@ function toggleExpanded(): void {
 
       <Transition
         name="acc"
+        @before-enter="emit('animating', true)"
         @enter="onAccEnter"
         @after-enter="onAccDone"
+        @before-leave="emit('animating', true)"
         @leave="onAccLeave"
         @after-leave="onAccDone"
+        @enter-cancelled="emit('animating', false)"
+        @leave-cancelled="emit('animating', false)"
       >
       <div v-if="expanded && canExpand" :id="detailsId" class="details">
+        <div class="details__inner">
         <div class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
           <span class="details__ops">
@@ -613,6 +625,7 @@ function toggleExpanded(): void {
       <ul v-if="row.result?.warnings?.length" class="warnings">
         <li v-for="(warning, index) in row.result.warnings" :key="index">{{ warning }}</li>
       </ul>
+      </div>
       </div>
       </Transition>
     </div>
@@ -891,11 +904,17 @@ function toggleExpanded(): void {
 
 .details {
   margin: 0;
-  padding: 12px 14px 14px;
+  padding: 0;
   border-top: 1px solid var(--line);
-  /* 高度由展开动画写在行内；透明度不参与过渡，字一直是实的 */
+  /* 高度由展开动画写在行内。内边距放在里层：外层的高度收到 0 时，
+     卡片真的是 0（边框 1px），不会留下「内边距那么高」的一截。 */
   overflow: hidden;
-  transition: height 240ms var(--ease-out);
+  /* 这条曲线两头都收一点：起手不猛冲、收尾不急刹，展开和收起都是同一个节奏 */
+  transition: height 260ms cubic-bezier(0.4, 0.1, 0.2, 1);
+}
+
+.details__inner {
+  padding: 12px 14px 14px;
 }
 
 /* 明细的第一行：状态本身就是一句结论，下面才是逐图台账 */

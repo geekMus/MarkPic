@@ -110,7 +110,34 @@ const heights = new Map<string, number>()
 /** 实测高度变化后 +1，用来让下面的 computed 重算。 */
 const heightsVersion = ref(0)
 
+/**
+ * 正在做高度动画的那张卡：这段时间行高每帧都在变，量它就是每帧重算一次
+ * 可视区、每帧重排整张列表 —— 收起时那一下「卡」就是它。动画结束再补量。
+ */
+let animatingRows = 0
+let animatingGuard = 0
+
+function resumeMeasuring(): void {
+  animatingRows = 0
+  window.clearTimeout(animatingGuard)
+  animatingGuard = 0
+  measureMountedRows()
+}
+
+function onRowAnimating(active: boolean): void {
+  animatingRows += active ? 1 : -1
+  if (animatingRows <= 0) {
+    resumeMeasuring()
+    return
+  }
+  // 连点两下会把过渡打断，after-* 不一定回来；留一条兜底，
+  // 否则行高测量会一直停着，虚拟列表就再也不动了。
+  window.clearTimeout(animatingGuard)
+  animatingGuard = window.setTimeout(resumeMeasuring, 600)
+}
+
 function measureRow(el: Element): void {
+  if (animatingRows > 0) return
   const id = (el as HTMLElement).dataset.rowId
   if (!id) return
   const height = Math.round(el.getBoundingClientRect().height)
@@ -527,6 +554,7 @@ function onScroll(): void {
           @remove="emit('remove', $event)"
           @reveal="emit('reveal', $event)"
           @select="emit('select', $event)"
+          @animating="onRowAnimating"
         />
         <li
           v-if="window_.bottom > 0"
