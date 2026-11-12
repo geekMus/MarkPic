@@ -139,6 +139,12 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
   border-top: 1px solid var(--line);
 }
 
+/* 「关于」是同一列里的最后一项：和上面的功能项一样占满整行，
+   只比它们多一条上方的分隔线，不能缩成一颗内容宽度的药丸。 */
+.rail__about .rail__btn {
+  width: 100%;
+}
+
 .rail__btn {
   position: relative;
   display: inline-flex;

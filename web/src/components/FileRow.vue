@@ -449,6 +449,35 @@ function onRowClick(): void {
   if (canExpand.value) toggleExpanded()
 }
 
+/* 展开/收起的高度动画：先量出自然高度，再在 0 与它之间过渡。
+   没有这层，点「查看详情」是一瞬间蹦出一大块，读起来很生硬。 */
+function onAccEnter(el: Element): void {
+  const node = el as HTMLElement
+  const height = node.scrollHeight
+  node.style.height = '0px'
+  node.style.opacity = '0'
+  requestAnimationFrame(() => {
+    node.style.height = `${height}px`
+    node.style.opacity = '1'
+  })
+}
+
+function onAccLeave(el: Element): void {
+  const node = el as HTMLElement
+  node.style.height = `${node.scrollHeight}px`
+  node.style.opacity = '1'
+  requestAnimationFrame(() => {
+    node.style.height = '0px'
+    node.style.opacity = '0'
+  })
+}
+
+function onAccDone(el: Element): void {
+  const node = el as HTMLElement
+  node.style.height = ''
+  node.style.opacity = ''
+}
+
 function toggleExpanded(): void {
   expanded.value = !expanded.value
   if (expanded.value) {
@@ -513,6 +542,13 @@ function toggleExpanded(): void {
         <span :style="indeterminate ? undefined : { width: percent + '%' }" />
       </div>
 
+      <Transition
+        name="acc"
+        @enter="onAccEnter"
+        @after-enter="onAccDone"
+        @leave="onAccLeave"
+        @after-leave="onAccDone"
+      >
       <div v-if="expanded && canExpand" :id="detailsId" class="details">
         <div class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
@@ -582,7 +618,8 @@ function toggleExpanded(): void {
       <ul v-if="row.result?.warnings?.length" class="warnings">
         <li v-for="(warning, index) in row.result.warnings" :key="index">{{ warning }}</li>
       </ul>
-    </div>
+      </div>
+      </Transition>
     </div>
   </li>
 </template>
@@ -861,7 +898,12 @@ function toggleExpanded(): void {
   margin: 0;
   padding: 12px 14px 14px;
   border-top: 1px solid var(--line);
-  animation: details-in var(--t-base) var(--ease);
+  /* 高度由展开动画写在行内；这里只负责把高度与透明度的变化放顺 */
+  overflow: hidden;
+  transition:
+    height 240ms var(--ease-out),
+    opacity 180ms var(--ease),
+    padding 240ms var(--ease-out);
 }
 
 /* 明细的第一行：状态本身就是一句结论，下面才是逐图台账 */

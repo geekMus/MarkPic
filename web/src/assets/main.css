@@ -1029,18 +1029,18 @@ button {
 
 /* 卡片和它的脚注拼成一张：作业卡片去掉下圆角与下边框，脚注收尾。
    脚注高度和设置页的 .panel__foot 一致（56px），切页时卡片下缘才不会跳。 */
-.stage > .panel.queue,
-.stage > .panel.report {
+.pane > .panel.queue,
+.pane > .panel.report {
   flex: 1 1 auto;
   border-bottom: 0;
   border-radius: var(--r-4) var(--r-4) 0 0;
 }
 
-.stage > .foot {
+.pane > .foot {
   flex: none;
 }
 
-.stage > .settings-view {
+.pane > .settings-view {
   flex: 1 1 auto;
   min-height: 0;
 }

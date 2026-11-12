@@ -372,7 +372,12 @@ function goView(next: View): void {
   const nextMode = jobModeOf(next)
   if (nextMode !== null) mode.value = nextMode
   view.value = next
-  void nextTick(() => document.querySelector<HTMLElement>(`.rail__btn[data-nav="${next}"]`)?.focus())
+  // 切菜单纯手点的话不该再画一圈焦点环：焦点照样给它（键盘能接着走），
+  // 但明确告诉浏览器「这不是键盘操作」。用 Tab 走到这里时环还在。
+  void nextTick(() => {
+    const target = document.querySelector<HTMLElement>(`.rail__btn[data-nav="${next}"]`)
+    target?.focus({ preventScroll: true, focusVisible: false } as FocusOptions)
+  })
 }
 
 /** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
@@ -484,8 +489,10 @@ onBeforeUnmount(() => {
         <div class="stage">
         <!-- 三个作业页各有各的版式：转换是文件表，检测是地址表，下载是「远程 → 本地」映射。
              页面的状态各自保留（useRun 里的 QueuePage），切走再回来还是原样。 -->
-        <!-- 切页就是换页：旧页立刻下、新页立刻在位，只让页内文字淡进来。
-             试过位移和叠层交叉淡化，都会让人看到「跳」，所以这里不挂 Transition。 -->
+        <!-- 整页（内容 + 脚注）作为一层做交叉淡化：页与脚注一起淡，卡片下缘
+             因此不会在过渡中途换高度；过渡只改透明度，不做位移。 -->
+          <Transition name="pane">
+          <div :key="view" class="pane">
           <FileQueue
             v-if="view === 'convert'"
             key="convert"
@@ -579,6 +586,8 @@ onBeforeUnmount(() => {
           @reveal="handleReveal"
           @about="aboutOpen = true"
         />
+          </div>
+          </Transition>
         </div>
       </main>
     </div>
@@ -650,11 +659,35 @@ onBeforeUnmount(() => {
 
 /* 卡片和它的脚注摞在一起，量高度时当一块算 */
 .stage {
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+
+/* 一页 = 内容 + 脚注。两层叠在同一个尺寸的盒子里交叉淡化，
+   量到的下缘始终是 795，不会像以前那样在过渡中途换高度。 */
+.pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 只有旧页在手背上淡出：新页一上来就是实心的，所以过渡中途不会
+   透出页面底色（两边都半透明时亮度会掉一截，看着发灰）。 */
+.pane-leave-active {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.pane-leave-to {
+  opacity: 0;
 }
 
 .app__view > *:first-child {
