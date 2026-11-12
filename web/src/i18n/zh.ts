@@ -253,7 +253,6 @@ export const zh = {
 
   // 关于与更新
   'about.title': '关于',
-  'about.appName': 'MarkPic',
   'about.current': '当前版本',
   'about.latest': '最新版本',
   'about.status': '状态',

@@ -256,7 +256,6 @@ export const en: Record<keyof typeof zh, string> = {
 
   // About and updates
   'about.title': 'About',
-  'about.appName': 'MarkPic',
   'about.current': 'Current version',
   'about.latest': 'Latest version',
   'about.status': 'Status',
