@@ -60,6 +60,21 @@ const busy = computed(
 /** 页头下面那条细线的进度：跑完几个文件就往右挪一段。 */
 const progress = computed(() => (props.total > 0 ? props.completed / props.total : 0))
 
+/**
+ * 同一目录的文件只让第一条写路径：一列 20 行都把
+ * `D:\Projects\…\.tmp-scroll` 铺出来，名字反而被挤没了。
+ */
+const dirLeaders = computed(() => {
+  const seen = new Set<string>()
+  const leaders = new Set<string>()
+  for (const row of props.rows) {
+    if (seen.has(row.dir)) continue
+    seen.add(row.dir)
+    leaders.add(row.id)
+  }
+  return leaders
+})
+
 
 watch(
   () => props.manualOpen,
@@ -96,7 +111,7 @@ function submitManual(): void {
  * ------------------------------------------------------------------ */
 
 /** 折叠状态下的行高，第一次测量前的估值。 */
-const ROW_HEIGHT = 92
+const ROW_HEIGHT = 84
 /** 可视区上下各多渲染几行，滚动时不至于露白。 */
 const OVERSCAN = 4
 
@@ -533,6 +548,7 @@ function onScroll(): void {
           :remote-mode="remoteMode"
           :aborted="aborted"
           :selected="selected === row.id"
+          :dir-hint="dirLeaders.has(row.id)"
           @remove="emit('remove', $event)"
           @reveal="emit('reveal', $event)"
           @select="emit('select', $event)"
@@ -656,16 +672,19 @@ function onScroll(): void {
 }
 
 /* 台账列头：不参与滚动（在上面那条固定块里），列宽与 .item__main 逐项一致 ——
-   1fr / 64 / 92 / 64，gap 8，右端让出 8px（行内边距）+ 10px（滚动条）。 */
+   1fr / 64 / 104 / 56，gap 8；左边让出 64px（行首的折角箭头 + 30px 图标块），
+   右边让出 16px（行内边距 6 + 滚动条 10）。 */
 .ledger__head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 92px 64px;
+  grid-template-columns: minmax(0, 1fr) 64px 104px 56px;
   align-items: center;
   column-gap: 8px;
   flex: none;
-  height: 26px;
-  margin-bottom: 6px;
-  padding: 0 18px 0 0;
+  height: 28px;
+  margin-bottom: 4px;
+  padding: 0 16px 0 64px;
+  /* 列头下那条线：行与行之间的线是内缩的，这条整条拉通，读起来才像「表头」 */
+  border-bottom: 1px solid var(--line);
 }
 
 .ledger__col {
@@ -682,7 +701,8 @@ function onScroll(): void {
 /* 窄窗口：行里不再显示「图片」列（列宽留给文件名），列头跟着一起收 */
 @media (max-width: 820px) {
   .ledger__head {
-    grid-template-columns: minmax(0, 1fr) 96px 68px;
+    grid-template-columns: minmax(0, 1fr) 104px 56px;
+    padding-left: 64px;
   }
 
   .ledger__col--num {

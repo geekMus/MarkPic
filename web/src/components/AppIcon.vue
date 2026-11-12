@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 export type IconName =
   | 'file-plus'
+  | 'doc'
   | 'folder'
   | 'folder-plus'
   | 'folder-open'
@@ -32,6 +33,14 @@ export type IconName =
 const props = withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 16 })
 
 const ICONS: Record<IconName, string[]> = {
+  // 队列行左边那颗「一页文档」：右上角折角，里面两条横线。比 file-plus 少了那个加号，
+  // 因为行本身已经代表一个文件，再加一个「+」会读成「往这里加文件」。
+  doc: [
+    'M7.2 3.4h6.1l3.5 3.5v9.9a1.8 1.8 0 0 1-1.8 1.8H7.2a1.8 1.8 0 0 1-1.8-1.8V5.2a1.8 1.8 0 0 1 1.8-1.8z',
+    'M13.4 3.6v3.4h3.4',
+    'M8.6 12.2h5',
+    'M8.6 15.2h3.4',
+  ],
   'file-plus': [
     'M14.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5z',
     'M14.5 3v4.5H19',

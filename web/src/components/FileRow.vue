@@ -24,6 +24,11 @@ const props = defineProps<{
   aborted?: boolean
   /** 右栏是不是正在看这一行。 */
   selected?: boolean
+  /**
+   * 这一行要不要写目录。同一目录的文件只让第一条写，
+   * 后面那些重复的长路径会把整列压成一片灰字，看着比不写还乱。
+   */
+  dirHint?: boolean
 }>()
 
 const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
@@ -476,13 +481,17 @@ function replaced(status: ImageStatus): boolean {
           <AppIcon name="chevron-down" :size="14" />
         </span>
 
+        <span class="item__mark" aria-hidden="true">
+          <!-- 一枚小方块垫在名字左边：列表一眼扫下去，每行都有个落点，
+               不必靠「文件名」本身的粗细去找行。目录是文件夹，文档是一张纸。 -->
+          <AppIcon :name="row.isDir ? 'folder' : 'doc'" :size="15" />
+        </span>
+
         <span class="item__id">
           <span class="item__title">
-            <!-- 目录行和文件行长得一样，光看名字分不出这是「一篇文档」还是「一个目录」 -->
-            <AppIcon v-if="row.isDir" name="folder" :size="13" class="item__folder" />
             <span class="item__name">{{ row.name }}</span>
           </span>
-          <span class="item__dir mono" :title="row.path">{{ row.dir }}</span>
+          <span v-if="props.dirHint !== false" class="item__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
       </button>
 
@@ -635,8 +644,22 @@ function replaced(status: ImageStatus): boolean {
 
 .item {
   position: relative;
-  border-bottom: 1px solid var(--line);
+  border-radius: var(--r-3);
   transition: background var(--t-fast) var(--ease);
+}
+
+/* 行与行之间那条线只画到名字区右边，不从图标块里穿过去：
+   整条通到底的话，一列 20 行看起来像 Excel；留出左边那段空白，
+   每行的图标块自己就成了一条竖着的「轴」。 */
+.item::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 64px;
+  height: 1px;
+  background: var(--line);
+  content: '';
+  transition: opacity var(--t-fast) var(--ease);
 }
 
 /* 选中的行：左侧一条 2px 的强调线 + 一层极淡的底色。
@@ -647,6 +670,7 @@ function replaced(status: ImageStatus): boolean {
   bottom: 0;
   left: 0;
   width: 2px;
+  border-radius: var(--r-3) 0 0 var(--r-3);
   background: var(--accent);
   content: '';
   opacity: 0;
@@ -657,8 +681,10 @@ function replaced(status: ImageStatus): boolean {
   opacity: 1;
 }
 
-.item:last-child {
-  border-bottom: 0;
+.item:last-child::after,
+.item:hover::after,
+.item[data-selected='yes']::after {
+  opacity: 0;
 }
 
 .item:hover {
@@ -671,11 +697,11 @@ function replaced(status: ImageStatus): boolean {
 
 .item__main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 92px 64px;
+  grid-template-columns: minmax(0, 1fr) 64px 104px 56px;
   align-items: center;
   column-gap: 8px;
-  min-height: 56px;
-  padding-right: 8px;
+  min-height: 66px;
+  padding-right: 6px;
 }
 
 /* 展开箭头绝对定位在轨道左侧，名字文字和列头的「文件」严格对齐 */
@@ -687,12 +713,53 @@ function replaced(status: ImageStatus): boolean {
   position: relative;
   display: flex;
   align-items: center;
+  gap: 10px;
   min-width: 0;
-  padding: 7px 0 7px 24px;
+  padding: 10px 0 10px 24px;
   border: 0;
   background: none;
   text-align: left;
   cursor: pointer;
+}
+
+/* 行首那块 30×30 的底片：中性状态是「一块更暗的玻璃」，跑起来 / 成功 / 失败
+   跟着状态换色，但不铺满整行 —— 一条列表里彩色的面积越小，越不像仪表盘。 */
+.item__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink-3);
+  transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+
+.item[data-tone='accent'] .item__mark {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.item[data-tone='success'] .item__mark {
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.item[data-tone='warning'] .item__mark {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.item[data-tone='danger'] .item__mark {
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
+  color: var(--bad);
 }
 
 .item__chev {
@@ -730,7 +797,8 @@ function replaced(status: ImageStatus): boolean {
   overflow: hidden;
   color: var(--ink);
   font-size: var(--fs-3);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -738,32 +806,35 @@ function replaced(status: ImageStatus): boolean {
 .item__title {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
 }
 
-.item__folder {
-  /* 目录标记用一颗图标，不用描边小标签：两套主题下 --line 与面板只差 1.1:1，
-     描出来的边框几乎看不见；实底小片在浅色面板上又太淡。 */
-  flex: none;
-  color: var(--ink-3);
-}
 .item__dir {
   overflow: hidden;
   color: var(--ink-3);
   font-size: var(--fs-1);
+  line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 图片数做成一枚小胶囊：纯数字在长列表里太轻，飘在列中间找不到落点 */
 .item__count {
+  justify-self: end;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
   color: var(--ink-2);
-  font-size: var(--fs-2);
-  text-align: right;
+  font-size: var(--fs-1);
+  line-height: 1.5;
   white-space: nowrap;
 }
 
 .item__status {
+  display: flex;
+  justify-content: flex-end;
   min-width: 0;
 }
 
@@ -794,7 +865,7 @@ function replaced(status: ImageStatus): boolean {
 }
 
 .item__reason {
-  padding: 0 8px 7px 24px;
+  padding: 0 12px 9px 64px;
   color: var(--warn);
   font-size: var(--fs-2);
   line-height: 1.5;
@@ -807,7 +878,7 @@ function replaced(status: ImageStatus): boolean {
 .item__rail {
   position: relative;
   height: 2px;
-  margin: 0 8px 0 24px;
+  margin: 0 12px 2px 64px;
   overflow: hidden;
   border-radius: var(--r-pill);
   background: var(--line);
@@ -851,10 +922,10 @@ function replaced(status: ImageStatus): boolean {
 /* ---- 展开后的明细台账 ---- */
 
 .details {
-  margin: 0 8px 10px 24px;
-  padding: 10px 12px 11px;
+  margin: 2px 10px 12px 64px;
+  padding: 12px 14px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--r-2);
+  border-radius: var(--r-3);
   background: var(--panel-2);
   animation: details-in var(--t-base) var(--ease);
 }
@@ -1070,7 +1141,7 @@ function replaced(status: ImageStatus): boolean {
   }
 
   .item__main {
-    grid-template-columns: minmax(0, 1fr) 96px 68px;
+    grid-template-columns: minmax(0, 1fr) 104px 56px;
   }
 
   .items__row {
