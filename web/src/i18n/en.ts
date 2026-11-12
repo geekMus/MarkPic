@@ -260,6 +260,7 @@ export const en: Record<keyof typeof zh, string> = {
   'about.latest': 'Latest version',
   'about.status': 'Status',
   'about.asset': 'Installer',
+  'about.project': 'Project',
   'about.dataDir': 'Data folder',
   'about.downloadProgress': 'Download progress',
   'about.notes': 'Release notes',

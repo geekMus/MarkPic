@@ -4,6 +4,8 @@
 
 单个 exe，免安装，不需要 Node、Electron 或任何运行时环境。前端界面已经编译进二进制，双击即可使用。
 
+项目主页（开源，MIT）：[github.com/geekMus/MarkPic](https://github.com/geekMus/MarkPic) · [发布页](https://github.com/geekMus/MarkPic/releases)。
+
 ## 这次重写解决了什么
 
 旧版本是 Electron 应用，核心的替换逻辑按「行号」建立映射，一旦某个文件里出现一行多张图、或者部分图片上传失败，替换结果就会串位——同一张图被反复替换成别人的地址。新版本换了实现方式：

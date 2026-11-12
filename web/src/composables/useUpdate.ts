@@ -15,6 +15,15 @@ import type { UpdateStatus } from '../types'
  * 都要读同一份状态，分成几份会互相打架。
  */
 
+/**
+ * 仓库地址：更新清单没给发布页时（离线、还没发布过版本）拿它兜底，
+ * 关于对话框里也一直挂着这个地址 —— 开源项目得让人找得到家。
+ */
+export const PROJECT_URL = 'https://github.com/geekMus/MarkPic'
+
+/** 发布页：优先用服务端给的，没有就用仓库的 releases。 */
+export const RELEASES_URL = PROJECT_URL + '/releases'
+
 const AUTO_CHECK_KEY = 'cmp.autoCheckUpdate'
 const POLL_MS = 500
 
@@ -150,12 +159,10 @@ function versionCore(text: string): string {
 }
 
 async function openReleasePage(): Promise<void> {
-  // 发布页地址由服务端给（和后端那份清单地址是同一个来源），前端不写死。
-  const url = status.value.releasePage
-  if (!url) {
-    error.value = t('error.releasePage')
-    return
-  }
+  // 发布页地址由服务端给（和后端那份清单地址是同一个来源）；
+  // 还没发布过版本、或者清单读不出来时 releasePage 是空的 ——
+  // 那时候不该「点了没反应」，退到仓库的 releases 页。
+  const url = status.value.releasePage.trim() || RELEASES_URL
   try {
     await openTarget(url)
   } catch (e) {

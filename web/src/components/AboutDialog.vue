@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
-import { describeError, revealPath } from '../api'
-import { useUpdate } from '../composables/useUpdate'
+import { describeError, openTarget, revealPath } from '../api'
+import { PROJECT_URL, useUpdate } from '../composables/useUpdate'
 import { useI18n } from '../i18n'
 
 const props = defineProps<{
@@ -98,6 +98,20 @@ function onAutoCheck(event: Event): void {
 }
 
 const dirOpenError = ref('')
+const linkError = ref('')
+
+/** 地址只写域名加仓库名，前面那截 https:// 省掉，省得一行挤满。 */
+const projectLabel = PROJECT_URL.replace(/^https?:\/\//, '')
+
+/** 打开项目主页：和发布页一样走系统默认浏览器。 */
+async function openProject(): Promise<void> {
+  linkError.value = ''
+  try {
+    await openTarget(PROJECT_URL)
+  } catch (error) {
+    linkError.value = describeError(error, t('error.openBrowser'))
+  }
+}
 
 /** 在资源管理器里打开数据目录，方便用户备份或清空。 */
 async function openDataDir(): Promise<void> {
@@ -160,6 +174,22 @@ async function openDataDir(): Promise<void> {
             <dt>{{ t('about.asset') }}</dt>
             <dd class="mono">{{ sizeLabel }}</dd>
           </div>
+          <div class="about__fact">
+            <dt>{{ t('about.project') }}</dt>
+            <dd class="about__path">
+              <span
+                class="about__path-text mono about__link"
+                :title="PROJECT_URL"
+                role="button"
+                tabindex="0"
+                @click="openProject"
+                @keydown.enter="openProject"
+              >{{ projectLabel }}</span>
+              <button type="button" class="btn btn--ghost btn--sm" @click="openProject">
+                {{ t('common.open') }}
+              </button>
+            </dd>
+          </div>
           <div v-if="dataDir" class="about__fact">
             <dt>{{ t('about.dataDir') }}</dt>
             <dd class="about__path">
@@ -174,6 +204,7 @@ async function openDataDir(): Promise<void> {
         <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>
         <p v-if="settingsNote" class="about__hint about__hint--bad">{{ settingsNote }}</p>
         <p v-if="dirOpenError" class="about__hint about__hint--bad">{{ dirOpenError }}</p>
+        <p v-if="linkError" class="about__hint about__hint--bad">{{ linkError }}</p>
 
         <div
           v-if="state === 'downloading'"
@@ -223,6 +254,15 @@ async function openDataDir(): Promise<void> {
 </template>
 
 <style scoped>
+.about__link {
+  cursor: pointer;
+  color: var(--accent-ink);
+}
+
+.about__link:hover {
+  text-decoration: underline dotted;
+}
+
 .about {
   padding: 2px 20px 16px;
 }

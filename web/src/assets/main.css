@@ -667,7 +667,9 @@ button {
 
 .panel__title {
   display: flex;
-  align-items: center;
+  /* 标题（汉字）和后面那串说明（等宽拉丁）字号不同：按基线对齐，
+     否则两个盒子各自垂直居中，看起来会错开两三像素 */
+  align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
@@ -692,8 +694,12 @@ button {
 }
 
 .panel__note {
+  /* 汉字没有下伸部、等宽拉丁也没有，基线对齐后中文看上去仍低一截：
+     把这段英文说明往下推 1.5px，两边的底边才在同一条线上 */
+  transform: translateY(1.5px);
   color: var(--ink-3);
   font-size: var(--fs-2);
+  line-height: 1.4;
 }
 
 .panel__actions {

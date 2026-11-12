@@ -257,6 +257,7 @@ export const zh = {
   'about.latest': '最新版本',
   'about.status': '状态',
   'about.asset': '安装包',
+  'about.project': '项目地址',
   'about.dataDir': '数据目录',
   'about.downloadProgress': '下载进度',
   'about.notes': '更新说明',
