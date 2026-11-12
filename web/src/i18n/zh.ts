@@ -179,6 +179,9 @@ export const zh = {
   'drop.unsupported': '这一下拿不到本地路径——用「文件」「文件夹」按钮，或者把路径粘进手动输入',
   'row.reveal': '在资源管理器中显示',
   'row.remove': '从队列移除',
+  'row.copy': '点击复制地址',
+  'toast.copied': '已复制地址',
+  'toast.copyFailed': '没能写入剪贴板，可以手动选中再复制',
   'row.output.planned': '将写到',
   'row.output': '输出',
 

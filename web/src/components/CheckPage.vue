@@ -6,6 +6,8 @@ import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
+import { copyText } from '../composables/useDeadLinks'
+import { useToasts } from '../composables/useToasts'
 
 /**
  * 检测页：这一页关心的不是「哪个文件」，而是「哪个地址还活着」。
@@ -33,6 +35,13 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { success, danger } = useToasts()
+
+/** 一行地址点一下就进剪贴板：贴到别处查比手动选中省事。 */
+async function copyAddress(url: string): Promise<void> {
+  if (await copyText(url)) success(t('toast.copied'))
+  else danger(t('toast.copyFailed'))
+}
 
 /** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
 
@@ -261,7 +270,14 @@ const emptyHint = computed<MessageKey>(() => {
               :tone="KIND_META[addr.kind].tone"
               :compact="true"
             />
-            <span class="chk__addr mono" :title="addr.url">{{ addr.label }}</span>
+            <span
+              class="chk__addr mono"
+              :title="`${addr.url}\n${t('row.copy')}`"
+              role="button"
+              tabindex="0"
+              @click="copyAddress(addr.url)"
+              @keydown.enter="copyAddress(addr.url)"
+            >{{ addr.label }}</span>
             <span class="chk__src" :title="sourceTitle(addr)">
               {{ t('check.row.sources', { count: addr.sources.length }) }}
             </span>
@@ -423,10 +439,16 @@ const emptyHint = computed<MessageKey>(() => {
 
 .chk__addr {
   overflow: hidden;
+  cursor: copy;
   color: var(--ink);
   font-size: var(--fs-3);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chk__addr:hover {
+  color: var(--ink);
+  text-decoration: underline dotted;
 }
 
 .chk__src {

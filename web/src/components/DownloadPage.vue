@@ -7,6 +7,8 @@ import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
+import { copyText } from '../composables/useDeadLinks'
+import { useToasts } from '../composables/useToasts'
 
 /**
  * 下载页：这一页要回答的是「哪张远程图落到本地哪个文件了」。
@@ -35,6 +37,12 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { success, danger } = useToasts()
+
+async function copyAddress(url: string): Promise<void> {
+  if (await copyText(url)) success(t('toast.copied'))
+  else danger(t('toast.copyFailed'))
+}
 
 /** 还没扫过张数时先别下结论：显示「正在扫」比显示「没有可下载的图」诚实。 */
 const scanning = computed(() => props.rows.some((row) => row.images === null))
@@ -190,7 +198,14 @@ const band = computed(() => {
             :key="entry.item.target + entry.item.line"
             class="dl__row"
           >
-            <span class="dl__remote mono" :title="entry.item.target">{{ shortUrl(entry.item.target) }}</span>
+            <span
+              class="dl__remote mono"
+              :title="`${entry.item.target}\n${t('row.copy')}`"
+              role="button"
+              tabindex="0"
+              @click="copyAddress(entry.item.target)"
+              @keydown.enter="copyAddress(entry.item.target)"
+            >{{ shortUrl(entry.item.target) }}</span>
             <span class="dl__arrow" aria-hidden="true">→</span>
             <span v-if="entry.local" class="dl__local mono" :title="entry.local">{{ entry.local }}</span>
             <!-- 还没落盘就画一个占位横线：结论由右边的状态标签说，别两处都写「待定」 -->

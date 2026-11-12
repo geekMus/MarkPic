@@ -170,6 +170,11 @@ const localCount = computed(() => {
   return result.items.filter((item) => isLocalRef(item.target)).length
 })
 
+/** 一张本地图都没有的卡：底色要跟别的卡分开，免得混在队里看不出来。 */
+const emptyCard = computed(
+  () => (props.remoteMode ?? 'ignore') === 'ignore' && localCount.value === 0,
+)
+
 const countLabel = computed(() => {
   const mode = props.remoteMode ?? 'ignore'
   if (mode === 'ignore' && localCount.value !== null) {
@@ -523,7 +528,8 @@ function toggleExpanded(): void {
     :data-tone="statusMeta.tone"
     :data-selected="props.selected ? 'yes' : null"
   >
-    <div class="card">
+    <div class="card" :data-empty="emptyCard ? 'yes' : undefined">
+      <div class="card__top">
       <button
         type="button"
         class="card__head"
@@ -549,17 +555,42 @@ function toggleExpanded(): void {
           <span class="num">{{ countLabel }}</span>
         </span>
 
-        <!-- 没有明细可看的时候，状态只能写在卡面上；有明细就把这句话收进「查看详情」里 -->
-        <span v-if="!canExpand" class="item__status">
-          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
-        </span>
-        <span v-else class="item__more">
+        <!-- 有明细就收起这一行字，让「查看详情」当唯一的入口 -->
+        <span v-if="canExpand" class="item__more">
           {{ t(expanded ? 'row.details.collapse' : 'row.details.expand') }}
           <span class="item__chev" :class="{ 'item__chev--on': expanded }" aria-hidden="true">
             <AppIcon name="chevron-down" :size="13" />
           </span>
         </span>
+        <!-- 没有明细可看的时候，状态只能写在卡面上；空卡的胶囊已经写了「无图片」 -->
+        <span v-else-if="!emptyCard" class="item__status">
+          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
+        </span>
       </button>
+
+      <!-- 打开与移除放在卡面上：要删一张卡，不该先展开它 -->
+      <span class="card__tools">
+        <button
+          type="button"
+          class="icon-btn icon-btn--sm"
+          :title="t('row.reveal')"
+          :aria-label="t('row.reveal')"
+          @click.stop="emit('reveal', revealTarget)"
+        >
+          <AppIcon name="folder-open" :size="13" />
+        </button>
+        <button
+          type="button"
+          class="icon-btn icon-btn--sm card__drop"
+          :title="t('row.remove')"
+          :aria-label="t('row.remove')"
+          :disabled="busy"
+          @click.stop="emit('remove', row.id)"
+        >
+          <AppIcon name="x" :size="13" />
+        </button>
+      </span>
+      </div>
 
       <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
         <span :style="indeterminate ? undefined : { width: percent + '%' }" />
@@ -580,27 +611,6 @@ function toggleExpanded(): void {
         <div class="details__inner">
         <div class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
-          <span class="details__ops">
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              :title="t('row.reveal')"
-              :aria-label="t('row.reveal')"
-              @click.stop="emit('reveal', revealTarget)"
-            >
-              <AppIcon name="folder-open" :size="14" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm icon-btn--danger"
-              :title="t('row.remove')"
-              :aria-label="t('row.remove')"
-              :disabled="busy"
-              @click.stop="emit('remove', row.id)"
-            >
-              <AppIcon name="x" :size="13" />
-            </button>
-          </span>
         </div>
       <ul
         v-if="items.length > 0"
@@ -685,6 +695,21 @@ function toggleExpanded(): void {
   box-shadow: var(--shadow-card);
 }
 
+/* 一张图都没有的卡：虚线边框 + 透空底，一眼能挑出来批量清掉 */
+.card[data-empty='yes'] {
+  background: color-mix(in srgb, var(--panel-2) 42%, transparent);
+  border-style: dashed;
+  border-color: var(--line-3);
+}
+
+.card[data-empty='yes']:hover {
+  border-color: var(--accent-line);
+}
+
+.card[data-empty='yes'] .card__tools .icon-btn {
+  opacity: 0.8;
+}
+
 .item--open .card {
   border-color: var(--line-2);
   box-shadow: var(--shadow-card-hover);
@@ -695,12 +720,19 @@ function toggleExpanded(): void {
   background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
 }
 
-.card__head {
+.card__top {
   display: flex;
   align-items: center;
+}
+
+.card__head {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
   gap: 12px;
+  min-width: 0;
   width: 100%;
-  padding: 13px 16px;
+  padding: 13px 6px 13px 16px;
   border: 0;
   background: none;
   color: inherit;
@@ -963,11 +995,30 @@ function toggleExpanded(): void {
   color: var(--warn);
 }
 
-.details__ops {
+.card__tools {
   display: flex;
   flex: none;
+  align-items: center;
   gap: 2px;
-  margin-left: auto;
+  padding-right: 10px;
+}
+
+/* 手不放在卡上时不显示：一列十张卡、张张挂两个按钮，比什么都吵 */
+.card__tools .icon-btn {
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.item:hover .card__tools .icon-btn,
+.item--open .card__tools .icon-btn,
+.card__tools:focus-within .icon-btn {
+  opacity: 1;
+}
+
+.card__drop:hover {
+  color: var(--bad);
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
 }
 
 .items {
