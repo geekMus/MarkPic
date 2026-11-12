@@ -103,7 +103,7 @@ const isFormView = computed(() => !isJobView.value)
  * 切菜单 = 换一页：转换里的文件、结果、进度留在转换，下载那一页还是它自己的样子；
  * 切回来接着看。跑着的那一轮不跟着画面走，它留在开始它的那一页上。
  */
-const JOB_MODES: readonly RemoteMode[] = ['ignore', 'check', 'download']
+const JOB_MODES: readonly RemoteMode[] = ['ignore', 'download', 'check']
 
 watch(
   view,

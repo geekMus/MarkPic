@@ -35,7 +35,7 @@ export type JobView = 'convert' | 'check' | 'download'
 export type FormView = 'settings'
 export type View = JobView | FormView
 
-export const JOB_VIEWS: readonly JobView[] = ['convert', 'check', 'download']
+export const JOB_VIEWS: readonly JobView[] = ['convert', 'download', 'check']
 
 /** 作业视图 → 这一轮远程图怎么处理。 */
 export function modeOfView(view: View): RemoteMode {

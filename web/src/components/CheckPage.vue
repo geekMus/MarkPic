@@ -182,6 +182,20 @@ function shortDir(dir: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : dir
 }
 
+/** 折叠状态：和上传页的卡一样，默认收起，点卡头展开。 */
+const openIds = ref<Set<string>>(new Set())
+
+function isOpen(id: string): boolean {
+  return openIds.value.has(id)
+}
+
+function toggle(id: string): void {
+  const next = new Set(openIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  openIds.value = next
+}
+
 /** 筛掉不匹配的行后，空了的组不再显示。 */
 const shownGroups = computed<DocGroup[]>(() => {
   if (filter.value === 'all') return groups.value
@@ -276,7 +290,15 @@ const emptyHint = computed<MessageKey>(() => {
         :key="group.id"
         class="group-card"
       >
-        <header class="group-card__head">
+        <header
+          class="group-card__head group-card__head--fold"
+          role="button"
+          tabindex="0"
+          :aria-expanded="isOpen(group.id)"
+          @click="toggle(group.id)"
+          @keydown.enter.prevent="toggle(group.id)"
+          @keydown.space.prevent="toggle(group.id)"
+        >
           <span class="group-card__icon" aria-hidden="true">
             <AppIcon name="doc" :size="14" />
           </span>
@@ -289,7 +311,12 @@ const emptyHint = computed<MessageKey>(() => {
           <span v-if="group.unsupported > 0" class="group-card__meta group-card__meta--warn">
             {{ t('check.group.unsupported', { count: group.unsupported }) }}
           </span>
+          <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.id) }">
+            {{ t(isOpen(group.id) ? 'row.details.collapse' : 'row.details.expand') }}
+            <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
+          </span>
         </header>
+        <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.id) }">
         <ul class="chk__list group-rows">
           <li
             v-for="addr in group.list"
@@ -319,6 +346,7 @@ const emptyHint = computed<MessageKey>(() => {
             >{{ shortReason(addr.error) }}</span>
           </li>
         </ul>
+        </div>
       </section>
     </div>
     <template #footer>

@@ -24,8 +24,8 @@ const { t } = useI18n()
 // 宽度、间距、选中态都不用重新想。
 const items: { id: View; icon: IconName; key: MessageKey; desc?: MessageKey }[] = [
   { id: 'convert', icon: 'image', key: 'nav.convert', desc: 'nav.convert.desc' },
-  { id: 'check', icon: 'link', key: 'nav.check', desc: 'nav.check.desc' },
   { id: 'download', icon: 'download', key: 'nav.download', desc: 'nav.download.desc' },
+  { id: 'check', icon: 'link', key: 'nav.check', desc: 'nav.check.desc' },
   { id: 'settings', icon: 'settings', key: 'nav.settings' },
 ]
 

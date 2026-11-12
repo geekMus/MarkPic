@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ReportShell from './ReportShell.vue'
 import StatusPill from './StatusPill.vue'
@@ -87,7 +87,21 @@ function kindOf(item: ImageItem): Kind {
 }
 
 /** 落盘位置在结果里是绝对路径；页面上只写相对文档的那一段（images\a.webp）。 */
-  /** 卡头只写最后一级目录：完整路径在悬停的 title 里。 */
+  /** 折叠状态：和上传页的卡一样，默认收起，点卡头展开。 */
+const openIds = ref<Set<string>>(new Set())
+
+function isOpen(id: string): boolean {
+  return openIds.value.has(id)
+}
+
+function toggle(id: string): void {
+  const next = new Set(openIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  openIds.value = next
+}
+
+/** 卡头只写最后一级目录：完整路径在悬停的 title 里。 */
 function shortDir(dir: string): string {
   const parts = dir.split(/[\\/]/).filter((part) => part !== '')
   return parts.length > 0 ? parts[parts.length - 1] : dir
@@ -184,23 +198,36 @@ const band = computed(() => {
         :key="group.row.id"
         class="group-card"
       >
-        <header class="group-card__head">
+        <header
+          class="group-card__head group-card__head--fold"
+          role="button"
+          tabindex="0"
+          :aria-expanded="isOpen(group.row.id)"
+          @click="toggle(group.row.id)"
+          @keydown.enter.prevent="toggle(group.row.id)"
+          @keydown.space.prevent="toggle(group.row.id)"
+        >
           <span class="group-card__icon" aria-hidden="true">
             <AppIcon name="doc" :size="14" />
           </span>
           <h3 class="group-card__title" :title="group.row.path">{{ group.row.name }}</h3>
           <span class="dl__dir mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
           <span class="group-card__meta">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.row.id) }">
+            {{ t(isOpen(group.row.id) ? 'row.details.collapse' : 'row.details.expand') }}
+            <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
+          </span>
           <button
             type="button"
             class="icon-btn icon-btn--sm dl__drop"
             :title="t('row.remove')"
             :aria-label="t('row.remove')"
-            @click="emit('remove', group.row.id)"
+            @click.stop="emit('remove', group.row.id)"
           >
             <AppIcon name="x" :size="13" />
           </button>
         </header>
+        <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.row.id) }">
         <ul class="dl__list group-rows">
           <li
             v-for="entry in group.items"
@@ -227,6 +254,7 @@ const band = computed(() => {
             <span v-if="entry.item.error" class="dl__err">{{ shortReason(entry.item.error) }}</span>
           </li>
         </ul>
+        </div>
       </section>
     </div>
     <template #footer>
