@@ -94,9 +94,6 @@ export const zh = {
   'queue.manual.label': '每行一个路径，支持 .md 文件或包含 .md 的文件夹',
   'queue.manual.hint': 'Enter 加入队列 · Shift+Enter 换行',
   'queue.manual.submit': '加入队列',
-  'queue.col.file': '文件',
-  'queue.col.images': '图片',
-  'queue.col.status': '状态',
 
   // 队列行
   'row.status.done': '完成',
@@ -150,8 +147,8 @@ export const zh = {
   'row.reason.localMissing': '其中 {count} 张本地图找不到',
   'row.reason.remoteKept': '其中 {count} 处远程图原样保留',
   'row.details.empty': '这个文件里没有可处理的本地图片。',
-  'row.details.expand': '展开图片明细',
-  'row.details.collapse': '收起图片明细',
+  'row.details.expand': '查看详情',
+  'row.details.collapse': '收起详情',
   'row.item.missingFile': '本地文件不存在',
   'row.item.remoteSkipped': '已是远程地址，跳过',
   'drop.hint': '松手就加进队列',

@@ -96,9 +96,6 @@ export const en: Record<keyof typeof zh, string> = {
   'queue.manual.label': 'One path per line — .md files or folders containing .md files',
   'queue.manual.hint': 'Enter to add · Shift+Enter for a new line',
   'queue.manual.submit': 'Add to queue',
-  'queue.col.file': 'File',
-  'queue.col.images': 'Images',
-  'queue.col.status': 'Status',
 
   // Queue rows
   'row.status.done': 'Done',
@@ -152,8 +149,8 @@ export const en: Record<keyof typeof zh, string> = {
   'row.reason.localMissing': '{count} local image(s) not found',
   'row.reason.remoteKept': '{count} remote image(s) left as they are',
   'row.details.empty': 'This file has no local images to process.',
-  'row.details.expand': 'Show image details',
-  'row.details.collapse': 'Hide image details',
+  'row.details.expand': 'Details',
+  'row.details.collapse': 'Hide details',
   'row.item.missingFile': 'Local file not found',
   'row.item.remoteSkipped': 'Already remote — skipped',
   'drop.hint': 'Drop to add to the queue',

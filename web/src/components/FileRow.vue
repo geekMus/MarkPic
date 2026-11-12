@@ -24,11 +24,6 @@ const props = defineProps<{
   aborted?: boolean
   /** 右栏是不是正在看这一行。 */
   selected?: boolean
-  /**
-   * 这一行要不要写目录。同一目录的文件只让第一条写，
-   * 后面那些重复的长路径会把整列压成一片灰字，看着比不写还乱。
-   */
-  dirHint?: boolean
 }>()
 
 const emit = defineEmits<{ remove: [id: string]; reveal: [path: string]; select: [id: string] }>()
@@ -162,6 +157,15 @@ const countLabel = computed(() => {
   return t('row.count', { count: images })
 })
 
+/**
+ * 卡面只写最后一级目录名：整条 `D:\Projects\convert-md-picture\.tmp-scroll`
+ * 在每张卡上都重复一遍，十张卡就是十行一样的灰字。完整路径放在 title 里。
+ */
+const shortDir = computed(() => {
+  const parts = props.row.dir.split(/[\\/]/).filter((part) => part !== '')
+  return parts.length > 0 ? parts[parts.length - 1] : props.row.dir
+})
+
 const reason = computed(() => {
   const result = props.row.result
   if (!result) {
@@ -232,7 +236,8 @@ const indeterminate = computed(
  * 进度轨只在「还没跑完」的时候出现。跑完之后整行宽的一条彩色细线会被误读成
  * 分隔线，结论交给状态列的那颗点就够了。
  */
-const barVisible = computed(() => props.row.phase === 'running' || props.row.phase === 'queued')
+// 只在真跑的时候画进度条：排队中的卡片如果也挂一条闪动的线，八张卡会一起闪，像一堆进度条
+const barVisible = computed(() => props.row.phase === 'running')
 
 const items = computed<ImageItem[]>(() => props.row.result?.items ?? [])
 
@@ -462,76 +467,74 @@ function replaced(status: ImageStatus): boolean {
     :data-tone="statusMeta.tone"
     :data-selected="props.selected ? 'yes' : null"
   >
-    <div class="item__main">
+    <div class="card">
       <button
         type="button"
-        class="item__toggle"
+        class="card__head"
         :disabled="!canExpand"
         :aria-expanded="canExpand ? expanded : undefined"
         :aria-controls="canExpand ? detailsId : undefined"
         :title="!canExpand ? row.path : expanded ? t('row.details.collapse') : t('row.details.expand')"
         @click="onRowClick"
       >
-        <span
-          v-if="canExpand"
-          class="item__chev"
-          :class="{ 'item__chev--on': expanded }"
-          aria-hidden="true"
-        >
-          <AppIcon name="chevron-down" :size="14" />
-        </span>
-
         <span class="item__mark" aria-hidden="true">
-          <!-- 一枚小方块垫在名字左边：列表一眼扫下去，每行都有个落点，
-               不必靠「文件名」本身的粗细去找行。目录是文件夹，文档是一张纸。 -->
-          <AppIcon :name="row.isDir ? 'folder' : 'doc'" :size="15" />
+          <!-- 一枚小方块垫在名字左边：一列卡片里每张都有个落点，
+               状态靠它的底色说话，不靠一行字。 -->
+          <AppIcon :name="row.isDir ? 'folder' : 'doc'" :size="16" />
         </span>
 
         <span class="item__id">
-          <span class="item__title">
-            <span class="item__name">{{ row.name }}</span>
+          <span class="item__name">{{ row.name }}</span>
+          <span class="item__dir mono" :title="row.path">{{ shortDir }}</span>
+        </span>
+
+        <span class="item__count">
+          <span class="item__dot" aria-hidden="true" />
+          <span class="num">{{ countLabel }}</span>
+        </span>
+
+        <!-- 没有明细可看的时候，状态只能写在卡面上；有明细就把这句话收进「查看详情」里 -->
+        <span v-if="!canExpand" class="item__status">
+          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
+        </span>
+        <span v-else class="item__more">
+          {{ t(expanded ? 'row.details.collapse' : 'row.details.expand') }}
+          <span class="item__chev" :class="{ 'item__chev--on': expanded }" aria-hidden="true">
+            <AppIcon name="chevron-down" :size="13" />
           </span>
-          <span v-if="props.dirHint !== false" class="item__dir mono" :title="row.path">{{ row.dir }}</span>
         </span>
       </button>
 
-      <span class="item__count num">{{ countLabel }}</span>
+      <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
+        <span :style="indeterminate ? undefined : { width: percent + '%' }" />
+      </div>
 
-      <span class="item__status">
-        <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
-      </span>
-
-      <!-- 两个操作平时藏着：改完文档想打开看一眼，或者不要这一行了 -->
-      <span class="item__actions">
-        <button
-          type="button"
-          class="icon-btn icon-btn--sm item__reveal"
-          :title="t('row.reveal')"
-          :aria-label="t('row.reveal')"
-          @click="emit('reveal', revealTarget)"
-        >
-          <AppIcon name="folder-open" :size="14" />
-        </button>
-        <button
-          type="button"
-          class="icon-btn icon-btn--sm icon-btn--danger item__remove"
-          :title="t('row.remove')"
-          :aria-label="t('row.remove')"
-          :disabled="busy"
-          @click="emit('remove', row.id)"
-        >
-          <AppIcon name="x" :size="13" />
-        </button>
-      </span>
-    </div>
-
-    <p v-if="reason" class="item__reason" :title="reason">{{ reason }}</p>
-
-    <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
-      <span :style="indeterminate ? undefined : { width: percent + '%' }" />
-    </div>
-
-    <div v-if="expanded && canExpand" :id="detailsId" class="details">
+      <div v-if="expanded && canExpand" :id="detailsId" class="details">
+        <div class="details__head">
+          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
+          <span v-if="reason" class="details__why" :title="reason">{{ reason }}</span>
+          <span class="details__ops">
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              :title="t('row.reveal')"
+              :aria-label="t('row.reveal')"
+              @click.stop="emit('reveal', revealTarget)"
+            >
+              <AppIcon name="folder-open" :size="14" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm icon-btn--danger"
+              :title="t('row.remove')"
+              :aria-label="t('row.remove')"
+              :disabled="busy"
+              @click.stop="emit('remove', row.id)"
+            >
+              <AppIcon name="x" :size="13" />
+            </button>
+          </span>
+        </div>
       <div class="details__stats">
         <!-- 预检时「替换 0」是句废话，等真有引用被改写再报这个数 -->
         <span v-if="showReplacedStat" class="stat">
@@ -625,114 +628,75 @@ function replaced(status: ImageStatus): boolean {
         <li v-for="(warning, index) in row.result.warnings" :key="index">{{ warning }}</li>
       </ul>
     </div>
+    </div>
   </li>
 </template>
 
 <style scoped>
-.item--settled {
-  animation: item-settled 900ms var(--ease) both;
-}
-
-@keyframes item-settled {
-  0% {
-    background: var(--accent-soft);
-  }
-  100% {
-    background: transparent;
-  }
-}
-
+/* 一张卡 = 一个文件。卡与卡之间靠 .item 自己的下边距隔开 ——
+   滚动高度是按行元素量的，用 flex 的 gap 会让每一行少算 10px。 */
 .item {
   position: relative;
-  border-radius: var(--r-3);
-  transition: background var(--t-fast) var(--ease);
+  padding: 0 0 10px;
+  list-style: none;
 }
 
-/* 行与行之间那条线只画到名字区右边，不从图标块里穿过去：
-   整条通到底的话，一列 20 行看起来像 Excel；留出左边那段空白，
-   每行的图标块自己就成了一条竖着的「轴」。 */
-.item::after {
-  position: absolute;
-  right: 12px;
-  bottom: 0;
-  left: 64px;
-  height: 1px;
-  background: var(--line);
-  content: '';
-  transition: opacity var(--t-fast) var(--ease);
+.item:hover .card {
+  /* 悬停时卡片浮起来一点点：卡片队列要有「可以拿起来」的手感 */
+  box-shadow: 0 2px 10px color-mix(in srgb, #000 26%, transparent);
 }
 
-/* 选中的行：左侧一条 2px 的强调线 + 一层极淡的底色。
-   不靠投影、不靠描边 —— 列表里大部分时间没有任何一行是选中的。 */
-.item::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  border-radius: var(--r-3) 0 0 var(--r-3);
-  background: var(--accent);
-  content: '';
-  opacity: 0;
-  transition: opacity var(--t-fast) var(--ease);
-}
-
-.item[data-selected='yes']::before {
-  opacity: 1;
-}
-
-.item:last-child::after,
-.item:hover::after,
-.item[data-selected='yes']::after {
-  opacity: 0;
-}
-
-.item:hover {
-  background: var(--panel-2);
-}
-
-.item[data-selected='yes'] {
-  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
-}
-
-.item__main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 104px 56px;
-  align-items: center;
-  column-gap: 8px;
-  min-height: 66px;
-  padding-right: 6px;
-}
-
-/* 展开箭头绝对定位在轨道左侧，名字文字和列头的「文件」严格对齐 */
-.item__toggle:disabled {
-  cursor: default;
-}
-
-.item__toggle {
+.card {
   position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-4);
+  background: var(--panel-2);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+
+.item:hover .card {
+  border-color: var(--line-2);
+}
+
+.item--open .card {
+  border-color: var(--line-2);
+}
+
+.item[data-selected='yes'] .card {
+  border-color: var(--accent-line);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel-2));
+}
+
+.card__head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 10px 0 10px 24px;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
   border: 0;
   background: none;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-/* 行首那块 30×30 的底片：中性状态是「一块更暗的玻璃」，跑起来 / 成功 / 失败
-   跟着状态换色，但不铺满整行 —— 一条列表里彩色的面积越小，越不像仪表盘。 */
+.card__head:disabled {
+  cursor: default;
+}
+
+/* 卡片左边的文件片：中性状态是一块「更暗的玻璃」，跑起来 / 成功 / 失败
+   跟着状态换色。卡片本身已经有一层底色，这里用面板色垫出一点层次。 */
 .item__mark {
   display: grid;
   flex: none;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--line);
-  border-radius: var(--r-2);
-  background: var(--panel-2);
+  border-radius: var(--r-3);
+  background: var(--panel);
   color: var(--ink-3);
   transition: color var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
     border-color var(--t-fast) var(--ease);
@@ -762,37 +726,15 @@ function replaced(status: ImageStatus): boolean {
   color: var(--bad);
 }
 
-.item__chev {
-  position: absolute;
-  left: 4px;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  margin-top: -8px;
-  color: var(--ink-3);
-  transition: transform var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-
-.item__chev--on {
-  transform: rotate(180deg);
-  color: var(--ink-2);
-}
-
-.item__toggle:hover .item__chev {
-  color: var(--ink);
-}
-
 .item__id {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
 }
 
 .item__name {
-  /* 图标与名字在同一行 flex 里，名字得允许缩到比内容窄，省略号才出得来 */
   min-width: 0;
   overflow: hidden;
   color: var(--ink);
@@ -801,13 +743,6 @@ function replaced(status: ImageStatus): boolean {
   letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.item__title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
 }
 
 .item__dir {
@@ -819,66 +754,84 @@ function replaced(status: ImageStatus): boolean {
   white-space: nowrap;
 }
 
-/* 图片数做成一枚小胶囊：纯数字在长列表里太轻，飘在列中间找不到落点 */
+/* 图片数做成一枚小胶囊：纯数字在卡片右边太轻，立不住 */
 .item__count {
-  justify-self: end;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
   padding: 2px 8px;
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
-  background: var(--panel-2);
+  background: var(--panel);
   color: var(--ink-2);
   font-size: var(--fs-1);
   line-height: 1.5;
   white-space: nowrap;
 }
 
+/* 状态收成一颗 6px 的点：颜色说话，不用「未处理」这种半截话占位 */
+.item__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--ink-3);
+}
+
+.item[data-tone='accent'] .item__dot {
+  background: var(--accent);
+}
+
+.item[data-tone='success'] .item__dot {
+  background: var(--ok);
+}
+
+.item[data-tone='warning'] .item__dot {
+  background: var(--warn);
+}
+
+.item[data-tone='danger'] .item__dot {
+  background: var(--bad);
+}
+
 .item__status {
   display: flex;
-  justify-content: flex-end;
-  min-width: 0;
+  flex: none;
 }
 
-.item__actions {
-  display: flex;
-  justify-self: end;
-  gap: 2px;
-}
-
-.item__reveal,
-.item__remove {
-  opacity: 0;
-}
-
-.item:hover .item__reveal,
-.item__reveal:focus-visible,
-.item:hover .item__remove,
-.item__remove:focus-visible {
-  opacity: 1;
-}
-
-/* 触屏没有悬停：两个按钮直接常显，否则永远点不到 */
-@media (hover: none) {
-  .item__reveal,
-  .item__remove {
-    opacity: 1;
-  }
-}
-
-.item__reason {
-  padding: 0 12px 9px 64px;
-  color: var(--warn);
+/* 「查看详情」本身就是一个动作词，比「未处理」这种半截状态诚实 */
+.item__more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
   font-size: var(--fs-2);
-  line-height: 1.5;
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease);
 }
 
-.item[data-tone='danger'] .item__reason {
-  color: var(--bad);
+.card__head:hover .item__more,
+.card__head:focus-visible .item__more {
+  color: var(--ink-2);
+}
+
+.item__chev {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  transition: transform var(--t-base) var(--ease);
+}
+
+.item__chev--on {
+  transform: rotate(180deg);
 }
 
 .item__rail {
   position: relative;
   height: 2px;
-  margin: 0 12px 2px 64px;
+  margin: 0 14px 10px;
   overflow: hidden;
   border-radius: var(--r-pill);
   background: var(--line);
@@ -919,15 +872,60 @@ function replaced(status: ImageStatus): boolean {
   }
 }
 
+/* 行跑完闪一下：卡片描边换成强调色再褪回去，比整块底色跳一下安静 */
+.item--settled .card {
+  animation: card-settled 900ms var(--ease) both;
+}
+
+@keyframes card-settled {
+  0% {
+    border-color: var(--accent-line);
+    background: color-mix(in srgb, var(--accent) 9%, var(--panel-2));
+  }
+
+  100% {
+    border-color: var(--line);
+    background: var(--panel-2);
+  }
+}
+
 /* ---- 展开后的明细台账 ---- */
 
 .details {
-  margin: 2px 10px 12px 64px;
-  padding: 12px 14px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-3);
-  background: var(--panel-2);
+  margin: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
   animation: details-in var(--t-base) var(--ease);
+}
+
+/* 明细的第一行：状态本身就是一句结论，下面才是逐图台账 */
+.details__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.details__why {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--warn);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item[data-tone='danger'] .details__why {
+  color: var(--bad);
+}
+
+.details__ops {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
 }
 
 .details__stats {

@@ -60,21 +60,6 @@ const busy = computed(
 /** 页头下面那条细线的进度：跑完几个文件就往右挪一段。 */
 const progress = computed(() => (props.total > 0 ? props.completed / props.total : 0))
 
-/**
- * 同一目录的文件只让第一条写路径：一列 20 行都把
- * `D:\Projects\…\.tmp-scroll` 铺出来，名字反而被挤没了。
- */
-const dirLeaders = computed(() => {
-  const seen = new Set<string>()
-  const leaders = new Set<string>()
-  for (const row of props.rows) {
-    if (seen.has(row.dir)) continue
-    seen.add(row.dir)
-    leaders.add(row.id)
-  }
-  return leaders
-})
-
 
 watch(
   () => props.manualOpen,
@@ -111,7 +96,7 @@ function submitManual(): void {
  * ------------------------------------------------------------------ */
 
 /** 折叠状态下的行高，第一次测量前的估值。 */
-const ROW_HEIGHT = 84
+const ROW_HEIGHT = 85
 /** 可视区上下各多渲染几行，滚动时不至于露白。 */
 const OVERSCAN = 4
 
@@ -517,19 +502,6 @@ function onScroll(): void {
           </div>
     </form>
 
-    <!-- 列头和手动输入框不跟着滚：滚动条只属于下面的行列表。
-         放在滚动区里的话，滚动条会从标题栏底下一路拉到窗口底部，
-         看着像「滚动条跑到标题上去了」（2026-11-11 用户指出）。 -->
-    <div v-if="rows.length > 0" class="queue__fixed">
-      <!-- 列头与 FileRow 的栅格必须一致：文件 minmax(0,1fr) / 图片 64px / 状态 92px / 操作 64px -->
-      <div v-if="rows.length > 0" class="ledger__head" aria-hidden="true">
-        <span class="ledger__col">{{ t('queue.col.file') }}</span>
-        <span class="ledger__col ledger__col--num">{{ t('queue.col.images') }}</span>
-        <span class="ledger__col">{{ t('queue.col.status') }}</span>
-        <span />
-      </div>
-    </div>
-
     <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
       <ul v-if="rows.length > 0" ref="list" class="queue__list">
         <!-- 只挂可视区附近的行，上下用占位块撑出完整滚动高度 -->
@@ -548,7 +520,6 @@ function onScroll(): void {
           :remote-mode="remoteMode"
           :aborted="aborted"
           :selected="selected === row.id"
-          :dir-hint="dirLeaders.has(row.id)"
           @remove="emit('remove', $event)"
           @reveal="emit('reveal', $event)"
           @select="emit('select', $event)"
@@ -617,20 +588,13 @@ function onScroll(): void {
   flex-direction: column;
 }
 
-/* 固定块（列头 / 手动输入）整条铺满面板宽度：底下的背景与分隔线要顶到右边缘，
-   否则右端会缺一小块、看着像列头没占满。真正需要让出滚动条的只有里面的文字，
-   所以把 10px 的让位放进 .ledger__head 自己的 padding-right（8px 行内边距 + 10px 滚动条）。 */
-.queue__fixed {
-  flex: none;
-  padding: 20px 34px 0;
-}
-
 .queue__body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 16px 34px 34px;
+  /* 卡片之间靠每张卡自己的下边距隔开（高度是量出来的，不能依赖 gap） */
+  padding: 20px 34px 24px;
 }
 
 .queue__running {
@@ -640,6 +604,9 @@ function onScroll(): void {
 .queue__list {
   display: flex;
   flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* 「只看有问题的」：图标按钮右上角挂一个计数，一眼知道有几处要看 */
@@ -671,42 +638,4 @@ function onScroll(): void {
   list-style: none;
 }
 
-/* 台账列头：不参与滚动（在上面那条固定块里），列宽与 .item__main 逐项一致 ——
-   1fr / 64 / 104 / 56，gap 8；左边让出 64px（行首的折角箭头 + 30px 图标块），
-   右边让出 16px（行内边距 6 + 滚动条 10）。 */
-.ledger__head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 104px 56px;
-  align-items: center;
-  column-gap: 8px;
-  flex: none;
-  height: 28px;
-  margin-bottom: 4px;
-  padding: 0 16px 0 64px;
-  /* 列头下那条线：行与行之间的线是内缩的，这条整条拉通，读起来才像「表头」 */
-  border-bottom: 1px solid var(--line);
-}
-
-.ledger__col {
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  font-weight: 500;
-}
-
-.ledger__col--num {
-  text-align: right;
-}
-
-
-/* 窄窗口：行里不再显示「图片」列（列宽留给文件名），列头跟着一起收 */
-@media (max-width: 820px) {
-  .ledger__head {
-    grid-template-columns: minmax(0, 1fr) 104px 56px;
-    padding-left: 64px;
-  }
-
-  .ledger__col--num {
-    display: none;
-  }
-}
 </style>
