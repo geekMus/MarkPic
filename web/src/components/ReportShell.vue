@@ -174,6 +174,8 @@ function submitManual(): void {
         @manual="emit('update:manualOpen', true)"
       />
     </div>
+    <!-- 底栏（统计与主按钮）由页面塞进来：它是这张卡片的脚注，和卡片同宽同底 -->
+    <slot name="footer" />
   </section>
 </template>
 
@@ -192,7 +194,7 @@ function submitManual(): void {
 }
 
 .report__summary {
-  animation: rise-in 320ms var(--ease-out) 60ms both;
+  animation: fade-in 260ms var(--ease-out) 60ms both;
   display: flex;
   flex: none;
   flex-wrap: wrap;

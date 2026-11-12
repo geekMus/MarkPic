@@ -308,13 +308,14 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
-  height: 44px;
+  height: var(--foot-h);
   margin: 0;
-  padding: 0 2px;
-  border: 0;
+  padding: 0 18px;
+  /* 这是卡片的脚注：左右下三边跟着卡片走，上边一条细线分隔。 */
+  border: 1px solid var(--border-panel);
   border-top: 1px solid var(--line);
-  border-radius: 0;
-  background: transparent;
+  border-radius: 0 0 var(--r-4) var(--r-4);
+  background: var(--panel);
 }
 
 @media (max-width: 900px) {

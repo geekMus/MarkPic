@@ -194,6 +194,9 @@ const band = computed(() => {
         </ul>
       </section>
     </div>
+    <template #footer>
+      <slot name="footer" />
+    </template>
   </ReportShell>
 </template>
 

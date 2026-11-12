@@ -478,11 +478,14 @@ onBeforeUnmount(() => {
       />
 
       <main class="app__view">
+        <!-- 一张卡片 + 一条脚注：作业页的底栏不是卡片外面的一根横条，
+             而是这张卡片的脚注 —— 否则切到设置页（脚注在卡片里），
+             卡片下缘会上下跳 44px。 -->
+        <div class="stage">
         <!-- 三个作业页各有各的版式：转换是文件表，检测是地址表，下载是「远程 → 本地」映射。
              页面的状态各自保留（useRun 里的 QueuePage），切走再回来还是原样。 -->
-        <!-- 切页：离开淡出 110ms，进来 180ms 从下方浮起 6px。
-             只做顺切，不做翻转/横移这类大动作 —— 一个工具软件，切页不该抢戏。 -->
-        <Transition name="view">
+        <!-- 切页就是换页：旧页立刻下、新页立刻在位，只让页内文字淡进来。
+             试过位移和叠层交叉淡化，都会让人看到「跳」，所以这里不挂 Transition。 -->
           <FileQueue
             v-if="view === 'convert'"
             key="convert"
@@ -558,7 +561,6 @@ onBeforeUnmount(() => {
             @retry="loadSettings"
             @pick-dir="handlePickDir"
           />
-        </Transition>
 
         <AppFooter
           v-if="isJobView"
@@ -577,6 +579,7 @@ onBeforeUnmount(() => {
           @reveal="handleReveal"
           @about="aboutOpen = true"
         />
+        </div>
       </main>
     </div>
     <!-- 拖文件进来时铺一层：不拦默认行为的话，WebView2 会直接导航到那个文件 -->
@@ -640,6 +643,15 @@ onBeforeUnmount(() => {
 .app__view {
   position: relative;
   display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 卡片和它的脚注摞在一起，量高度时当一块算 */
+.stage {
+  display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   min-width: 0;
   min-height: 0;

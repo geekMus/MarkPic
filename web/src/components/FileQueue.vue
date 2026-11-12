@@ -555,6 +555,8 @@ function onScroll(): void {
         @manual="emit('update:manualOpen', true)"
       />
     </div>
+    <!-- 底栏（统计与主按钮）由页面塞进来：它是这张卡片的脚注，和卡片同宽同底 -->
+    <slot name="footer" />
   </section>
 </template>
 
@@ -623,7 +625,7 @@ function onScroll(): void {
 }
 
 .queue__list--enter .item {
-  animation: rise-in 320ms var(--ease-out) both;
+  animation: fade-in 260ms var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 26ms);
 }
 

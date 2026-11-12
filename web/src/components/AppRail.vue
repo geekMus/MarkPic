@@ -187,14 +187,10 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
 }
 
 .rail__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--fs-3);
   font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1;
+  line-height: 1.35;
 }
 
 

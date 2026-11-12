@@ -279,6 +279,9 @@ const emptyHint = computed<MessageKey>(() => {
         </ul>
       </section>
     </div>
+    <template #footer>
+      <slot name="footer" />
+    </template>
   </ReportShell>
 </template>
 
