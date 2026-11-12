@@ -9,6 +9,7 @@ import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { copyText, shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
+import { describeError, openTarget } from '../api'
 
 /**
  * 下载页：这一页要回答的是「哪张远程图落到本地哪个文件了」。
@@ -32,6 +33,7 @@ const emit = defineEmits<{
   'pick-recent': [path: string]
   'submit-paths': [paths: string[]]
   remove: [id: string]
+  reveal: [path: string]
   clear: []
   'update:manualOpen': [open: boolean]
 }>()
@@ -42,6 +44,22 @@ const { success, danger } = useToasts()
 async function copyAddress(url: string): Promise<void> {
   if (await copyText(url)) success(t('toast.copied'))
   else danger(t('toast.copyFailed'))
+}
+
+/** 卡头那几颗按钮指向的文件：这一轮写过副本就指副本，没跑过就指原文。 */
+function fileOf(row: RunRowView): string {
+  return row.result?.outputPath || row.path
+}
+
+/** 打开这份文件；失败要说原因，别让按钮像没反应。 */
+async function openFile(row: RunRowView): Promise<void> {
+  const target = fileOf(row)
+  if (target === '') return
+  try {
+    await openTarget(target)
+  } catch (error) {
+    danger(describeError(error, t('error.openOutput')))
+  }
 }
 
 /** 还没扫过张数时先别下结论：显示「正在扫」比显示「没有可下载的图」诚实。 */
@@ -244,15 +262,37 @@ const band = computed(() => {
             {{ t(isOpen(group.row.id) ? 'row.details.collapse' : 'row.details.expand') }}
             <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
           </span>
-          <button
-            type="button"
-            class="icon-btn icon-btn--sm dl__drop"
-            :title="t('row.remove')"
-            :aria-label="t('row.remove')"
-            @click.stop="emit('remove', group.row.id)"
-          >
-            <AppIcon name="x" :size="13" />
-          </button>
+          <!-- 打开、定位、移除：和上传页、检测页的卡头同一组 -->
+          <span class="group-card__tools" @keydown.stop>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              :title="t('row.open')"
+              :aria-label="t('row.open')"
+              @click.stop="openFile(group.row)"
+            >
+              <AppIcon name="external" :size="13" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              :title="t('row.reveal')"
+              :aria-label="t('row.reveal')"
+              @click.stop="emit('reveal', fileOf(group.row))"
+            >
+              <AppIcon name="folder-open" :size="13" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm icon-btn--drop"
+              :title="t('row.remove')"
+              :aria-label="t('row.remove')"
+              :disabled="busy"
+              @click.stop="emit('remove', group.row.id)"
+            >
+              <AppIcon name="x" :size="13" />
+            </button>
+          </span>
         </header>
         <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.row.id) }">
         <ul class="dl__list group-rows">
@@ -302,17 +342,6 @@ const band = computed(() => {
   font-size: var(--fs-3);
 }
 
-
-.dl__drop {
-  flex: none;
-  opacity: 0;
-  transition: opacity 140ms var(--ease);
-}
-
-.group-card:hover .dl__drop,
-.dl__drop:focus-visible {
-  opacity: 1;
-}
 
 .dl__row {
   display: grid;

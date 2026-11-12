@@ -1189,6 +1189,38 @@ button {
   color: var(--ink-2);
 }
 
+/* 卡头右侧那组小按钮：三颗都指向同一份文件 —— 打开它、在资源管理器里找到它、
+   把这张卡从队列里拿掉。和上传页的卡一个规矩：手不放在卡上时不显示，
+   一列十张卡、张张挂三颗按钮，比什么都吵。 */
+.group-card__tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.group-card__tools .icon-btn {
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.group-card:hover .group-card__tools .icon-btn,
+.group-card__head:focus-within .group-card__tools .icon-btn {
+  opacity: 1;
+}
+
+.group-card__tools .icon-btn--drop:hover {
+  color: var(--bad);
+}
+
+/* 触屏没有悬停：这组按钮常显，否则永远按不到 */
+@media (hover: none) {
+  .group-card__tools .icon-btn {
+    opacity: 1;
+  }
+}
+
 .group-card__chev {
   transition: transform 200ms var(--ease);
 }

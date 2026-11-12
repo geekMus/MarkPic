@@ -532,6 +532,8 @@ onBeforeUnmount(() => {
             @pick-folder="pick('folder')"
             @pick-recent="enqueue([$event])"
             @submit-paths="enqueue"
+            @remove="removeRow"
+            @reveal="revealRow"
             @clear="clearQueue"
             @update:manual-open="manualOpen = $event"
           />
@@ -549,6 +551,7 @@ onBeforeUnmount(() => {
             @pick-recent="enqueue([$event])"
             @submit-paths="enqueue"
             @remove="removeRow"
+            @reveal="revealRow"
             @clear="clearQueue"
             @update:manual-open="manualOpen = $event"
           />

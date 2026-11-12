@@ -9,6 +9,7 @@ import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { copyText, shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
+import { describeError, openTarget } from '../api'
 
 /**
  * 检测页：和「上传」一样按文档分卡片 —— 一篇文档一张卡，卡里是这篇文档的
@@ -29,6 +30,8 @@ const emit = defineEmits<{
   'pick-folder': []
   'pick-recent': [path: string]
   'submit-paths': [paths: string[]]
+  remove: [id: string]
+  reveal: [path: string]
   clear: []
   'update:manualOpen': [open: boolean]
 }>()
@@ -121,6 +124,8 @@ interface DocGroup {
   id: string
   name: string
   dir: string
+  /** 原文档：检测是只读的，卡头上「打开文件」开的就是它。 */
+  path: string
   list: DocAddr[]
   bad: number
   unsupported: number
@@ -168,6 +173,7 @@ const groups = computed<DocGroup[]>(() => {
       id: row.id,
       name: row.name,
       dir: row.dir,
+      path: row.path,
       list,
       bad: list.filter((a) => a.kind === 'bad').length,
       unsupported: list.filter((a) => a.kind === 'unsupported').length,
@@ -194,6 +200,20 @@ function toggle(id: string): void {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   openIds.value = next
+}
+
+/**
+ * 卡头上的「打开文件」：检测只读，一份文件都没改写，所以打开的就是原文档 ——
+ * 打不开的地址在哪一行已经写在卡里，点开就能去改。打开失败要说原因，
+ * 别让按钮看起来像没反应。
+ */
+async function openFile(path: string): Promise<void> {
+  if (path === '') return
+  try {
+    await openTarget(path)
+  } catch (error) {
+    danger(describeError(error, t('error.openOutput')))
+  }
 }
 
 /** 筛掉不匹配的行后，空了的组不再显示。 */
@@ -322,6 +342,37 @@ const emptyHint = computed<MessageKey>(() => {
           <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.id) }">
             {{ t(isOpen(group.id) ? 'row.details.collapse' : 'row.details.expand') }}
             <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
+          </span>
+          <!-- 打开、定位、移除：和上传页的卡头同一组，不必先展开才够得着 -->
+          <span class="group-card__tools" @keydown.stop>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              :title="t('row.open')"
+              :aria-label="t('row.open')"
+              @click.stop="openFile(group.path)"
+            >
+              <AppIcon name="external" :size="13" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              :title="t('row.reveal')"
+              :aria-label="t('row.reveal')"
+              @click.stop="emit('reveal', group.path)"
+            >
+              <AppIcon name="folder-open" :size="13" />
+            </button>
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm icon-btn--drop"
+              :title="t('row.remove')"
+              :aria-label="t('row.remove')"
+              :disabled="busy"
+              @click.stop="emit('remove', group.id)"
+            >
+              <AppIcon name="x" :size="13" />
+            </button>
           </span>
         </header>
         <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.id) }">

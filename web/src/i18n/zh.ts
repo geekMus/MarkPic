@@ -178,6 +178,7 @@ export const zh = {
   'row.item.remoteSkipped': '已是远程地址，跳过',
   'drop.hint': '松手就加进队列',
   'drop.unsupported': '这一下拿不到本地路径——用「文件」「文件夹」按钮，或者把路径粘进手动输入',
+  'row.open': '打开文件',
   'row.reveal': '在资源管理器中显示',
   'row.remove': '从队列移除',
   'row.copy': '点击复制地址',

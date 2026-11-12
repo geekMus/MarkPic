@@ -54,9 +54,9 @@ watch(
   },
 )
 
-/** 打开这次写出来的那份文件；失败就把原因说出来，别让按钮像没反应。 */
+/** 打开这次写出来的那份文件；还没写过就打开原文档。失败要把原因说出来，别让按钮像没反应。 */
 async function openOutput(): Promise<void> {
-  const target = props.row.result?.outputPath ?? ''
+  const target = revealTarget.value
   if (target === '') return
   try {
     await openTarget(target)
@@ -573,8 +573,17 @@ function toggleExpanded(): void {
         </span>
       </button>
 
-      <!-- 打开与移除放在卡面上：要删一张卡，不该先展开它 -->
+      <!-- 打开、定位与移除放在卡面上：要删一张卡，不该先展开它 -->
       <span class="card__tools">
+        <button
+          type="button"
+          class="icon-btn icon-btn--sm"
+          :title="t('row.open')"
+          :aria-label="t('row.open')"
+          @click.stop="openOutput"
+        >
+          <AppIcon name="external" :size="13" />
+        </button>
         <button
           type="button"
           class="icon-btn icon-btn--sm"
