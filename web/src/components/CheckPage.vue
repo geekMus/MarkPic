@@ -299,17 +299,25 @@ const emptyHint = computed<MessageKey>(() => {
           @keydown.enter.prevent="toggle(group.id)"
           @keydown.space.prevent="toggle(group.id)"
         >
-          <span class="group-card__icon" aria-hidden="true">
-            <AppIcon name="doc" :size="14" />
+          <span
+            class="group-card__mark"
+            :data-tone="group.bad > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
+            aria-hidden="true"
+          >
+            <AppIcon name="doc" :size="15" />
           </span>
-          <h3 class="group-card__title" :title="group.name">{{ group.name }}</h3>
-          <span class="chk__dir mono">{{ shortDir(group.dir) }}</span>
-          <span class="group-card__meta">{{ t('check.group.count', { count: group.list.length }) }}</span>
-          <span v-if="group.bad > 0" class="group-card__meta group-card__meta--bad">
-            {{ t('check.group.bad', { count: group.bad }) }}
+          <span class="group-card__text">
+            <span class="group-card__name" :title="group.name">{{ group.name }}</span>
+            <span class="group-card__sub mono" :title="group.dir">{{ shortDir(group.dir) }}</span>
           </span>
-          <span v-if="group.unsupported > 0" class="group-card__meta group-card__meta--warn">
-            {{ t('check.group.unsupported', { count: group.unsupported }) }}
+          <span class="group-card__badges">
+            <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
+            <span v-if="group.bad > 0" class="badge badge--bad">
+              {{ t('check.group.bad', { count: group.bad }) }}
+            </span>
+            <span v-if="group.unsupported > 0" class="badge badge--warn">
+              {{ t('check.group.unsupported', { count: group.unsupported }) }}
+            </span>
           </span>
           <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.id) }">
             {{ t(isOpen(group.id) ? 'row.details.collapse' : 'row.details.expand') }}
@@ -435,16 +443,6 @@ const emptyHint = computed<MessageKey>(() => {
   font-size: var(--fs-3);
 }
 
-/* 组头里的目录：只留最后一级，和上传页卡片一个规矩 */
-.chk__dir {
-  overflow: hidden;
-  flex: 0 1 auto;
-  max-width: 34%;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .chk__row {
   display: grid;

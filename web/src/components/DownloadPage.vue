@@ -122,13 +122,26 @@ function shortUrl(url: string): string {
   return text.length > 56 ? `${text.slice(0, 56)}…` : text
 }
 
-const groups = computed(() => {
-  const out: { row: RunRowView; items: { item: ImageItem; kind: Kind; local: string }[] }[] = []
+interface DlGroup {
+  row: RunRowView
+  items: { item: ImageItem; kind: Kind; local: string }[]
+  failed: number
+  unsupported: number
+}
+
+const groups = computed<DlGroup[]>(() => {
+  const out: DlGroup[] = []
   for (const row of props.rows) {
     const items = (row.result?.items ?? [])
       .filter((item) => isRemoteRef(item.target))
       .map((item) => ({ item, kind: kindOf(item), local: localOf(row.dir, item) }))
-    if (items.length > 0) out.push({ row, items })
+    if (items.length === 0) continue
+    out.push({
+      row,
+      items,
+      failed: items.filter((entry) => entry.kind === 'failed').length,
+      unsupported: items.filter((entry) => entry.kind === 'unsupported').length,
+    })
   }
   return out
 })
@@ -207,12 +220,26 @@ const band = computed(() => {
           @keydown.enter.prevent="toggle(group.row.id)"
           @keydown.space.prevent="toggle(group.row.id)"
         >
-          <span class="group-card__icon" aria-hidden="true">
-            <AppIcon name="doc" :size="14" />
+          <span
+            class="group-card__mark"
+            :data-tone="group.failed > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
+            aria-hidden="true"
+          >
+            <AppIcon name="doc" :size="15" />
           </span>
-          <h3 class="group-card__title" :title="group.row.path">{{ group.row.name }}</h3>
-          <span class="dl__dir mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
-          <span class="group-card__meta">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span class="group-card__text">
+            <span class="group-card__name" :title="group.row.path">{{ group.row.name }}</span>
+            <span class="group-card__sub mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
+          </span>
+          <span class="group-card__badges">
+            <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
+            <span v-if="group.failed > 0" class="badge badge--bad">
+              {{ t('download.group.bad', { count: group.failed }) }}
+            </span>
+            <span v-if="group.unsupported > 0" class="badge badge--warn">
+              {{ t('download.group.unsupported', { count: group.unsupported }) }}
+            </span>
+          </span>
           <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.row.id) }">
             {{ t(isOpen(group.row.id) ? 'row.details.collapse' : 'row.details.expand') }}
             <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
@@ -275,18 +302,6 @@ const band = computed(() => {
   font-size: var(--fs-3);
 }
 
-/* 一个文档一段：段与段之间留白，不画框 */
-.dl__dir {
-  flex: 0 1 auto;
-  max-width: 34%;
-  overflow: hidden;
-  min-width: 0;
-  color: var(--ink-3);
-  font-family: var(--mono);
-  font-size: var(--fs-1);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .dl__drop {
   flex: none;
@@ -348,10 +363,6 @@ const band = computed(() => {
 }
 
 @media (max-width: 820px) {
-  .dl__dir {
-    display: none;
-  }
-
   .dl__row {
     grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
   }

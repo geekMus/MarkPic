@@ -393,6 +393,8 @@ export const en: Record<keyof typeof zh, string> = {
   'check.scanning': 'Checking the remote images in {count} file(s)…',
   'check.empty.noRemote': 'No remote images in these files — this page only checks whether remote addresses load.',
   'check.empty.filtered': 'Nothing under this filter.',
+  'download.group.bad': '{count} failed',
+  'download.group.unsupported': '{count} unsupported',
   'download.band.images': 'remote images',
   'download.band.pending': 'to fetch',
   'download.band.saved': 'saved',

@@ -388,6 +388,8 @@ export const zh = {
   'check.scanning': '正在扫 {count} 个文件里的远程图片…',
   'check.empty.noRemote': '这些文件里没有远程图片 —— 检测只看远程地址打不打得开。',
   'check.empty.filtered': '这个筛选下没有地址。',
+  'download.group.bad': '{count} 个失败',
+  'download.group.unsupported': '{count} 个没法处理',
   'download.band.images': '张远程图',
   'download.band.pending': '待取回',
   'download.band.saved': '已取回',
