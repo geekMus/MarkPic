@@ -11,11 +11,9 @@ import { copyText, shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 
 /**
- * 检测页：这一页关心的不是「哪个文件」，而是「哪个地址还活着」。
- *
- * 所以正文是一张按域名分组的地址表，而不是文件队列：一行一个地址，
- * 一行写清它在几个文件里被引用。同一个地址在多篇文档里重复出现时只占一行
- * （后端也是按地址去重探活的）。
+ * 检测页：和「上传」一样按文档分卡片 —— 一篇文档一张卡，卡里是这篇文档的
+ * 远程地址。同一个地址在别处也出现过时，卡片里只看这一篇自己的位置；
+ * 顶上的小结才按地址去重（后端也是按地址探活的）。
  */
 const props = defineProps<{
   rows: RunRowView[]
@@ -60,11 +58,9 @@ const RANK: Record<Kind, number> = { bad: 0, unsupported: 1, pending: 2, ok: 3 }
 
 interface AddrRow {
   url: string
-  host: string
   label: string
   kind: Kind
   error: string
-  sources: { name: string; line: number }[]
 }
 
 /** 远程引用（http、ftp、data: 都算），但要排除 Windows 盘符 `D:\…`。 */
@@ -72,19 +68,17 @@ function isRemoteRef(target: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)
 }
 
-function splitUrl(target: string): { host: string; label: string } {
-  const full = /^([a-z][a-z0-9+.-]*):\/\/([^/?#]*)(.*)$/i.exec(target)
-  if (full) {
-    const host = full[2] || full[1]
-    const rest = full[3] || '/'
-    return { host: host.toLowerCase(), label: rest }
-  }
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(target)
-  const name = scheme ? scheme[1].toLowerCase() + ':' : '…'
-  const rest = target.slice(scheme ? scheme[0].length : 0)
-  // data: 之类没有主机名的地址可能是一整段 base64：只留个头，正文里另有完整值可查
-  const label = rest.length > 60 ? rest.slice(0, 56) + '…' : rest
-  return { host: name, label: label === '' ? target : label }
+/**
+ * 卡里没有域名做上下文了，所以 http(s) 的地址连主机一起写（127.0.0.1:5199/missing.png）；
+ * data: 这种没有主机的就整条写，长度先截一下，完整值在悬停的 title 里。
+ */
+function labelOf(target: string): string {
+  // data: 的正文是一整段 base64，留在标签里只会把行撑坏：只写类型。
+  const data = /^data:([^;,]*)[^,]*/i.exec(target)
+  if (data) return `data:${data[1]};…`
+  const http = /^https?:\/\/([^/?#]*)(.*)$/i.exec(target)
+  const label = http ? http[1] + (http[2] || '/') : target
+  return label.length > 90 ? label.slice(0, 86) + '…' : label
 }
 
 function kindOf(item: ImageItem): Kind {
@@ -95,34 +89,19 @@ function kindOf(item: ImageItem): Kind {
   return 'pending'
 }
 
-const addresses = computed<AddrRow[]>(() => {
-  const byUrl = new Map<string, AddrRow>()
+/** 顶上的小结按「地址」去重（同一地址在多篇文档里只算一个），卡片才按文档分。 */
+const addresses = computed<{ url: string; kind: Kind }[]>(() => {
+  const byUrl = new Map<string, Kind>()
   for (const row of props.rows) {
     for (const item of row.result?.items ?? []) {
       if (!isRemoteRef(item.target)) continue
-      const known = byUrl.get(item.target)
       const kind = kindOf(item)
-      if (!known) {
-        const { host, label } = splitUrl(item.target)
-        byUrl.set(item.target, {
-          url: item.target,
-          host,
-          label,
-          kind,
-          error: item.error ?? '',
-          sources: [{ name: row.name, line: item.line }],
-        })
-        continue
-      }
+      const known = byUrl.get(item.target)
       // 同一个地址被多处引用，状态可能不一致（一处探活过、一处还没轮到）：坏的优先。
-      if (RANK[kind] < RANK[known.kind]) {
-        known.kind = kind
-        known.error = item.error ?? ''
-      }
-      known.sources.push({ name: row.name, line: item.line })
+      if (known === undefined || RANK[kind] < RANK[known]) byUrl.set(item.target, kind)
     }
   }
-  return [...byUrl.values()].sort((a, b) => RANK[a.kind] - RANK[b.kind] || a.url.localeCompare(b.url))
+  return [...byUrl.entries()].map(([url, kind]) => ({ url, kind }))
 })
 
 const filter = ref<'all' | 'bad' | 'ok'>('all')
@@ -138,27 +117,78 @@ const counts = computed(() => {
   }
 })
 
-const shown = computed(() => {
-  if (filter.value === 'bad') return addresses.value.filter((a) => a.kind === 'bad')
-  if (filter.value === 'ok') return addresses.value.filter((a) => a.kind === 'ok')
-  return addresses.value
-})
+interface DocGroup {
+  id: string
+  name: string
+  dir: string
+  list: DocAddr[]
+  bad: number
+  unsupported: number
+}
 
-const groups = computed(() => {
-  const byHost = new Map<string, AddrRow[]>()
-  for (const addr of shown.value) {
-    const list = byHost.get(addr.host)
-    if (list) list.push(addr)
-    else byHost.set(addr.host, [addr])
-  }
-  return [...byHost.entries()]
-    .map(([host, list]) => ({
-      host,
+/** 一行地址在某一篇文档里的位置：同一个地址在同篇里重复引用时，行号收在一起。 */
+interface DocAddr extends AddrRow {
+  lines: number[]
+}
+
+/**
+ * 按文档分组：一篇文档一张卡。组内地址按「坏的先」排，卡与卡之间
+ * 先看哪篇问题多 —— 出问题的文档应该在上面。
+ */
+const groups = computed<DocGroup[]>(() => {
+  const out: DocGroup[] = []
+  for (const row of props.rows) {
+    const byTarget = new Map<string, DocAddr>()
+    for (const item of row.result?.items ?? []) {
+      if (!isRemoteRef(item.target)) continue
+      const kind = kindOf(item)
+      const known = byTarget.get(item.target)
+      if (known) {
+        if (!known.lines.includes(item.line)) known.lines.push(item.line)
+        // 同篇里同址状态不一致（一处探过、一处没轮到）：坏的优先。
+        if (RANK[kind] < RANK[known.kind]) {
+          known.kind = kind
+          known.error = item.error ?? ''
+        }
+        continue
+      }
+      byTarget.set(item.target, {
+        url: item.target,
+        label: labelOf(item.target),
+        kind,
+        error: item.error ?? '',
+        lines: [item.line],
+      })
+    }
+    if (byTarget.size === 0) continue
+    const list = [...byTarget.values()].sort(
+      (a, b) => RANK[a.kind] - RANK[b.kind] || a.url.localeCompare(b.url),
+    )
+    out.push({
+      id: row.id,
+      name: row.name,
+      dir: row.dir,
       list,
       bad: list.filter((a) => a.kind === 'bad').length,
       unsupported: list.filter((a) => a.kind === 'unsupported').length,
-    }))
-    .sort((a, b) => b.bad - a.bad || b.list.length - a.list.length || a.host.localeCompare(b.host))
+    })
+  }
+  return out.sort((a, b) => b.bad - a.bad || b.list.length - a.list.length || a.name.localeCompare(b.name))
+})
+
+/** 卡头只写最后一级目录，和上传页的卡片一个规矩。 */
+function shortDir(dir: string): string {
+  const parts = dir.split(/[\\/]/).filter((part) => part !== '')
+  return parts.length > 0 ? parts[parts.length - 1] : dir
+}
+
+/** 筛掉不匹配的行后，空了的组不再显示。 */
+const shownGroups = computed<DocGroup[]>(() => {
+  if (filter.value === 'all') return groups.value
+  const want: Kind = filter.value === 'bad' ? 'bad' : 'ok'
+  return groups.value
+    .map((group) => ({ ...group, list: group.list.filter((a) => a.kind === want) }))
+    .filter((group) => group.list.length > 0)
 })
 
 const band = computed(() => {
@@ -173,10 +203,6 @@ const band = computed(() => {
   }
   return cells
 })
-
-function sourceTitle(addr: AddrRow): string {
-  return addr.sources.map((s) => `${s.name}:${s.line}`).join('\n')
-}
 
 /**
  * 还在扫的时候不能说「这些文件里没有远程图片」——扫完才知道。
@@ -243,18 +269,19 @@ const emptyHint = computed<MessageKey>(() => {
         </button>
       </div>
 
-      <p v-if="groups.length === 0" class="chk__none">{{ t(emptyHint, { count: scanCount }) }}</p>
+      <p v-if="shownGroups.length === 0" class="chk__none">{{ t(emptyHint, { count: scanCount }) }}</p>
 
       <section
-        v-for="group in groups"
-        :key="group.host"
+        v-for="group in shownGroups"
+        :key="group.id"
         class="group-card"
       >
         <header class="group-card__head">
           <span class="group-card__icon" aria-hidden="true">
-            <AppIcon name="link" :size="14" />
+            <AppIcon name="doc" :size="14" />
           </span>
-          <h3 class="group-card__title chk__hostname" :title="group.host">{{ group.host }}</h3>
+          <h3 class="group-card__title" :title="group.name">{{ group.name }}</h3>
+          <span class="chk__dir mono">{{ shortDir(group.dir) }}</span>
           <span class="group-card__meta">{{ t('check.group.count', { count: group.list.length }) }}</span>
           <span v-if="group.bad > 0" class="group-card__meta group-card__meta--bad">
             {{ t('check.group.bad', { count: group.bad }) }}
@@ -282,8 +309,8 @@ const emptyHint = computed<MessageKey>(() => {
               @click="copyAddress(addr.url)"
               @keydown.enter="copyAddress(addr.url)"
             >{{ addr.label }}</span>
-            <span class="chk__src" :title="sourceTitle(addr)">
-              {{ t('check.row.sources', { count: addr.sources.length }) }}
+            <span class="chk__src mono" :title="addr.url">
+              {{ addr.lines.map((line) => `L${line}`).join(' · ') }}
             </span>
             <span
               v-if="addr.error"
@@ -380,9 +407,15 @@ const emptyHint = computed<MessageKey>(() => {
   font-size: var(--fs-3);
 }
 
-/* 一组 = 一个域名：组与组之间靠留白分开，不画框、不叠卡 */
-.chk__hostname {
-  font-family: var(--mono);
+/* 组头里的目录：只留最后一级，和上传页卡片一个规矩 */
+.chk__dir {
+  overflow: hidden;
+  flex: 0 1 auto;
+  max-width: 34%;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chk__row {

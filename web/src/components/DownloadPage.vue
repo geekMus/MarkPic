@@ -87,6 +87,12 @@ function kindOf(item: ImageItem): Kind {
 }
 
 /** 落盘位置在结果里是绝对路径；页面上只写相对文档的那一段（images\a.webp）。 */
+  /** 卡头只写最后一级目录：完整路径在悬停的 title 里。 */
+function shortDir(dir: string): string {
+  const parts = dir.split(/[\\/]/).filter((part) => part !== '')
+  return parts.length > 0 ? parts[parts.length - 1] : dir
+}
+
 function localOf(dir: string, item: ImageItem): string {
   const abs = (item.url ?? '').replace(/^file:\/\//i, '')
   if (abs === '') return ''
@@ -183,7 +189,7 @@ const band = computed(() => {
             <AppIcon name="doc" :size="14" />
           </span>
           <h3 class="group-card__title" :title="group.row.path">{{ group.row.name }}</h3>
-          <span class="dl__dir" :title="group.row.dir">{{ group.row.dir }}</span>
+          <span class="dl__dir mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
           <span class="group-card__meta">{{ t('row.count', { count: group.items.length }) }}</span>
           <button
             type="button"
