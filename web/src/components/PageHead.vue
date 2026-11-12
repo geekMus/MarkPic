@@ -76,6 +76,7 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
 }
 
 .pagehead__row {
+  animation: rise-in 320ms var(--ease-out) both;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -133,6 +134,7 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
 
 /* 说明单独一行，跟标题之间留 8px：读起来是「标题 + 一句话」，不是一条工具条 */
 .pagehead__lead {
+  animation: rise-in 320ms var(--ease-out) 40ms both;
   margin: 8px 0 0;
   max-width: 62ch;
   color: var(--ink-3);
@@ -141,6 +143,7 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
 }
 
 .pagehead__tools {
+  animation: fade-in 220ms var(--ease-out) 60ms both;
   display: flex;
   flex: none;
   align-items: center;

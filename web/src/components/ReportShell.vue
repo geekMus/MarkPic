@@ -192,6 +192,7 @@ function submitManual(): void {
 }
 
 .report__summary {
+  animation: rise-in 320ms var(--ease-out) 60ms both;
   display: flex;
   flex: none;
   flex-wrap: wrap;

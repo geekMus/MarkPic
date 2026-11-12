@@ -641,26 +641,32 @@ function replaced(status: ImageStatus): boolean {
   list-style: none;
 }
 
-.item:hover .card {
-  /* 悬停时卡片浮起来一点点：卡片队列要有「可以拿起来」的手感 */
-  box-shadow: 0 2px 10px color-mix(in srgb, #000 26%, transparent);
-}
-
 .card {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--card-edge);
   border-radius: var(--r-4);
-  background: var(--panel-2);
-  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+  /* 顶亮底暗的一层极淡渐变：卡片在两种主题下都有一点「面」的厚度，不是一块色板 */
+  background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background 160ms var(--ease-out);
 }
 
 .item:hover .card {
   border-color: var(--line-2);
+  box-shadow: var(--shadow-card-hover);
+}
+
+.item:active .card {
+  box-shadow: var(--shadow-card);
 }
 
 .item--open .card {
   border-color: var(--line-2);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .item[data-selected='yes'] .card {
@@ -748,7 +754,7 @@ function replaced(status: ImageStatus): boolean {
 .item__dir {
   overflow: hidden;
   color: var(--ink-3);
-  font-size: var(--fs-1);
+  font-size: var(--fs-2);
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -800,11 +806,16 @@ function replaced(status: ImageStatus): boolean {
 }
 
 /* 「查看详情」本身就是一个动作词，比「未处理」这种半截状态诚实 */
+.item:hover .item__more {
+  color: var(--ink-2);
+}
+
 .item__more {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
+  transition: color 140ms var(--ease-out);
   color: var(--ink-3);
   font-size: var(--fs-2);
   white-space: nowrap;

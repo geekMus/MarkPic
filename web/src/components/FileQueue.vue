@@ -97,6 +97,7 @@ function submitManual(): void {
 
 /** 折叠状态下的行高，第一次测量前的估值。 */
 const ROW_HEIGHT = 85
+const entering = ref(false)
 /** 可视区上下各多渲染几行，滚动时不至于露白。 */
 const OVERSCAN = 4
 
@@ -131,6 +132,12 @@ function syncViewport(): void {
 let observer: ResizeObserver | null = null
 
 onMounted(() => {
+  // 卡片错开进场只在「刚打开这一页」时跑一次：虚拟滚动会不停换挂行，
+  // 每次都放动画的话，滚一下整屏都在闪。
+  entering.value = true
+  window.setTimeout(() => {
+    entering.value = false
+  }, 700)
   syncViewport()
   observer = new ResizeObserver((entries) => {
     for (const entry of entries) {
@@ -503,7 +510,12 @@ function onScroll(): void {
     </form>
 
     <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
-      <ul v-if="rows.length > 0" ref="list" class="queue__list">
+      <ul
+        v-if="rows.length > 0"
+        ref="list"
+        class="queue__list"
+        :class="{ 'queue__list--enter': entering }"
+      >
         <!-- 只挂可视区附近的行，上下用占位块撑出完整滚动高度 -->
         <li
           v-if="window_.top > 0"
@@ -512,8 +524,9 @@ function onScroll(): void {
           aria-hidden="true"
         />
         <FileRow
-          v-for="row in visibleRows"
+          v-for="(row, i) in visibleRows"
           :key="row.id"
+          :style="{ '--i': i }"
           :data-row-id="row.id"
           :row="row"
           :busy="busy"
@@ -607,6 +620,11 @@ function onScroll(): void {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.queue__list--enter .item {
+  animation: rise-in 320ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 26ms);
 }
 
 /* 「只看有问题的」：图标按钮右上角挂一个计数，一眼知道有几处要看 */

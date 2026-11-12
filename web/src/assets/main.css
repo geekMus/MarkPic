@@ -34,6 +34,15 @@
   --panel-3: #edf1f7;
   --border-panel: rgba(17, 26, 43, 0.09);
 
+  /* 卡片：一点自下而上的提亮 + 一层极浅的落影，比纯色块「有厚度」。 */
+  --card-edge: rgba(17, 26, 43, 0.1);
+  --card-top: #fdfeff;
+  --card-bottom: #f4f7fb;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover:
+    0 10px 26px -16px rgba(16, 24, 40, 0.32),
+    0 2px 6px rgba(16, 24, 40, 0.06);
+
   /* 窗口四边：往里压暗一圈，不是画线。以前这里是「冷白光」，
      在深色主题上就是一圈发白的边 —— 现在两种主题都只压暗。 */
   --edge-glow: rgba(21, 35, 58, 0.22);
@@ -101,6 +110,9 @@
   --t-base: 150ms;
   --t-slow: 220ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* 出场、退场用两条不同的曲线：出来是「被轻轻放下」，回去是「被抽走」。 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
 }
 
 :root[data-theme='dark'] {
@@ -115,6 +127,15 @@
   --panel-2: #171c26;
   --panel-3: #1c2230;
   --border-panel: rgba(255, 255, 255, 0.075);
+
+  /* 深色下的「厚度」靠顶缘一道 3% 的白和一层落影，卡片才不是一块纯色板。 */
+  --card-edge: rgba(255, 255, 255, 0.09);
+  --card-top: #1a202b;
+  --card-bottom: #161b24;
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --shadow-card-hover:
+    0 16px 34px -20px rgba(0, 0, 0, 0.9),
+    0 3px 10px rgba(0, 0, 0, 0.42);
 
   /* 深色只压暗不发光 —— 一圈冷白光是上一版最刺眼的地方。 */
   --edge-glow: rgba(0, 0, 0, 0.55);
@@ -132,11 +153,13 @@
   --scroll-hover: rgba(255, 255, 255, 0.28);
   --scroll-active: rgba(95, 217, 201, 0.5);
 
-  --accent: #5fd9c9;
-  --accent-vivid: #7de9db;
-  --accent-soft: rgba(95, 217, 201, 0.12);
-  --accent-line: rgba(95, 217, 201, 0.3);
-  --accent-ink: #93f0e3;
+  /* 强调色往青里挪一点：原来的 #5fd9c9 和成功色 #59dcab 几乎分不开，
+     两种绿摆在一起，「强调」和「成功」就都说不清了。 */
+  --accent: #58d6e2;
+  --accent-vivid: #83eaf3;
+  --accent-soft: rgba(88, 214, 226, 0.12);
+  --accent-line: rgba(88, 214, 226, 0.3);
+  --accent-ink: #9df1f8;
 
   --ok: #59dcab;
   --ok-soft: rgba(89, 220, 171, 0.12);
@@ -377,11 +400,18 @@ button {
     background var(--t-fast) var(--ease),
     border-color var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease);
+    box-shadow var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
 }
 
 .btn:active:not(:disabled) {
-  transform: translateY(0.5px);
+  transform: translateY(0.5px) scale(0.99);
+}
+
+.btn--primary:hover:not(:disabled) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 6px rgba(9, 14, 24, 0.34);
 }
 
 .btn:disabled {
@@ -461,7 +491,12 @@ button {
   transition:
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
-    border-color var(--t-fast) var(--ease);
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .icon-btn:hover:not(:disabled) {
@@ -941,6 +976,56 @@ button {
   :root {
     --gutter: 12px;
   }
+}
+
+/* ------------------------------------------------------------------ 动效
+   切页是最贵的一次动效，所以它必须最克制：退场 90ms，出场 240ms，
+   下压 10px 再落位，远景缩放只有 0.998 —— 再大就像幻灯片了。
+   页面内部的内容各晚一点点出现（标题 → 说明 → 正文），
+   眼睛才会先读标题，而不是被整屏一起推过来。 */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.view-leave-active {
+  transition:
+    opacity 90ms var(--ease-in),
+    transform 90ms var(--ease-in);
+}
+
+.view-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
+}
+
+.view-enter-active {
+  transition:
+    opacity 240ms var(--ease-out),
+    transform 240ms var(--ease-out);
+}
+
+.view-enter-from {
+  opacity: 0;
+  transform: translateY(10px) scale(0.998);
 }
 
 /* 缩放窗口期间（useResizing.ts 打标记）：阴影与毛玻璃要重新合成，过渡还会和
