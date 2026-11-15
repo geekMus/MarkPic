@@ -52,7 +52,7 @@ export const zh = {
   'settings.closeAction.ask': '每次询问',
   'settings.closeAction.tray': '最小化到托盘',
   'settings.closeAction.exit': '退出程序',
-  'settings.closeAction.hint': '选「最小化到托盘」时窗口从任务栏消失，只在通知区留一个图标；选「每次询问」时，没有任务就先确认是否退出，勾「不再提示」并确认后以后直接退出；只要还有任务在跑，关窗都会先确认是否退出。',
+  'settings.closeAction.hint': '选「最小化到托盘」时窗口从任务栏消失，只在通知区留一个图标；选「每次询问」时，没有任务就让你选最小化还是退出，勾「不再询问」并确认后按这次的选择记住；只要还有任务在跑，关窗都会先确认是否退出。',
   'settings.section.picgo': 'PicGo 服务',
   'settings.endpoint': '服务地址',
   'settings.endpoint.hint': '默认 http://127.0.0.1:36677',
@@ -290,11 +290,12 @@ export const zh = {
 
 
   // 关闭确认
-  'close.quitTitle': '退出程序',
+  'close.title': '关闭 MarkPic',
+  'close.idleBody': '最小化到托盘会继续在后台运行，退出程序会结束它。',
   'close.quitBody': '现在还有 {count} 个任务没结束。退出程序会中止这些任务，确定要退出吗？',
-  'close.quitIdleBody': '确定要退出吗？',
-  'close.quitConfirm': '退出',
-  'close.dontAskAgain': '不再提示',
+  'close.minimize': '最小化',
+  'close.quitConfirm': '退出程序',
+  'close.dontAskAgain': '不再询问',
 
   // 通知
   'toast.region': '通知',

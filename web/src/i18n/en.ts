@@ -53,7 +53,7 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.closeAction.ask': 'Ask every time',
   'settings.closeAction.tray': 'Minimize to tray',
   'settings.closeAction.exit': 'Quit the app',
-  'settings.closeAction.hint': 'Minimize to tray hides the window from the taskbar and leaves a notification-area icon. Ask every time confirms before quitting while idle; tick “Don’t ask again” to skip that prompt next time. If a task is running, closing always asks first.',
+  'settings.closeAction.hint': 'Minimize to tray hides the window from the taskbar and leaves a notification-area icon. Ask every time lets you pick minimize or quit while idle; tick “Don’t ask again” to remember that choice. If a task is running, closing always asks first.',
   'settings.section.picgo': 'PicGo service',
   'settings.endpoint': 'Server address',
   'settings.endpoint.hint': 'Default http://127.0.0.1:36677',
@@ -293,9 +293,10 @@ export const en: Record<keyof typeof zh, string> = {
 
 
   // Close confirmation
-  'close.quitTitle': 'Quit MarkPic',
+  'close.title': 'Close MarkPic',
+  'close.idleBody': 'Minimizing to the tray keeps it running in the background; quitting ends it.',
   'close.quitBody': 'There are still {count} task(s) running. Quitting will stop them. Are you sure you want to quit?',
-  'close.quitIdleBody': 'Are you sure you want to quit?',
+  'close.minimize': 'Minimize',
   'close.quitConfirm': 'Quit',
   'close.dontAskAgain': 'Don’t ask again',
 

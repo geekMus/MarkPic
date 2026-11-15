@@ -44,7 +44,7 @@ const { toasts, dismiss, warning, success, info } = useToasts()
 const { t } = useI18n()
 const { resolved: theme, cycle: toggleTheme } = useTheme()
 // 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
-const { available: windowChrome, quit, startResize } = useWindowControls()
+const { available: windowChrome, minimize, tray, quit, startResize } = useWindowControls()
 const { health, loading: healthLoading, refresh: refreshHealth } = useHealth()
 
 const {
@@ -179,8 +179,9 @@ const aboutOpen = ref(false)
 
 /**
  * 点叉号需要确认的两种情况（见 cmd/markpic/chrome_windows.go 的 WM_CLOSE）：
- * - 没有任务、设置是「每次询问」：确认是否退出，可勾「不再提示」。
- * - 还有任务：只确认是否退出，正文写清任务数；永远不给「不再提示」。
+ * - 没有任务、设置是「每次询问」：选「最小化」还是「退出程序」，可勾「不再询问」，
+ *   勾了就按这次点的那个动作记住，以后点叉号直接照做、不再弹。
+ * - 还有任务：只确认是否退出，正文写清任务数；永远不给「不再询问」。
  */
 interface CloseRequestWindow extends Window {
   __markpicCloseRequest?: (count: number, ask?: boolean) => void
@@ -192,7 +193,7 @@ const closePromptAsk = ref(false)
 
 function handleCloseRequest(count: number, ask = false): void {
   closePromptCount.value = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0
-  // 有任务时只做退出确认；后端已经保证这一点，这里再兜一层，免得旧消息带出「不再提示」。
+  // 有任务时只做退出确认；后端已经保证这一点，这里再兜一层，免得旧消息带出「不再询问」。
   closePromptAsk.value = ask === true && closePromptCount.value === 0
   closePrompt.value = true
 }
@@ -201,23 +202,31 @@ function dismissClosePrompt(): void {
   closePrompt.value = false
 }
 
+// 「最小化到托盘」：窗口从任务栏消失，进程和任务都还在。
+// 勾了「不再询问」就把这次的选择记下来，以后点叉号直接收进托盘。
+async function minimizeClosePrompt(remember: boolean): Promise<void> {
+  closePrompt.value = false
+  if (!(await tray())) {
+    // 托盘图标没建起来：明确说一声，然后退回普通最小化，至少窗口还在
+    warning(t('toast.trayFailed'))
+    minimize()
+    return
+  }
+  if (remember) await rememberCloseAction('tray')
+}
+
+// 「退出程序」：勾了「不再询问」就记住直接退出，然后结束进程。
 async function quitClosePrompt(remember: boolean): Promise<void> {
   closePrompt.value = false
   if (remember) await rememberCloseAction('exit')
   quit()
 }
 
-// 弹窗开着的时候任务状态变了：
-// - 任务跑起来时，没任务的那问已经过期，收起，等真正关窗再按任务数确认；
-// - 任务跑完时，带任务数的确认框已经没意义，直接收起。
-watch(busy, (running) => {
-  if (!closePrompt.value) return
-  if (running) {
-    if (closePromptAsk.value) closePrompt.value = false
-    return
-  }
-  if (closePromptAsk.value) closePromptCount.value = 0
-  else closePrompt.value = false
+// 弹窗开着的时候任务状态变了，这一问就过期了：
+// 任务跑起来时「没有任务」的前提不成立，任务跑完时写下的数字又不对了。
+// 收起弹窗，等下一次关窗再按新的任务数重新问。
+watch(busy, () => {
+  if (closePrompt.value) closePrompt.value = false
 })
 // 选中哪一行：只用来给那一行描边，明细由行自己展开。
 const selectedId = ref<string | null>(null)
@@ -746,12 +755,13 @@ onBeforeUnmount(() => {
       @close="aboutOpen = false"
     />
 
-    <!-- 点叉号需要确认时：没有任务可以勾「不再提示」，有任务会写清数量 -->
+    <!-- 点叉号需要确认时：没有任务可选最小化或退出并勾「不再询问」，有任务只确认是否退出 -->
     <CloseConfirmDialog
       v-if="closePrompt"
       :count="closePromptCount"
       :ask="closePromptAsk"
       @cancel="dismissClosePrompt"
+      @minimize="minimizeClosePrompt"
       @quit="quitClosePrompt"
     />
 

@@ -218,7 +218,7 @@ async function save(override?: Partial<Settings>): Promise<boolean> {
   }
 }
 
-/** 首次关窗勾了「不再提示」：只把这一项写回设置，保留别的草稿与脏标记。 */
+/** 关窗时勾了「不再询问」：只把这一项写回设置，保留别的草稿与脏标记。 */
 async function rememberCloseAction(action: Settings['closeAction']): Promise<boolean> {
   try {
     const persisted = await setCloseAction(action)

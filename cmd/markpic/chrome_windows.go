@@ -211,7 +211,8 @@ func setClosePolicy(runningCount func() int, closeAction func() string) {
 }
 
 // setCloseRequestHandler 注册「这次叉号需要前端确认」时的回调。
-// ask=true 是没有任务、设置又是「每次询问」：问「确定要退出吗」，带「不再提示」；
+// ask=true 是没有任务、设置又是「每次询问」：让用户选「最小化」还是「退出程序」，
+// 勾了「不再询问」就按这次点的动作记住；
 // ask=false 是还有任务：不管设置里选过什么，都只确认「是否退出」。
 // 用户选完再走 cmpWinTray / cmpWinQuit。
 func setCloseRequestHandler(fn func(int, bool)) {
@@ -379,7 +380,7 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 				minimizeWindow()
 				return 0
 			case settings.CloseActionAsk:
-				// 还没记住选择：让前端问「确定要退出吗」，带「不再提示」。
+				// 还没记住选择：让前端问最小化还是退出，可勾「不再询问」。
 				if requestClosePrompt(0, true) {
 					return 0
 				}

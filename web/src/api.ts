@@ -126,7 +126,7 @@ export function putSettings(settings: Partial<Settings>): Promise<Settings> {
   return call<Settings>('settings.put', settings)
 }
 
-/** 只改关闭行为：首次关窗勾了「不再提示」时用，不碰设置页里没保存的草稿。 */
+/** 只改关闭行为：关窗时勾了「不再询问」时用，不碰设置页里没保存的草稿。 */
 export function setCloseAction(
   action: Settings['closeAction'],
 ): Promise<{ closeAction: Settings['closeAction'] }> {

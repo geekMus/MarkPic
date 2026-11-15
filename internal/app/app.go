@@ -317,7 +317,7 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	}
 }
 
-// setCloseAction 只改关闭行为。首次关窗时前端把「不再提示」勾选的结果存下来，
+// setCloseAction 只改关闭行为。关窗时勾了「不再询问」的话，前端把这次选的动作存下来，
 // 走这里而不是整份 settings.put，免得把设置页里没保存的草稿一起写进去。
 func (a *App) setCloseAction(params json.RawMessage) (any, error) {
 	var req struct {

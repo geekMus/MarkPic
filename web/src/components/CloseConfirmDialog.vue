@@ -4,12 +4,13 @@ import AppIcon from './AppIcon.vue'
 import { useI18n } from '../i18n'
 
 /**
- * 点窗口叉号时的退出确认。
+ * 点窗口叉号时的确认框。
  *
- * - 还有任务：正文写清退出会中止几个任务；这里永远不提供「不再提示」，
- *   带着任务退出必须每次确认。
- * - 没有任务、设置是「每次询问」：正文只问「确定要退出吗？」，
- *   下面给一个「不再提示」；勾上并确认后才把设置改成直接退出。
+ * - 没有任务、设置是「每次询问」（也是第一次用的默认值）：给两条路，
+ *   「最小化到托盘」把窗口收进通知区、进程和任务都还在，「退出程序」结束进程。
+ *   勾了「不再询问」就按这次点的那个记住，以后直接执行、不再弹。
+ * - 还有任务：正文写清退出会中止几个任务，只有「取消」和「退出程序」，
+ *   这里永远不提供「不再询问」，带着任务退出必须每次确认。
  *
  * 后端只在需要确认时发这个弹窗（cmd/markpic/chrome_windows.go 的 WM_CLOSE）。
  */
@@ -17,6 +18,7 @@ defineProps<{ count: number; ask: boolean }>()
 
 const emit = defineEmits<{
   cancel: []
+  minimize: [remember: boolean]
   quit: [remember: boolean]
 }>()
 
@@ -43,8 +45,7 @@ onMounted(() => {
     >
       <header class="panel__head">
         <div class="panel__title">
-          <span class="close__icon"><AppIcon name="alert" :size="15" /></span>
-          <h2 id="close-title">{{ t('close.quitTitle') }}</h2>
+          <h2 id="close-title">{{ t('close.title') }}</h2>
         </div>
         <div class="panel__actions">
           <button
@@ -61,7 +62,7 @@ onMounted(() => {
 
       <div class="dlg__body close">
         <p id="close-body" class="close__text">
-          {{ ask ? t('close.quitIdleBody') : t('close.quitBody', { count }) }}
+          {{ ask ? t('close.idleBody') : t('close.quitBody', { count }) }}
         </p>
         <label v-if="ask" class="close__dontask">
           <input v-model="dontAskAgain" type="checkbox" />
@@ -71,7 +72,15 @@ onMounted(() => {
 
       <footer class="panel__foot">
         <span class="close__spacer" />
-        <button type="button" class="btn btn--ghost" @click="emit('cancel')">
+        <button
+          v-if="ask"
+          type="button"
+          class="btn btn--secondary"
+          @click="emit('minimize', dontAskAgain)"
+        >
+          {{ t('close.minimize') }}
+        </button>
+        <button v-else type="button" class="btn btn--ghost" @click="emit('cancel')">
           {{ t('common.cancel') }}
         </button>
         <button
@@ -93,20 +102,6 @@ onMounted(() => {
 
 .close {
   padding: 18px 22px 20px;
-}
-
-.close__icon {
-  display: inline-flex;
-  align-self: center;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--warn-line);
-  border-radius: 50%;
-  background: var(--warn-soft);
-  color: var(--warn);
-  flex: none;
 }
 
 .close__text {
