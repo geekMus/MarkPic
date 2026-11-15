@@ -57,7 +57,9 @@ function onBodyScroll(event: Event): void {
 onMounted(() => {
   void nextTick(() => {
     // preventScroll：焦点搬进来的时候别顺手把正文滚到顶。
-    panel.value?.focus({ preventScroll: true })
+    // focusVisible：这一下是程序自己搬的焦点（键盘用户 Tab 的起点），不是用户点出来的，
+    // 不该在整张卡片外面描一圈焦点环 —— 和导航按钮切换视图时同一处理。
+    panel.value?.focus({ preventScroll: true, focusVisible: false } as FocusOptions)
     const el = bodyEl.value
     const kept = scrollMemory.get(props.anchor) ?? 0
     if (el && kept > 0) el.scrollTop = kept
