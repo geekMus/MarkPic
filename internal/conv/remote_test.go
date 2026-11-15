@@ -1928,6 +1928,24 @@ func TestRemoteProgressReportsDoneNotUploaded(t *testing.T) {
 			t.Errorf("第 %d 个进度事件 done=%d total=%d，进度该落在 (0, total]", i+1, ev.Done, ev.Total)
 		}
 	}
+
+	// 进度事件还要带上「刚处理完的是哪几处」：卡片里就是靠这条增量把
+	// 「待检测」逐条换成「地址有效/失效」，否则只有一根 3/6 的进度条。
+	patched := map[int]bool{}
+	for _, ev := range progress {
+		for _, patch := range ev.Items {
+			if patch.Index < 0 || patch.Index >= 6 {
+				t.Fatalf("进度增量下标 %d 越界", patch.Index)
+			}
+			if patch.Item.Status != StatusRemoteOK {
+				t.Errorf("第 %d 条增量状态是 %q，want %q", patch.Index, patch.Item.Status, StatusRemoteOK)
+			}
+			patched[patch.Index] = true
+		}
+	}
+	if len(patched) != 6 {
+		t.Fatalf("进度增量只覆盖了 %d 处引用，want 6", len(patched))
+	}
 }
 func TestRemoteSelfSignedCertSaysCertificateProblem(t *testing.T) {
 	// 私有图床最省事的做法就是自签名证书。以前这种情况报「连不上这个地址」，

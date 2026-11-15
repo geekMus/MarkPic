@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ReportShell from './ReportShell.vue'
+import ScanBadge from './ScanBadge.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
@@ -21,7 +22,6 @@ import { describeError, openTarget } from '../api'
 const props = defineProps<{
   rows: RunRowView[]
   tag?: string
-  manualOpen: boolean
   recent?: string[]
   busy?: boolean
   progress?: number
@@ -31,11 +31,12 @@ const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
   'pick-recent': [path: string]
-  'submit-paths': [paths: string[]]
   remove: [id: string]
   reveal: [path: string]
   clear: []
-  'update:manualOpen': [open: boolean]
+  /** 卡片自己的扫描：取消这一份 / 恢复（重试）。 */
+  'cancel-scan': [id: string]
+  'retry-scan': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -63,8 +64,8 @@ async function openFile(row: RunRowView): Promise<void> {
 }
 
 /** 还没扫过张数时先别下结论：显示「正在扫」比显示「没有可下载的图」诚实。 */
-const scanning = computed(() => props.rows.some((row) => row.images === null))
-const scanCount = computed(() => props.rows.filter((row) => row.images === null).length)
+const scanning = computed(() => props.rows.some((row) => (row.scan ?? 'idle') === 'scanning'))
+const scanCount = computed(() => props.rows.filter((row) => (row.scan ?? 'idle') === 'scanning').length)
 
 /** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
 
@@ -143,25 +144,42 @@ function shortUrl(url: string): string {
 interface DlGroup {
   row: RunRowView
   items: { item: ImageItem; kind: Kind; local: string }[]
+  saved: number
+  reused: number
   failed: number
   unsupported: number
+  pending: number
+}
+
+/** 卡片上那条整篇进度轨的宽度；一篇还没开始动时是 0。 */
+function progressOf(row: RunRowView): number {
+  if (row.total <= 0) return 0
+  return Math.min(100, Math.round(((row.done ?? 0) / row.total) * 100))
 }
 
 const groups = computed<DlGroup[]>(() => {
   const out: DlGroup[] = []
   for (const row of props.rows) {
-    const items = (row.result?.items ?? [])
+    // 跑动中优先用实时明细：Go 侧每下好一张就把那一处改成 localized，
+    // 卡片上的「待取回 / 已取回 / 失败」跟着一起动。
+    const items = (row.liveItems ?? row.result?.items ?? [])
       .filter((item) => isRemoteRef(item.target))
       .map((item) => ({ item, kind: kindOf(item), local: localOf(row.dir, item) }))
-    if (items.length === 0) continue
+    // 扫完了确实没有远程图的行不必占一张空卡；还没扫通的行必须留着 ——
+    // 扫描就发生在卡片里面，卡先出来，内容随后才到。
+    if (items.length === 0 && (row.scan ?? 'idle') === 'ok') continue
     out.push({
       row,
       items,
+      saved: items.filter((entry) => entry.kind === 'saved').length,
+      reused: items.filter((entry) => entry.kind === 'reused').length,
       failed: items.filter((entry) => entry.kind === 'failed').length,
       unsupported: items.filter((entry) => entry.kind === 'unsupported').length,
+      pending: items.filter((entry) => entry.kind === 'pending').length,
     })
   }
-  return out
+  const rank = (group: DlGroup): number => ((group.row.scan ?? 'idle') === 'ok' ? 0 : 1)
+  return out.sort((a, b) => rank(a) - rank(b))
 })
 
 const counts = computed(() => {
@@ -207,17 +225,13 @@ const band = computed(() => {
     :tag="tag"
     :verdicts="band"
     :has-rows="rows.length > 0"
-    :manual-open="manualOpen"
     :recent="recent"
     :busy="busy"
     :progress="progress"
-    :indeterminate="rows.length <= 1"
     @pick-files="emit('pick-files')"
     @pick-folder="emit('pick-folder')"
     @pick-recent="emit('pick-recent', $event)"
-    @submit-paths="emit('submit-paths', $event)"
     @clear="emit('clear')"
-    @update:manual-open="emit('update:manualOpen', $event)"
   >
     <div class="dl">
       <p v-if="groups.length === 0" class="dl__none">
@@ -250,15 +264,39 @@ const band = computed(() => {
             <span class="group-card__sub mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
           </span>
           <span class="group-card__badges">
-            <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
-            <span v-if="group.failed > 0" class="badge badge--bad">
-              {{ t('download.group.bad', { count: group.failed }) }}
-            </span>
-            <span v-if="group.unsupported > 0" class="badge badge--warn">
-              {{ t('download.group.unsupported', { count: group.unsupported }) }}
-            </span>
+            <!-- 还没扫通：卡上说的是扫描本身，不是「0 张图」 -->
+            <ScanBadge
+              v-if="(group.row.scan ?? 'idle') !== 'ok'"
+              :state="group.row.scan ?? 'idle'"
+              :error="group.row.scanError"
+              :busy="busy"
+              @cancel="emit('cancel-scan', group.row.id)"
+              @retry="emit('retry-scan', group.row.id)"
+            />
+            <template v-else>
+              <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
+              <span v-if="group.saved > 0" class="badge badge--ok">
+                {{ t('download.group.saved', { count: group.saved }) }}
+              </span>
+              <span v-if="group.reused > 0" class="badge">
+                {{ t('download.group.reused', { count: group.reused }) }}
+              </span>
+              <span v-if="group.pending > 0" class="badge">
+                {{ t('download.group.pending', { count: group.pending }) }}
+              </span>
+              <span v-if="group.failed > 0" class="badge badge--bad">
+                {{ t('download.group.bad', { count: group.failed }) }}
+              </span>
+              <span v-if="group.unsupported > 0" class="badge badge--warn">
+                {{ t('download.group.unsupported', { count: group.unsupported }) }}
+              </span>
+            </template>
           </span>
-          <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.row.id) }">
+          <span
+            v-if="group.items.length > 0"
+            class="group-card__more"
+            :class="{ 'group-card__more--on': isOpen(group.row.id) }"
+          >
             {{ t(isOpen(group.row.id) ? 'row.details.collapse' : 'row.details.expand') }}
             <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
           </span>
@@ -294,6 +332,14 @@ const band = computed(() => {
             </button>
           </span>
         </header>
+        <!-- 跑动中整张卡也有一条进度轨：卡头数字说逐图结论，这条说整篇走到哪了 -->
+        <div
+          v-if="group.row.phase === 'running'"
+          class="group-card__rail"
+          :class="{ 'group-card__rail--wait': group.row.total === 0 }"
+        >
+          <span :style="group.row.total > 0 ? { width: progressOf(group.row) + '%' } : undefined" />
+        </div>
         <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.row.id) }">
         <ul class="dl__list group-rows">
           <li

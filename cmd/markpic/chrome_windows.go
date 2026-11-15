@@ -21,12 +21,12 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 
 	"github.com/geekMus/markpic/internal/brand"
-
-	"golang.org/x/sys/windows"
+	"github.com/geekMus/markpic/internal/settings"
 )
 
 const (
@@ -35,6 +35,7 @@ const (
 	wmEraseBkgnd    = 0x0014
 	wmNCLButtonDown = 0x00A1
 	wmSysCommand    = 0x0112
+	wmCommand       = 0x0111
 	wmClose         = 0x0010
 	wmGetMinMaxInfo = 0x0024
 	wmDpiChanged    = 0x02E0
@@ -158,7 +159,14 @@ type minMaxInfo struct {
 type windowChrome struct {
 	hwnd    unsafe.Pointer
 	oldProc uintptr
-	proc    uintptr // windows.NewCallback 的结果，必须持有引用防止被回收
+	proc    uintptr // syscall.NewCallback 的结果，必须持有引用防止被回收
+
+	// 关闭策略：有任务且选了「退出」时，先让前端弹二次确认；
+	// forceClose 是前端确认之后放行真正关闭的开关。
+	forceClose     atomic.Bool
+	runningCount   func() int
+	closeAction    func() string
+	onCloseRequest func(int, bool)
 }
 
 // 单窗口程序，直接用一个包级变量记录当前窗口。
@@ -172,7 +180,7 @@ func installWindowChrome(target any) {
 		return
 	}
 	c := &windowChrome{hwnd: hwnd}
-	c.proc = windows.NewCallback(chromeWndProc)
+	c.proc = syscall.NewCallback(chromeWndProc)
 	old, _, _ := procGetWindowLongPtr.Call(uintptr(hwnd), gwlpWndProc)
 	c.oldProc = old
 	procSetWindowLongPtr.Call(uintptr(hwnd), gwlpWndProc, c.proc)
@@ -191,10 +199,53 @@ func installWindowChrome(target any) {
 	// 图标由 applyChromeTheme 一起挂上：主题和图标是同一件事（见那里的注释）。
 }
 
+// setClosePolicy 交给窗口过程两件只读的事：还在跑几个任务、叉号该干什么。
+// 两者都由 App 现读，用户改完设置不用重启窗口。
+func setClosePolicy(runningCount func() int, closeAction func() string) {
+	c := chromeWindow
+	if c == nil {
+		return
+	}
+	c.runningCount = runningCount
+	c.closeAction = closeAction
+}
+
+// setCloseRequestHandler 注册「这次叉号需要前端确认」时的回调。
+// ask=true 是没有任务、设置又是「每次询问」：问「确定要退出吗」，带「不再提示」；
+// ask=false 是还有任务：不管设置里选过什么，都只确认「是否退出」。
+// 用户选完再走 cmpWinTray / cmpWinQuit。
+func setCloseRequestHandler(fn func(int, bool)) {
+	c := chromeWindow
+	if c == nil {
+		return
+	}
+	c.onCloseRequest = fn
+}
+
+// requestClosePrompt 让前端显示我们自己的关闭确认框。
+// 返回 false 表示窗口或前端回调还没准备好（例如程序启动的极早期）。
+func requestClosePrompt(count int, ask bool) bool {
+	c := chromeWindow
+	if c == nil || c.onCloseRequest == nil {
+		return false
+	}
+	c.onCloseRequest(count, ask)
+	return true
+}
+
+// markForceClose 表示前端已经确认退出，下一次 WM_CLOSE 不再拦截。
+func markForceClose() {
+	c := chromeWindow
+	if c == nil {
+		return
+	}
+	c.forceClose.Store(true)
+}
+
 // initProcessIdentity 在创建窗口之前声明「这个进程是谁」，让任务栏的图标与
 // 分组走我们自己的 AppUserModelID（见 appUserModelID 的注释）。
 func initProcessIdentity() {
-	id, err := windows.UTF16PtrFromString(appUserModelID)
+	id, err := syscall.UTF16PtrFromString(appUserModelID)
 	if err != nil {
 		return
 	}
@@ -213,7 +264,7 @@ func setWindowIcon(hwnd uintptr, dark bool) {
 	}
 
 	var groups []uintptr
-	cb := windows.NewCallback(func(_, _, name, _ uintptr) uintptr {
+	cb := syscall.NewCallback(func(_, _, name, _ uintptr) uintptr {
 		groups = append(groups, name)
 		return 1 // 全部收下，下面再按主题挑
 	})
@@ -297,9 +348,44 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 	case wmEraseBkgnd:
 		return 1
 	case wmClose:
-		// 关窗是唯一拿得到「用户最终喜欢多大」的时刻。记完继续往下走，
-		// 真正的关闭还是交给原来的窗口过程 —— 这里只做记录，不拦消息。
+		// 关窗是唯一拿得到「用户最终喜欢多大」的时刻，先记下来。
 		rememberWindowSize(uintptr(hwnd))
+
+		c := chromeWindow
+		if c != nil && !c.forceClose.Load() {
+			action := settings.CloseActionAsk
+			if c.closeAction != nil {
+				action = c.closeAction()
+			}
+			count := 0
+			if c.runningCount != nil {
+				count = c.runningCount()
+			}
+			// 有任务时不管记住的是托盘还是退出，都先问一句「是否退出」：
+			// 用户以为只是收起来、结果任务被带走，是这里最不能接受的误会。
+			if count > 0 {
+				if requestClosePrompt(count, false) {
+					return 0
+				}
+				minimizeWindow()
+				return 0
+			}
+			switch action {
+			case settings.CloseActionTray:
+				// 收进托盘：图标挂好之后再藏窗口；挂不上就退回最小化，至少窗口还在。
+				if hideToTray() {
+					return 0
+				}
+				minimizeWindow()
+				return 0
+			case settings.CloseActionAsk:
+				// 还没记住选择：让前端问「确定要退出吗」，带「不再提示」。
+				if requestClosePrompt(0, true) {
+					return 0
+				}
+			}
+		}
+		removeTrayIcon()
 	case wmGetMinMaxInfo:
 		// 没有系统边框，最小尺寸得自己定，不然窗口能被拖成一条缝。
 		if lp != nil {
@@ -310,10 +396,18 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		}
 		return 0
 	case wmWake:
-		// 第二个实例点开程序时，由它发来这条消息：把已有窗口提到最前面。
-		procShowWindow.Call(uintptr(hwnd), swRestore)
-		procSetForeground.Call(uintptr(hwnd))
+		// 第二个实例点开程序时，由它发来这条消息：把窗口从托盘或最小化里叫回来。
+		showFromTray()
 		return 0
+	case wmTray:
+		// 托盘图标的鼠标消息：左键回来，右键弹菜单。
+		handleTrayMessage(uintptr(lp))
+		return 0
+	case wmCommand:
+		// 托盘菜单项走标准 WM_COMMAND；不是我们的命令就交回默认处理。
+		if handleTrayCommand(uint16(wp & 0xffff)) {
+			return 0
+		}
 	case wmDpiChanged:
 		// 窗口换到另一个缩放比例的显示器时，系统会给出建议矩形，照着它调整，
 		// 界面在两种缩放的屏幕之间移动时才不会忽然变大或变小。

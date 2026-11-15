@@ -2,9 +2,10 @@
 import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ReportShell from './ReportShell.vue'
+import ScanBadge from './ScanBadge.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
-import type { RunRowView } from '../composables/useRun'
+import type { RunRowView, ScanState } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { copyText, shortReason } from '../composables/useDeadLinks'
@@ -19,7 +20,6 @@ import { describeError, openTarget } from '../api'
 const props = defineProps<{
   rows: RunRowView[]
   tag?: string
-  manualOpen: boolean
   recent?: string[]
   busy?: boolean
   progress?: number
@@ -29,11 +29,12 @@ const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
   'pick-recent': [path: string]
-  'submit-paths': [paths: string[]]
   remove: [id: string]
   reveal: [path: string]
   clear: []
-  'update:manualOpen': [open: boolean]
+  /** 卡片自己的扫描：取消这一份 / 恢复（重试）。 */
+  'cancel-scan': [id: string]
+  'retry-scan': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -96,7 +97,7 @@ function kindOf(item: ImageItem): Kind {
 const addresses = computed<{ url: string; kind: Kind }[]>(() => {
   const byUrl = new Map<string, Kind>()
   for (const row of props.rows) {
-    for (const item of row.result?.items ?? []) {
+    for (const item of row.liveItems ?? row.result?.items ?? []) {
       if (!isRemoteRef(item.target)) continue
       const kind = kindOf(item)
       const known = byUrl.get(item.target)
@@ -127,8 +128,13 @@ interface DocGroup {
   /** 原文档：检测是只读的，卡头上「打开文件」开的就是它。 */
   path: string
   list: DocAddr[]
+  ok: number
   bad: number
   unsupported: number
+  pending: number
+  /** 这张卡自己扫通了没有：没通的时候卡里说的全是扫描，不是地址。 */
+  scan: ScanState
+  scanError?: string
 }
 
 /** 一行地址在某一篇文档里的位置：同一个地址在同篇里重复引用时，行号收在一起。 */
@@ -139,12 +145,16 @@ interface DocAddr extends AddrRow {
 /**
  * 按文档分组：一篇文档一张卡。组内地址按「坏的先」排，卡与卡之间
  * 先看哪篇问题多 —— 出问题的文档应该在上面。
+ *
+ * 还在一份份扫的文档也有卡：扫描这件事发生在卡片里面，不是先在页顶上
+ * 挂一行「正在扫描 3 个文件」、扫完了才让卡片出现。
  */
 const groups = computed<DocGroup[]>(() => {
   const out: DocGroup[] = []
   for (const row of props.rows) {
     const byTarget = new Map<string, DocAddr>()
-    for (const item of row.result?.items ?? []) {
+    // 跑动中用实时明细：每检测完一个地址，卡片上的结论与计数跟着换。
+    for (const item of row.liveItems ?? row.result?.items ?? []) {
       if (!isRemoteRef(item.target)) continue
       const kind = kindOf(item)
       const known = byTarget.get(item.target)
@@ -165,7 +175,6 @@ const groups = computed<DocGroup[]>(() => {
         lines: [item.line],
       })
     }
-    if (byTarget.size === 0) continue
     const list = [...byTarget.values()].sort(
       (a, b) => RANK[a.kind] - RANK[b.kind] || a.url.localeCompare(b.url),
     )
@@ -175,11 +184,22 @@ const groups = computed<DocGroup[]>(() => {
       dir: row.dir,
       path: row.path,
       list,
+      ok: list.filter((a) => a.kind === 'ok').length,
       bad: list.filter((a) => a.kind === 'bad').length,
       unsupported: list.filter((a) => a.kind === 'unsupported').length,
+      pending: list.filter((a) => a.kind === 'pending').length,
+      scan: row.scan ?? 'idle',
+      scanError: row.scanError,
     })
   }
-  return out.sort((a, b) => b.bad - a.bad || b.list.length - a.list.length || a.name.localeCompare(b.name))
+  const rank = (group: DocGroup): number => (group.scan === 'ok' ? 0 : 1)
+  return out.sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      b.bad - a.bad ||
+      b.list.length - a.list.length ||
+      a.name.localeCompare(b.name),
+  )
 })
 
 /** 卡头只写最后一级目录，和上传页的卡片一个规矩。 */
@@ -216,13 +236,18 @@ async function openFile(path: string): Promise<void> {
   }
 }
 
-/** 筛掉不匹配的行后，空了的组不再显示。 */
+/**
+ * 筛掉不匹配的行后，空了的组不再显示。
+ *
+ * 例外是还没扫通的卡：它们本来就没有地址可筛，筛掉等于让人以为那份文档
+ * 不存在了 —— 正在扫的文件必须在眼前出现，哪怕内容还是空的。
+ */
 const shownGroups = computed<DocGroup[]>(() => {
   if (filter.value === 'all') return groups.value
   const want: Kind = filter.value === 'bad' ? 'bad' : 'ok'
   return groups.value
     .map((group) => ({ ...group, list: group.list.filter((a) => a.kind === want) }))
-    .filter((group) => group.list.length > 0)
+    .filter((group) => group.list.length > 0 || group.scan !== 'ok')
 })
 
 const band = computed(() => {
@@ -242,8 +267,8 @@ const band = computed(() => {
  * 还在扫的时候不能说「这些文件里没有远程图片」——扫完才知道。
  * 检测模式的预检本身就要访问网络，慢的时候要等十几秒。
  */
-const scanning = computed(() => props.rows.some((row) => row.images === null))
-const scanCount = computed(() => props.rows.filter((row) => row.images === null).length)
+const scanning = computed(() => props.rows.some((row) => (row.scan ?? 'idle') === 'scanning'))
+const scanCount = computed(() => props.rows.filter((row) => (row.scan ?? 'idle') === 'scanning').length)
 
 const emptyHint = computed<MessageKey>(() => {
   if (scanning.value) return 'check.scanning'
@@ -261,17 +286,13 @@ const emptyHint = computed<MessageKey>(() => {
     :tag="tag"
     :verdicts="band"
     :has-rows="rows.length > 0"
-    :manual-open="manualOpen"
     :recent="recent"
     :busy="busy"
     :progress="progress"
-    :indeterminate="rows.length <= 1"
     @pick-files="emit('pick-files')"
     @pick-folder="emit('pick-folder')"
     @pick-recent="emit('pick-recent', $event)"
-    @submit-paths="emit('submit-paths', $event)"
     @clear="emit('clear')"
-    @update:manual-open="emit('update:manualOpen', $event)"
   >
     <div class="chk">
       <div v-if="counts.all > 0" class="chk__filters" role="group" :aria-label="t('check.filter.label')">
@@ -331,15 +352,36 @@ const emptyHint = computed<MessageKey>(() => {
             <span class="group-card__sub mono" :title="group.dir">{{ shortDir(group.dir) }}</span>
           </span>
           <span class="group-card__badges">
-            <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
-            <span v-if="group.bad > 0" class="badge badge--bad">
-              {{ t('check.group.bad', { count: group.bad }) }}
-            </span>
-            <span v-if="group.unsupported > 0" class="badge badge--warn">
-              {{ t('check.group.unsupported', { count: group.unsupported }) }}
-            </span>
+            <!-- 还没扫通：卡上说的是扫描本身，不是「0 个地址」 -->
+            <ScanBadge
+              v-if="group.scan !== 'ok'"
+              :state="group.scan"
+              :error="group.scanError"
+              :busy="busy"
+              @cancel="emit('cancel-scan', group.id)"
+              @retry="emit('retry-scan', group.id)"
+            />
+            <template v-else>
+              <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
+              <span v-if="group.ok > 0" class="badge badge--ok">
+                {{ t('check.group.ok', { count: group.ok }) }}
+              </span>
+              <span v-if="group.pending > 0" class="badge">
+                {{ t('check.group.pending', { count: group.pending }) }}
+              </span>
+              <span v-if="group.bad > 0" class="badge badge--bad">
+                {{ t('check.group.bad', { count: group.bad }) }}
+              </span>
+              <span v-if="group.unsupported > 0" class="badge badge--warn">
+                {{ t('check.group.unsupported', { count: group.unsupported }) }}
+              </span>
+            </template>
           </span>
-          <span class="group-card__more" :class="{ 'group-card__more--on': isOpen(group.id) }">
+          <span
+            v-if="group.list.length > 0"
+            class="group-card__more"
+            :class="{ 'group-card__more--on': isOpen(group.id) }"
+          >
             {{ t(isOpen(group.id) ? 'row.details.collapse' : 'row.details.expand') }}
             <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
           </span>

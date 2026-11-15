@@ -37,6 +37,20 @@ const (
 // DefaultRemoteDir 是下载回本地时的默认子目录名。
 const DefaultRemoteDir = "images"
 
+// 点窗口右上角的叉号时做什么。
+const (
+	// CloseActionAsk 每次点叉号都问一句（首次使用时的默认）。
+	CloseActionAsk = "ask"
+	// CloseActionTray 收进系统托盘，窗口从任务栏消失，后台继续跑。
+	CloseActionTray = "tray"
+	// CloseActionExit 退出程序。
+	CloseActionExit = "exit"
+
+	// closeActionMinimizeLegacy 是上一版「最小化到任务栏」的旧值。
+	// 只用于把老设置迁到托盘，不再写回文件。
+	closeActionMinimizeLegacy = "minimize"
+)
+
 // CurrentSchemaVersion 是设置文件的结构版本。加载到比它旧的设置时会做一次性迁移，
 // 迁移完写回，用户之后再改回旧值就不会再被动。
 //
@@ -53,7 +67,9 @@ type Settings struct {
 	Suffix      string `json:"suffix"`
 	OutDir      string `json:"outDir"`
 	Backup      bool   `json:"backup"`
-	DryRun      bool   `json:"dryRun"`
+	// DryRun 只在调试构建里由 version.DebugMode() 强制打开：只扫描、不写文件、不上传。
+	// 它不是用户设置 —— 不落盘（json:"-"）、界面没有开关，发布版里恒为 false。
+	DryRun bool `json:"-"`
 
 	// ReuseUploads 打开跨运行的上传结果缓存：同一张图（大小与修改时间都没变）
 	// 上次已经传过的话，这一轮直接用上次的地址，不再重传。
@@ -67,6 +83,10 @@ type Settings struct {
 	// RemoteDir 是下载回本地时相对文档所在目录的子目录名，默认 images。
 	// 允许写成 ../images 这种（图片放在上一级的公用目录里很常见）。
 	RemoteDir string `json:"remoteDir"`
+
+	// CloseAction 决定点窗口叉号时问一句、收进托盘还是退出。
+	// 默认每次询问；老设置里的 "minimize" 在 Normalize 时迁成 "tray"。
+	CloseAction string `json:"closeAction"`
 
 	// SchemaVersion 只在设置文件里出现，界面不显示。
 	SchemaVersion int `json:"schemaVersion,omitempty"`
@@ -84,6 +104,7 @@ func Default() Settings {
 		ReuseUploads:  true,
 		Remote:        RemoteIgnore,
 		RemoteDir:     DefaultRemoteDir,
+		CloseAction:   CloseActionAsk,
 		SchemaVersion: CurrentSchemaVersion,
 	}
 }
@@ -207,6 +228,16 @@ func (s *Settings) NormalizeLang(lang i18n.Lang) error {
 	s.RemoteDir = strings.Trim(s.RemoteDir, "/")
 	if s.RemoteDir == "" || s.RemoteDir == "." {
 		s.RemoteDir = DefaultRemoteDir
+	}
+
+	switch s.CloseAction {
+	case CloseActionAsk, CloseActionTray, CloseActionExit:
+	case "":
+		s.CloseAction = CloseActionAsk
+	case closeActionMinimizeLegacy:
+		s.CloseAction = CloseActionTray
+	default:
+		return fmt.Errorf(i18n.T(lang, i18n.KeySettingsUnknownCloseAction), s.CloseAction)
 	}
 	return nil
 }

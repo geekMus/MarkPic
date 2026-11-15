@@ -41,6 +41,33 @@ func TestCompareVersions(t *testing.T) {
 	}
 }
 
+// 日历版本是发布号的全部规则：日期大就是新，同一天靠序号。
+func TestCompareCalendarVersions(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"2026.11.14", "2026.11.14", 0},
+		{"2026.11.14", "2026.11.14.1", -1}, // 同一天的第二版
+		{"2026.11.14.2", "2026.11.14.1", 1},
+		{"2026.11.14", "2026.11.15", -1},
+		{"2026.09.30", "2026.10.01", -1}, // 补零：字符串序与时间序一致
+		{"2026.10.01", "2026.09.30", 1},
+		{"2025.12.31", "2026.01.01", -1},
+		{"2026.11.14", "2027.01.01", -1},
+		{"1.0.0", "2026.11.14", -1}, // 从语义化版本迁到日期版
+		{"2026.11.14", "1.0.0", 1},
+		{"2026.11.14+dev", "2026.11.14", 0}, // 开发构建不参与比较
+		{"v2026.11.14", "2026.11.14", 0},
+		{"2026.11.14-3-gabc1234", "2026.11.14", 0}, // git describe
+	}
+	for _, c := range cases {
+		if got := Compare(c.a, c.b); got != c.want {
+			t.Errorf("Compare(%q, %q) = %d，想要 %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
 func manifestServer(t *testing.T, body string, status int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

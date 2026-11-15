@@ -111,10 +111,14 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 		go func() {
 			defer wg.Done()
 			for u := range work {
+				// 这一单元（一张本地图、或一个远程地址）改动了哪几处引用：
+				// 连同进度一起发出去，卡片里才看得到「哪一张已经下好、哪一张还没有」。
+				var patches []ItemPatch
 				if u < len(groups) {
 					g := groups[u]
 					link, status, uerr := r.upload(ctx, g.abs)
 					mu.Lock()
+					patches = make([]ItemPatch, 0, len(g.refs))
 					for _, idx := range g.refs {
 						if uerr != nil {
 							if status == StatusCancelled {
@@ -124,16 +128,18 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 								items[idx].Status = StatusFailed
 							}
 							items[idx].Error = uerr.Error()
-							continue
+						} else {
+							items[idx].URL = link
+							items[idx].Status = status
 						}
-						items[idx].URL = link
-						items[idx].Status = status
+						patches = append(patches, ItemPatch{Index: idx, Item: items[idx]})
 					}
 					mu.Unlock()
 				} else {
 					g := remotes[u-len(groups)]
 					status, link, msg, reused := r.handleRemote(ctx, docDir, g.url)
 					mu.Lock()
+					patches = make([]ItemPatch, 0, len(g.refs))
 					for _, idx := range g.refs {
 						items[idx].Status = status
 						items[idx].Reused = reused
@@ -145,6 +151,7 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 							// 这份说明会被打进终端、也会被复制进清单，先抹掉。
 							items[idx].Error = remoteimg.RedactText(msg)
 						}
+						patches = append(patches, ItemPatch{Index: idx, Item: items[idx]})
 					}
 					mu.Unlock()
 				}
@@ -153,7 +160,13 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 				done++
 				progress := done
 				mu.Unlock()
-				r.notify(Event{Type: EventFileProgress, ID: id, Done: progress, Total: total})
+				r.notify(Event{
+					Type:  EventFileProgress,
+					ID:    id,
+					Done:  progress,
+					Total: total,
+					Items: patches,
+				})
 			}
 		}()
 	}

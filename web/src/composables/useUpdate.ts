@@ -11,7 +11,7 @@ import { t } from '../i18n'
 import type { UpdateStatus } from '../types'
 
 /**
- * 更新状态放成模块级单例：底栏的版本按钮、关于对话框、「启动时自动检查」
+ * 更新状态放成模块级单例：侧边栏左下角的版本按钮、关于对话框、「启动时自动检查」
  * 都要读同一份状态，分成几份会互相打架。
  */
 
@@ -26,6 +26,10 @@ export const RELEASES_URL = PROJECT_URL + '/releases'
 
 const AUTO_CHECK_KEY = 'cmp.autoCheckUpdate'
 const POLL_MS = 500
+// 检查在 Go 的后台协程里跑，前端用 update.status 轮询结果。150ms 够跟手，
+// 又不会把窗口线程的 RPC 队列刷屏；20 秒比服务端 16 秒的请求上限留了余量。
+const CHECK_POLL_MS = 150
+const CHECK_DEADLINE_MS = 20_000
 
 function blank(): UpdateStatus {
   return {
@@ -79,13 +83,36 @@ function schedulePoll(): void {
   }, POLL_MS)
 }
 
+/**
+ * 等后台检查落地。服务端只把状态切到 checking 就返回，网络请求不占窗口线程；
+ * 这里轮询到 latest / available / error 为止，超时就当检查失败。
+ */
+async function waitForCheck(): Promise<UpdateStatus> {
+  const deadline = Date.now() + CHECK_DEADLINE_MS
+  let next = status.value
+  while (next.state === 'checking' && Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, CHECK_POLL_MS))
+    try {
+      next = await getUpdateStatus()
+    } catch (e) {
+      return { ...next, state: 'error', error: describeError(e, t('error.checkUpdate')) }
+    }
+  }
+  if (next.state === 'checking') {
+    return { ...next, state: 'error', error: t('error.checkUpdate') }
+  }
+  return next
+}
+
 async function check(quiet = false): Promise<void> {
   if (busy.value) return
   busy.value = true
   if (!quiet) error.value = ''
   status.value = { ...status.value, state: 'checking', error: '' }
   try {
-    const next = await checkUpdate()
+    const started = await checkUpdate()
+    status.value = started
+    const next = started.state === 'checking' ? await waitForCheck() : started
     status.value = next
     if (next.state === 'error') {
       // 静默检查失败就当没查过：下次打开对话框用户可以自己再点一次。
@@ -149,8 +176,8 @@ async function waitForRestart(wasVersion: string): Promise<void> {
 }
 
 /**
- * 取版本号里的数字部分再比。界面上的 current 写作 "v1.0.0"，
- * 而 /api/health 报的是 "1.0.0 (4cc55e4)" —— 直接比字符串会立刻判成「变了」，
+ * 取版本号里的数字部分再比。界面上的 current 写作 "v2026.11.14"，
+ * 而 health 报的是 "2026.11.14+dev (91eca40)" —— 直接比字符串会立刻判成「变了」，
  * 于是页面在旧进程还占着端口时就刷新了，刷完还是旧界面。
  */
 function versionCore(text: string): string {

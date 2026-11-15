@@ -57,6 +57,12 @@ func (b *Batcher) Push(ev conv.Event) {
 		if _, seen := b.slots[ev.ID]; !seen {
 			b.order = append(b.order, ev.ID)
 		}
+		// 进度事件里的 done/total 是累计值，覆盖没有损失；但 Items 是「刚处理完
+		// 这几处」的增量，直接覆盖会把同一窗口里前面几张的状态丢掉，界面于是
+		// 永远把它们显示成「待处理」。把增量接起来再存。
+		if prev, ok := b.slots[ev.ID]; ok && prev.Type == conv.EventFileProgress && ev.Type == conv.EventFileProgress {
+			ev.Items = append(prev.Items, ev.Items...)
+		}
 		b.slots[ev.ID] = ev
 		if len(b.slots) >= batchSlotBatch {
 			b.materializeLocked()

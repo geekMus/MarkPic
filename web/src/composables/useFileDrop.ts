@@ -12,8 +12,8 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
  */
 export interface FileDropHandlers {
   onPaths: (paths: string[]) => void
-  /** 拖进来了，但拿不到本地路径 */
-  onUnsupported: () => void
+  /** 拖进来了，但拿不到本地路径；hadFiles 表示这次拖的确实是文件（可退回原生选择框） */
+  onUnsupported: (hadFiles: boolean) => void
 }
 
 export function useFileDrop(handlers: FileDropHandlers) {
@@ -112,7 +112,7 @@ export function useFileDrop(handlers: FileDropHandlers) {
     active.value = false
     const paths = pathsFrom(event.dataTransfer)
     if (paths.length > 0) handlers.onPaths(paths)
-    else handlers.onUnsupported()
+    else handlers.onUnsupported(Array.from(event.dataTransfer?.files ?? []).length > 0)
   }
 
   onMounted(() => {

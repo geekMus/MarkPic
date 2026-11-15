@@ -11,7 +11,7 @@ import type { Settings } from '../types'
  * 「设置」页：把所有旋钮放在一张单子上。
  *
  * 顺序按一轮作业的走向排：先连上 PicGo（图往哪传）、再定并发与重试，
- * 然后是结果写到哪（文档、下载回来的图、备份与试运行），最后是界面自己的偏好。
+ * 然后是结果写到哪（文档、下载回来的图、备份与调试模式），最后是界面自己的偏好。
  * 以前「输出」占一个菜单，可它没有任何「切换」的性质，只是设置的另一个章节。
  */
 const props = defineProps<{
@@ -21,8 +21,14 @@ const props = defineProps<{
   loading: boolean
   saving: boolean
   loadError: string | null
-  /** 当前这一轮会不会上传图片：只有「上传本地图片」且不是试运行才会。 */
+  /** 当前这一轮会不会上传图片：只有「上传本地图片」且不是调试模式才会。 */
   picgoNeeded: boolean
+  /**
+   * 调试构建（scripts/dev.mjs）：整轮只扫描、不写文件。
+   *
+   * 这不是一个开关 —— 发布版里连这个概念都不存在，所以只在 dev 构建里说一句。
+   */
+  debug: boolean
 }>()
 
 const emit = defineEmits<{
@@ -53,6 +59,13 @@ const THEME_OPTIONS: readonly { value: ThemeChoice; labelKey: MessageKey }[] = [
 const LANG_OPTIONS: readonly { value: Lang; labelKey: MessageKey }[] = [
   { value: 'zh', labelKey: 'language.zh' },
   { value: 'en', labelKey: 'language.en' },
+]
+
+/** 叉号行为：没有任务时每次问一句，还是最小化到托盘 / 直接退出；有任务时总会先确认退出。 */
+const CLOSE_OPTIONS: readonly { value: Settings['closeAction']; labelKey: MessageKey }[] = [
+  { value: 'ask', labelKey: 'settings.closeAction.ask' },
+  { value: 'tray', labelKey: 'settings.closeAction.tray' },
+  { value: 'exit', labelKey: 'settings.closeAction.exit' },
 ]
 
 function textValue(event: Event): string {
@@ -231,17 +244,28 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
         />
         <span>{{ t('settings.backup') }}</span>
       </label>
-      <label class="check">
-        <input
-          type="checkbox"
-          :checked="settings.dryRun"
-          @change="emit('update', { dryRun: checkedValue($event) })"
-        />
-        <span>
-          {{ t('settings.dryRun') }}
-          <span class="check__hint">{{ t('output.dryRun.hint') }}</span>
-        </span>
-      </label>
+      <!-- 调试模式没有开关：它是构建时就定下来的，dev 构建里整轮只扫描。 -->
+      <p v-if="debug" class="check__hint">{{ t('settings.debugNote') }}</p>
+    </section>
+
+    <section class="section">
+      <h3 class="section__title">{{ t('settings.section.close') }}</h3>
+      <div class="field">
+        <span class="field__label">{{ t('settings.closeAction') }}</span>
+        <div class="segmented" role="group" :aria-label="t('settings.closeAction')">
+          <button
+            v-for="opt in CLOSE_OPTIONS"
+            :key="opt.value"
+            type="button"
+            class="segmented__item"
+            :aria-pressed="settings.closeAction === opt.value"
+            @click="emit('update', { closeAction: opt.value })"
+          >
+            {{ t(opt.labelKey) }}
+          </button>
+        </div>
+        <span class="field__hint">{{ t('settings.closeAction.hint') }}</span>
+      </div>
     </section>
 
     <section class="section">

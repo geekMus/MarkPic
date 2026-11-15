@@ -1,25 +1,40 @@
-import { computed, markRaw, reactive, ref } from 'vue'
+import { computed, markRaw, reactive, ref, shallowReactive } from 'vue'
 import {
   cancelRun as requestCancelRun,
+  cancelScan as requestCancelScan,
   describeError,
   getCurrentRun,
+  scanStart as requestScanStart,
   startRun as requestStartRun,
 } from '../api'
 import type {
   CurrentRun,
   FileResult,
+  ImageItem,
   PreviewResult,
   RunEvent,
   RunFileInfo,
   RunSummary,
   RemoteMode,
+  ScanEvent,
   Settings,
 } from '../types'
 import { t } from '../i18n'
+import { useHealth } from './useHealth'
 import { useToasts } from './useToasts'
 
 export type RunPhase = 'idle' | 'preparing' | 'running' | 'cancelling' | 'done' | 'cancelled'
 export type RowPhase = 'queued' | 'running' | 'settled' | 'cancelled'
+
+/**
+ * 一份文档自己的扫描状态。
+ *
+ * 队列行一加进来就要先被扫一遍（数清有几张图、哪些是远程地址），扫完才允许开跑：
+ * 图片数、远程地址清单都是跑之前就要摆到卡片上的东西。'idle' 是「还没开始扫」，
+ * 每次启动恢复出来的行都是它；'cancelled' 表示用户中途掐掉了这一份，卡片上给一个
+ * 「重新扫描」，而不是自动替他再扫一遍。
+ */
+export type ScanState = 'idle' | 'scanning' | 'ok' | 'failed' | 'timeout' | 'cancelled'
 
 export interface RunRow {
   id: string
@@ -53,6 +68,42 @@ export interface RunRow {
   serverId?: string
   /** 内部记账：这份结果是否已经算进 live 统计（预检结果只贡献图片数）。 */
   scored?: boolean
+  /** 这一行自己的扫描状态；只有 'ok' 的行才允许参与「开始」。 */
+  scan?: ScanState
+  /** 扫描没通过时给人看的一句话（超时、找不到文件、后台报错）。 */
+  scanError?: string
+  /**
+   * 这一行的扫描属于哪一批。
+   *
+   * 取消之后重扫会开新的一批：上一批的收尾事件（扫完了/超时了）不能把新一批
+   * 还在扫的行按超时结掉，所以每批只认自己当初点过的那几行。
+   */
+  scanBatch?: string
+  /**
+   * 正在跑的时候，这一篇逐条图片的状态。
+   *
+   * Go 侧不再等整篇跑完才回结果：每处理完一张就发一条增量，这里按位置覆盖。
+   * 用 shallowReactive 装，换掉某一格就能让卡片上那一行重渲染，不必把上万条明细
+   * 全做成响应式。跑完（file.finished）后换回整份 result，这份就丢掉。
+   */
+  liveItems?: ImageItem[]
+  /**
+   * 这一轮这一篇真正要处理多少个「单元」。
+   *
+   * 上传是去重后的本地图，检测/下载是去重后的远程地址 —— Go 侧的 file.progress
+   * 只在处理完第一张之后才带总数，启动时先按预览明细估一份，页头那条线才能从 0
+   * 开始一直按总进度走，而不是等到第一个文件完成才跳。
+   */
+  workTotal?: number
+  /** 这一篇已经处理完的单元数；文件完成时补齐，运行中由 file.progress 推进。 */
+  workDone?: number
+  /**
+   * 这一轮已经计进页脚「替换」的明细下标。
+   *
+   * 卡片每处理完一处就换状态，页脚也该跟着走；按位置去重，进度事件重放不会
+   * 把数字算重。file.finished 会用结果校正一次，并清掉这份记账。
+   */
+  counted?: Set<number>
 }
 
 /** 列表拿到的行就带着结果。保留这个别名，免得每个组件都改一遍类型。 */
@@ -107,6 +158,8 @@ const KNOWN_EVENT_TYPES = new Set<string>([
   'run.finished',
   'run.cancelled',
   'log',
+  'scan.file',
+  'scan.done',
 ])
 
 /** 运行中的统计（每页一份，切页时整份搬走，不跟着页面串味）。 */
@@ -170,7 +223,7 @@ function emptyCounters(): LiveCounters {
  * 一个作业页的全部可变状态。
  *
  * 「转换 / 检测 / 下载」是三个独立的页面：各自的队列、各自的进度与结果，切走再切回来
- * 还是原样。后端一次只跑一轮，那一轮属于「开始它的那一页」—— 切页只是把下面这组
+ * 还是原样。后端每一页最多跑一轮，可以同时跑；每一轮属于「开始它的那一页」—— 切页只是把下面这组
  * ref 换成另一页的引用，事件照样写进跑着的那一页，不会因为画面换了就写错地方。
  */
 interface QueuePage {
@@ -218,8 +271,58 @@ const pages: Record<RemoteMode, QueuePage> = {
 
 /** 当前显示的是哪一页。 */
 let activePage: RemoteMode = 'ignore'
-/** 正在跑的那一轮属于哪一页；`null` = 没有作业在跑（切页不会改它）。 */
-const runningPage = ref<RemoteMode | null>(null)
+
+/**
+ * 哪些页有作业在跑。
+ *
+ * 三页互相独立：上传、检测、下载可以各跑各的（后端也只按页限制，同一页仍然只能一轮）。
+ * 切页只是把下面这组 ref 换成另一页的引用；事件按 runId 认领回它自己的页。
+ */
+const runningModes = reactive<Set<RemoteMode>>(new Set())
+/** runId → 这一轮属于哪一页。run.started 带 mode，之后的事件只带 runId。 */
+const runModeByRunId = new Map<string, RemoteMode>()
+
+/** 正在跑的那一轮是不是调试构建：决定「0 张」该怎么跟用户解释。 */
+const runningDebug = ref(false)
+
+function markRunning(mode: RemoteMode, runId: string | null): void {
+  if (runId !== null && runId !== '') runModeByRunId.set(runId, mode)
+  runningModes.add(mode)
+}
+
+function clearRunning(mode: RemoteMode, runId?: string | null): void {
+  runningModes.delete(mode)
+  if (runId !== undefined && runId !== null) runModeByRunId.delete(runId)
+}
+
+/** 这一轮属于哪一页：先查 runId 表，再查各页自己的 runId（重连接管时补的表）。 */
+function modeOfRun(eventRunId: string): RemoteMode | null {
+  const mapped = runModeByRunId.get(eventRunId)
+  if (mapped !== undefined) return mapped
+  for (const pageMode of PAGES) {
+    if (pages[pageMode].runId === eventRunId) return pageMode
+  }
+  return null
+}
+
+/**
+ * 暂时把某一页接上来跑一段同步逻辑。
+ *
+ * 所有「改行、改统计」的辅助函数读的都是当前页那组 ref。事件属于别的页时，
+ * 先存当前页、换上目标页，跑完再换回来 —— 同一 tick 内换出去再换回来，Vue 不会画中间态。
+ */
+function withPage<T>(mode: RemoteMode, fn: () => T): T {
+  if (mode === activePage) return fn()
+  const original = activePage
+  savePage()
+  loadPage(mode)
+  try {
+    return fn()
+  } finally {
+    savePage()
+    loadPage(original)
+  }
+}
 
 const phase = ref<RunPhase>(pages[activePage].phase)
 const rows = ref<RunRow[]>(pages[activePage].rows)
@@ -315,11 +418,6 @@ export function currentQueuePage(): RemoteMode {
   return activePage
 }
 
-/** 哪一页有作业在跑；没有就是 `null`。 */
-export function runningQueuePage(): RemoteMode | null {
-  return runningPage.value
-}
-
 /** 三页各自的路径清单（持久化用）；调用前会把当前页写回 pages。 */
 export function queuePagePaths(): Record<RemoteMode, string[]> {
   savePage()
@@ -332,10 +430,11 @@ export function queuePagePaths(): Record<RemoteMode, string[]> {
 /** 这一页里还没预检过的行（`images === null` 的那批）：切到这一页时再扫。 */
 export function queuePagePendingPreview(mode: RemoteMode): string[] {
   if (mode === activePage) savePage()
-  // 只看「还没统计过张数」：跑过一轮但当时没扫到明细的行（images 仍是 null）
-  // 也算待扫，否则它永远停在 0 张，切回来也修不好。
+  // 只扫「压根没扫过」的行：被用户取消、扫超时、找不到文件的行也在等张数，
+  // 但它们的状态是给人看的 —— 自动重扫会把「已取消扫描」这个提示冲掉。
+  // 那几种要用户自己点「恢复扫描」/「重试」。
   return pages[mode].rows
-    .filter((row) => row.images === null)
+    .filter((row) => row.images === null && (row.scan ?? 'idle') === 'idle')
     .map((row) => row.path)
 }
 
@@ -393,7 +492,7 @@ let sinkActive = false
 let reconnectTimer: number | null = null
 // 一轮只播报一次结局：服务端在「自己掐掉」时会先发 run.cancelled 再发 run.finished，
 // 两条都带 summary.abortReason，不拦一下就会弹出两条一模一样的气泡。
-let outcomeAnnounced = false
+const announcedRuns = new Set<string>()
 
 /** 一轮在后台跑完时让任务栏闪一下：人切去干别的了，总得有个机会注意到。 */
 function flashIfAway(): void {
@@ -401,16 +500,27 @@ function flashIfAway(): void {
   const bridge = window as unknown as { cmpWinFlash?: () => Promise<unknown> }
   void bridge.cmpWinFlash?.()
 }
-let cancelTimer: number | null = null
+/** 每页各自的取消确认计时器：两页同时取消时不能互相清掉。 */
+const cancelTimers = new Map<RemoteMode, number>()
 let localSeq = 0
 
 /**
- * 有没有作业在跑。
+ * 有没有作业在跑（任何一页）。
  *
- * 按「哪一页在跑」算，而不是按当前页的 phase 算：切到别的页之后，那一轮还在后台跑，
- * 「加文件 / 开始」这些动作仍然得拦住（后端一次只跑一轮）。
+ * 顶栏、底栏用它表示「有活在干」；某一页自己的按钮则用 isRunBusy(这一页) ——
+ * 下载在跑不该把上传页的「开始」也锁住。
  */
-const busy = computed(() => runningPage.value !== null)
+const busy = computed(() => runningModes.size > 0)
+
+/** 某一页有没有作业在跑：这一页的加文件 / 开始 / 清空只看自己。 */
+function isRunBusy(mode: RemoteMode): boolean {
+  return runningModes.has(mode)
+}
+
+/** 正在跑的作业页，按侧边栏顺序；侧边栏据此给每个跑着的页都点一个记号。 */
+const runningPages = computed<RemoteMode[]>(() =>
+  PAGES.filter((pageMode) => runningModes.has(pageMode)),
+)
 
 /**
  * 传给列表的行数组。
@@ -424,20 +534,6 @@ const totalCount = computed(() => rows.value.length)
 
 const completedCount = computed(() => live.settled)
 
-/**
- * 图张数级的进度：文件级进度在「一轮只有一个文件」时永远停在 0，
- * 页头那条细线就成了一条死线。跑的是哪一页，就用哪一页的「已处理张数」。
- */
-const imageTotal = computed(() => live.images)
-
-const imageDone = computed(() => {
-  const owner = runningPage.value
-  if (owner === null) return 0
-  if (owner === 'check') return live.remoteChecked
-  if (owner === 'download') return live.localized
-  return live.uploaded + live.reused
-})
-
 const stats = computed<RunStats>(() => {
   const finished = summary.value
   if (finished) {
@@ -448,7 +544,7 @@ const stats = computed<RunStats>(() => {
       images: finished.images,
       uploaded: finished.uploaded,
       reused: finished.reused,
-  uploadRequests: finished.uploadRequests ?? 0,
+      uploadRequests: finished.uploadRequests ?? 0,
       failed: finished.failedImages,
       ok: finished.ok,
       partial: finished.partial,
@@ -457,17 +553,17 @@ const stats = computed<RunStats>(() => {
       localized: finished.localized ?? 0,
       localizedUnique: finished.localizedUnique ?? 0,
       remoteChecked: finished.remoteChecked ?? 0,
-    remoteCheckedUnique: finished.remoteCheckedUnique ?? 0,
+      remoteCheckedUnique: finished.remoteCheckedUnique ?? 0,
       remoteDead: finished.remoteDead ?? 0,
-    remoteDeadUnique: finished.remoteDeadUnique ?? 0,
-    remoteFailed: finished.remoteFailed ?? 0,
-    remoteFailedUnique: finished.remoteFailedUnique ?? 0,
+      remoteDeadUnique: finished.remoteDeadUnique ?? 0,
+      remoteFailed: finished.remoteFailed ?? 0,
+      remoteFailedUnique: finished.remoteFailedUnique ?? 0,
       remoteUnsupported: finished.remoteUnsupported ?? 0,
       localMissing: finished.localMissing ?? 0,
-  remoteKept: finished.remoteKept ?? 0,
+      remoteKept: finished.remoteKept ?? 0,
       filesChecked: finished.filesChecked ?? 0,
       remoteReused: finished.remoteReused ?? 0,
-  abortReason: finished.abortReason ?? '',
+      abortReason: finished.abortReason ?? '',
     }
   }
 
@@ -477,7 +573,7 @@ const stats = computed<RunStats>(() => {
     images: live.images,
     uploaded: live.uploaded,
     reused: live.reused,
-  uploadRequests: live.uploadRequests,
+    uploadRequests: live.uploadRequests,
     failed: live.failed,
     ok: live.ok,
     partial: live.partial,
@@ -493,10 +589,10 @@ const stats = computed<RunStats>(() => {
     remoteFailedUnique: live.remoteFailedUnique,
     remoteUnsupported: live.remoteUnsupported,
     localMissing: live.localMissing,
-  remoteKept: live.remoteKept,
+    remoteKept: live.remoteKept,
     filesChecked: live.filesChecked,
     remoteReused: live.remoteReused,
-  abortReason: live.abortReason,
+    abortReason: live.abortReason,
   }
 })
 
@@ -522,10 +618,16 @@ function splitPath(value: string): { name: string; dir: string } {
   return { name: trimmed, dir: '' }
 }
 
-function clearCancelTimer(): void {
-  if (cancelTimer !== null) {
-    window.clearTimeout(cancelTimer)
-    cancelTimer = null
+function clearCancelTimer(mode?: RemoteMode): void {
+  if (mode === undefined) {
+    for (const timer of cancelTimers.values()) window.clearTimeout(timer)
+    cancelTimers.clear()
+    return
+  }
+  const timer = cancelTimers.get(mode)
+  if (timer !== undefined) {
+    window.clearTimeout(timer)
+    cancelTimers.delete(mode)
   }
 }
 
@@ -577,6 +679,37 @@ function seedImagesFromRows(): void {
   let images = 0
   for (const row of rows.value) images += row.images ?? row.total
   live.images = images
+}
+
+/** 远程地址的判定跟 Go 侧 isRemoteURL 一致：http/https/协议相对。 */
+function isRemoteTarget(target: string): boolean {
+  const t = target.trim().toLowerCase()
+  // ftp:// 与 data: 这类我们碰不了，Go 不会把它们列成单元，这里也不能算进分母。
+  return t.startsWith('http://') || t.startsWith('https://') || t.startsWith('//')
+}
+
+/**
+ * 从一份明细里数这一轮真正要处理的单元。
+ *
+ * 上传按本地绝对路径去重（同一张图引用多次只传一次）；检测/下载按远程地址去重
+ * （同一个地址只探一次）。和 Go 侧 runUnits 的口径一致，所以预览估出来的总数
+ * 能直接当分母，第一个 file.progress 到了之后再换成服务端的权威值。
+ */
+function workUnitsIn(result: FileResult | null | undefined, mode: RemoteMode): number {
+  const items = result?.items
+  if (!items || items.length === 0) return 0
+  const seen = new Set<string>()
+  for (const item of items) {
+    if (mode === 'ignore') {
+      // 本地图只有真的存在才会进 groups；absolutePath 为空的是缺失引用，不算单元。
+      if (item.absolutePath === '') continue
+      seen.add(item.absolutePath.toLowerCase())
+      continue
+    }
+    if (!isRemoteTarget(item.target)) continue
+    seen.add(item.target.trim())
+  }
+  return seen.size
 }
 
 function reusedInResult(result: FileResult): number {
@@ -650,6 +783,8 @@ function rowFromResult(result: FileResult): RunRow {
     uploaded: 0,
     total: result.images,
     result: null,
+    // 服务端能给出一份结果，说明这一份早就读通了 —— 它不该再挡住「开始」。
+    scan: 'ok',
   }
 }
 
@@ -695,11 +830,18 @@ function absorbResult(row: RunRow, result: FileResult): void {
   live.remoteUnsupported += result.remoteUnsupported ?? 0
   live.localMissing += result.localMissing ?? 0
   live.remoteKept += result.remoteKept ?? 0
+  // 这一篇的活干完了：用结果里的明细重新数一遍单元。第一个 file.progress 之前
+  // 的分母是按预览估算的，比真实值大的话会一直把总进度压低；一个单元都没有
+  // （纯本地图/纯远程图）就该从分母里消失，不能把进度条永远钉在中间。
+  row.workTotal = workUnitsIn(result, activePage)
+  row.workDone = row.workTotal
   scoreStatus(result.status, 1)
   if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 
   const index = rowIndex.get(row.id) ?? (row.serverId ? eventIndex.get(row.serverId) : undefined) ?? -1
   row.result = markRaw(result)
+  row.liveItems = undefined
+  row.counted = undefined
   row.scored = true
   row.phase = 'settled'
   row.uploaded = result.uploaded
@@ -746,6 +888,11 @@ function applyStarted(files: RunFileInfo[]): void {
       // 上一轮的明细先留着：这一轮每跑完一个文件，事件会把结果换掉。
       // 立刻置空会让检测页/下载页在跑的过程中变成空白页（看着像崩了）。
       existing.scored = false
+      existing.scan = 'ok'
+      existing.scanError = undefined
+      existing.scanBatch = undefined
+      existing.liveItems = undefined
+      existing.counted = undefined
       return existing
     }
     return {
@@ -759,6 +906,7 @@ function applyStarted(files: RunFileInfo[]): void {
       uploaded: 0,
       total: file.images,
       result: null,
+      scan: 'ok',
     }
   })
   const kept = rows.value
@@ -771,9 +919,16 @@ function applyStarted(files: RunFileInfo[]): void {
       total: row.images ?? 0,
       result: null,
       scored: false,
+      liveItems: undefined,
     }))
 
   rows.value = [...started, ...kept]
+  // 服务端的 run.started 只带「这一篇几张图」，没带本模式的去重单元数；
+  // 先用预览明细估一份，file.progress 一来就会被权威值覆盖。
+  for (const row of rows.value) {
+    row.workTotal = workUnitsIn(row.result, activePage)
+    row.workDone = 0
+  }
   reindexRows()
   liveReset()
   seedImagesFromRows()
@@ -793,13 +948,51 @@ function markUnsettledCancelled(): void {
   live.settled = rows.value.length
 }
 
+/**
+ * 给一行准备「运行中的逐条明细」。
+ *
+ * 预览时已经把整份 items 摆出来了，先照抄一份；第一张图处理完之后，Go 侧每条进度
+ * 只说「第几处变成了什么」，这里按位置盖上去。照抄的一定要是浅响应数组：整份深响应
+ * 在几万条明细的文档上会把界面拖住。
+ */
+function seedLiveItems(row: RunRow): void {
+  if (!row.liveItems) row.liveItems = shallowReactive([...(row.result?.items ?? [])])
+}
+
+/**
+ * 把一条事件送回它自己那一页。
+ *
+ * 三页可以同时在跑，事件只带 runId；run.started 带 mode，先把 runId 记到那一页，
+ * 之后这条 runId 的所有事件都认领回同一页 —— 哪怕用户正看着别的页。
+ */
 function onSignal(event: RunEvent): void {
+  // 扫描事件不参和「一轮转换」：它有自己的 scanId、自己的卡片状态。
+  if (event.type === 'scan.file' || event.type === 'scan.done') {
+    onScanEvent(event)
+    return
+  }
+  const owner =
+    event.type === 'run.started' && (event.mode === 'ignore' || event.mode === 'check' || event.mode === 'download')
+      ? event.mode
+      : 'runId' in event
+        ? modeOfRun(event.runId)
+        : null
+  if (owner === null) {
+    // 日志没有页归属：还有活干就按当前页提示一声，别把后台的报错吞掉。
+    if (event.type === 'log' && busy.value) applyRunEvent(event, activePage)
+    return
+  }
+  if (owner === activePage) applyRunEvent(event, owner)
+  else withPage(owner, () => applyRunEvent(event, owner))
+}
+
+function applyRunEvent(event: RunEvent, owner: RemoteMode): void {
   switch (event.type) {
     case 'run.started': {
       if (runId.value !== null && runId.value !== event.runId) return
       if (runId.value === null && phase.value !== 'preparing') return
       runId.value = event.runId
-      outcomeAnnounced = false
+      markRunning(owner, event.runId)
       applyStarted(event.files)
       summary.value = null
       phase.value = 'running'
@@ -808,6 +1001,9 @@ function onSignal(event: RunEvent): void {
     case 'file.started': {
       if (!matches(event.runId)) return
       updateRow(event.id, { phase: 'running' })
+      const row = rowAt(event.id)
+      // 先把扫描到的明细铺开：第一张图处理完之前，卡片上也该看得到「待取回 7」。
+      if (row) seedLiveItems(row)
       return
     }
     case 'file.progress': {
@@ -821,6 +1017,30 @@ function onSignal(event: RunEvent): void {
       row.done = event.done ?? 0
       row.total = event.total
       row.images = event.total
+      row.workTotal = event.total
+      row.workDone = Math.min(event.done ?? 0, event.total)
+
+      // 增量只带「刚处理完的是哪几处」：按位置覆盖，卡片上那一行就从「待取回」变成
+      // 「已取回」/「失败」。整份重发的话，一篇上万条明细会把事件通道撑爆。
+      seedLiveItems(row)
+      if (row.liveItems && event.items?.length) {
+        const counted = row.counted ?? (row.counted = new Set<number>())
+        for (const patch of event.items) {
+          if (patch.index < 0 || patch.index >= row.liveItems.length) continue
+          // 页脚的「替换」也按刚处理完的引用走：卡片显示「已替换 4」而页脚还是
+          // 「替换 0」会像没动。每处只记一次，进度事件重放不会把数字算重。
+          const status = patch.item.status
+          if (
+            !counted.has(patch.index) &&
+            (status === 'uploaded' || status === 'reused' || status === 'cached')
+          ) {
+            counted.add(patch.index)
+            row.uploaded += 1
+            live.uploaded += 1
+          }
+          row.liveItems[patch.index] = patch.item
+        }
+      }
       return
     }
     case 'file.finished': {
@@ -836,17 +1056,14 @@ function onSignal(event: RunEvent): void {
     }
     case 'run.finished': {
       if (!matches(event.runId)) {
-        // runId 没接上（例如重连之后事件晚到）却还有「哪一页在跑」的记录：
-        // 后端一次只跑一轮，能收到 finished 就说明它收工了，认下这条事件，
-        // 否则底栏的「取消」会一直挂在那里，队列也一直锁着。
-        if (runId.value !== null || runningPage.value === null) return
+        // 开始请求还没返回、run.started 先到：这一页还停在「准备中」，认下这条收尾。
+        if (runId.value !== null || phase.value !== 'preparing') return
         runId.value = event.runId
       }
-      const owner = runningPage.value ?? activePage
-      runningPage.value = null
-      if (outcomeAnnounced) { runId.value = null; phase.value = 'cancelled'; return }
+      clearRunning(owner, event.runId)
+      clearCancelTimer(owner)
+      if (announcedRuns.has(event.runId)) { runId.value = null; phase.value = 'cancelled'; return }
       flashIfAway()
-      clearCancelTimer()
       summary.value = event.summary
       phase.value = event.summary.cancelled ? 'cancelled' : 'done'
       if (event.summary.cancelled) markUnsettledCancelled()
@@ -854,9 +1071,25 @@ function onSignal(event: RunEvent): void {
       if (event.summary.cancelled) {
         // 图床成片失败时这一轮是我们自己掐掉的，得把原因摆出来，
         // 否则用户只看到「已取消」，以为是自己点错了。
-        outcomeAnnounced = true
+        announcedRuns.add(event.runId)
         if (event.summary.abortReason) danger(event.summary.abortReason)
         else warning(cancelText(owner))
+      } else if (owner === 'download') {
+        // 下载页用自己的口径：取回几张、几个地址没下下来。
+        // 以前这里会落到「上传完成」「检测完成」的文案上——下载页说「检测完成」不对，
+        // 说「上传完成 · 0 张图片」更不对。
+        const got = event.summary.localized ?? 0
+        const failed = (event.summary.remoteFailed ?? 0) + (event.summary.remoteDead ?? 0)
+        if (got > 0 && failed > 0) warning(t('toast.runDownloadedPartial', { count: got, failed }))
+        else if (got > 0) success(t('toast.runDownloaded', { count: got }))
+        else if (failed > 0) warning(t('toast.runDownloadedFailed', { failed }))
+        else if (runningDebug.value && (event.summary.remoteKept ?? 0) > 0)
+          // 调试构建确实一张都没下，但说「没有可下载的远程图片」会让人以为扫描没扫到东西。
+          warning(t('toast.runDownloadedDebug', { count: event.summary.remoteKept ?? 0 }))
+        else warning(t('toast.runDownloadedNone'))
+      } else if (runningDebug.value) {
+        // 调试构建整轮只扫描、不上传：这里落到「上传完成 · 0 张图片」像是什么都没找到。
+        warning(t('toast.runFinishedDebug'))
       } else if (event.summary.failedImages > 0) {
         warning(t('toast.runFinishedPartial', { count: event.summary.failedImages }))
       } else if (
@@ -885,15 +1118,14 @@ function onSignal(event: RunEvent): void {
     }
     case 'run.cancelled': {
       if (!matches(event.runId)) return
-      const owner = runningPage.value ?? activePage
-      runningPage.value = null
-      clearCancelTimer()
+      clearRunning(owner, event.runId)
+      clearCancelTimer(owner)
       if (event.summary) summary.value = event.summary
       phase.value = 'cancelled'
       markUnsettledCancelled()
       runId.value = null
-      if (outcomeAnnounced) return
-      outcomeAnnounced = true
+      if (announcedRuns.has(event.runId)) return
+      announcedRuns.add(event.runId)
       flashIfAway()
       if (event.summary?.abortReason) danger(event.summary.abortReason)
       else warning(cancelText(owner))
@@ -958,7 +1190,7 @@ function enqueue(event: RunEvent): void {
  * 但「上一次会话已经跑完的那一轮」不接管：它属于历史，不是这一页的队列。刚打开应用
  * 时页面上还没有任何行，接管它会把别的页的文件搬过来、把本页队列整个盖掉。
  */
-function adoptSnapshot(snapshot: CurrentRun): void {
+function adoptSnapshot(mode: RemoteMode, snapshot: CurrentRun): void {
   if (!snapshot.runId) return
   // 这一轮的结果已经在界面上了（自己刚跑完），不要用快照再盖一遍。
   if (summary.value !== null && summary.value.runId === snapshot.runId) return
@@ -977,8 +1209,9 @@ function adoptSnapshot(snapshot: CurrentRun): void {
     : snapshot.summary?.cancelled
       ? 'cancelled'
       : 'done'
-  // 接管的这一轮还在跑：它算当前页的作业，加文件/开始要继续拦住。
-  runningPage.value = snapshot.running ? activePage : null
+  // 接管的这一轮还在跑：它算这一页的作业，这一页的「开始」要继续拦住。
+  if (snapshot.running) markRunning(mode, snapshot.runId)
+  else clearRunning(mode, snapshot.runId)
 
   // 还在跑的一轮才重建队列；已经收工的一轮只把结果贴回**已有的行**（断线重连那一路），
   // 不会新造行、也不会动这份队列的组成。
@@ -1008,16 +1241,25 @@ function adoptSnapshot(snapshot: CurrentRun): void {
  * 所以每次连上事件流都先问一次现状，再接着吃增量。
  */
 async function resync(): Promise<void> {
-  if (busy.value) return
-  let snapshot: CurrentRun
-  try {
-    snapshot = await getCurrentRun()
-  } catch {
-    return
+  // 三页各问一次：一页在跑不代表另外两页没有历史快照。
+  const requests = PAGES.map(async (mode) => {
+    try {
+      return { mode, snapshot: await getCurrentRun(mode) }
+    } catch {
+      return null
+    }
+  })
+  for (const item of await Promise.all(requests)) {
+    if (item === null) continue
+    const { mode, snapshot } = item
+    // 判断必须在 withPage 里面做：pages[mode] 只在切页时落盘，当前页的 phase/runId
+    // 可能还新过它。请求飞在路上时用户也可能刚点了开始——这一页正在准备/跑同一轮就别盖。
+    withPage(mode, () => {
+      if (phase.value === 'preparing') return
+      if (runId.value === snapshot.runId && phase.value === 'running') return
+      adoptSnapshot(mode, snapshot)
+    })
   }
-  // 请求飞在路上时用户可能自己点了开始，这时别用快照把新的一轮盖掉。
-  if (busy.value) return
-  adoptSnapshot(snapshot)
 }
 
 function connect(): void {
@@ -1062,7 +1304,11 @@ function resetRowsForRun(): void {
   for (const row of rows.value) {
     row.phase = 'queued'
     row.uploaded = 0
+    row.liveItems = undefined
+    row.counted = undefined
     row.total = row.images ?? 0
+    row.workTotal = workUnitsIn(row.result, activePage)
+    row.workDone = 0
     // 上一轮的结果先留着：检测页/下载页的正文是「地址表」「远程→本地」，
     // 一开跑就清空会让正片在跑的时候变成空白页，看着像崩了。
     // 这一轮每跑完一个文件，事件会把这个文件的结果换掉。
@@ -1081,7 +1327,7 @@ function resetOutcome(): void {
 
 /** 加入队列；返回真正新增的路径，供调用方做预览。 */
 function addPaths(input: string[]): string[] {
-  if (busy.value) {
+  if (runningModes.has(activePage)) {
     warning(t('toast.queueLocked'))
     return []
   }
@@ -1178,24 +1424,264 @@ export function applyPreviewOn(mode: RemoteMode, result: PreviewResult, touched:
   if (mode === activePage) seedImagesFromRows()
 }
 
-function applyPreview(result: PreviewResult, touched: readonly string[]): void {
-  applyPreviewOn(activePage, result, touched)
+/* ---------------- 扫描（每张卡片自己扫） ---------------- */
+
+interface ScanBatch {
+  id: string
+  mode: RemoteMode
+  paths: string[]
+  /** 兜底计时器：整批迟迟没有收尾事件时把它按超时结掉。 */
+  timer: number | null
+}
+
+/**
+ * 正在跑的扫描批次。
+ *
+ * 一批一个 scanId，Go 侧每扫完一个文件推一条 scan.file，事件里带着这个 scanId
+ * 和文件路径 —— 所以「哪个结果贴回哪张卡片」不用猜。表里可以同时有多批：
+ * 用户掐掉一份再点重新扫描，就又是一批，两批互不干扰。
+ */
+const scanBatches = new Map<string, ScanBatch>()
+let scanSeq = 0
+
+/**
+ * 整批扫描的兜底时限。
+ *
+ * Go 侧每个文件 20 秒封顶，这里再宽一点。之所以还要一层：后台进程可能压根没接上
+ * 窗口（刚启动、WebView 还在加载），事件一条都送不到，界面不能因此永远点不了「开始」。
+ */
+const SCAN_BATCH_TIMEOUT_MS = 26_000
+
+/** 取某一页的行数组。当前页先写回 pages，保证读到的就是界面上的那批对象。 */
+function pageRows(mode: RemoteMode): RunRow[] {
+  if (mode === activePage) savePage()
+  return pages[mode].rows
+}
+
+function rowOfPage(mode: RemoteMode, path: string): RunRow | undefined {
+  const key = pathKey(path)
+  return pageRows(mode).find((row) => pathKey(row.path) === key)
+}
+
+/**
+ * 把一份文件（或一个目录下的若干文件）的扫描结果写到行上。
+ *
+ * 目录行没有「自己」的结果 —— 前缀命中的那些加起来就是它的张数，和以前
+ * preview 的做法一致；一份都没命中说明路径不存在或目录里没有 Markdown。
+ */
+function writeScanResult(row: RunRow, files: readonly FileResult[]): void {
+  const key = pathKey(row.path)
+  const exact = files.find((file) => pathKey(file.path) === key)
+  if (exact) {
+    if (!row.result) row.result = markRaw(exact)
+    row.images = exact.images
+    row.total = exact.images
+    row.missing = false
+    row.isDir = false
+    return
+  }
+
+  const prefix = `${key}\\`
+  let sum = 0
+  let matched = false
+  for (const file of files) {
+    if (pathKey(file.path).startsWith(prefix)) {
+      sum += file.images
+      matched = true
+    }
+  }
+  if (matched) {
+    row.images = sum
+    row.total = sum
+    row.missing = false
+    row.isDir = true
+  } else {
+    row.missing = true
+  }
+}
+
+/** 收掉一批：清计时器、从表里摘掉，把没等到结果的行按 state 结掉。 */
+function finishBatch(batch: ScanBatch, state: ScanState, message?: string): void {
+  if (batch.timer !== null) {
+    window.clearTimeout(batch.timer)
+    batch.timer = null
+  }
+  scanBatches.delete(batch.id)
+  for (const path of batch.paths) {
+    const row = rowOfPage(batch.mode, path)
+    if (!row) continue
+    if ((row.scan ?? 'idle') !== 'scanning') continue
+    if (row.scanBatch !== batch.id) continue // 已经重扫过：这一批管不着它了
+    row.scan = state
+    row.scanBatch = undefined
+    if (message) row.scanError = message
+  }
+  if (batch.mode === activePage) seedImagesFromRows()
+}
+
+/**
+ * 开扫。
+ *
+ * 立刻返回（不等结果）：Go 侧现在是半个文件一个协程、按核数限流，扫完一个推一条
+ * 事件回来。以前这里是 await 一次 preview，十个文件串着扫，界面整段冻住，
+ * 卡片也只能等全部扫完才出现。
+ */
+export async function scanPaths(
+  mode: RemoteMode,
+  paths: readonly string[],
+  settings: Settings,
+): Promise<void> {
+  const list: string[] = []
+  const seen = new Set<string>()
+  for (const raw of paths) {
+    const path = raw.trim()
+    if (path === '' || seen.has(pathKey(path))) continue
+    seen.add(pathKey(path))
+    list.push(path)
+  }
+  if (list.length === 0) return
+
+  const id = `scan-${Date.now().toString(36)}-${++scanSeq}`
+  const batch: ScanBatch = { id, mode, paths: list, timer: null }
+  scanBatches.set(id, batch)
+
+  for (const path of list) {
+    const row = rowOfPage(mode, path)
+    if (!row) continue
+    row.scan = 'scanning'
+    row.scanError = undefined
+    row.scanBatch = batch.id
+  }
+
+  batch.timer = window.setTimeout(() => {
+    batch.timer = null
+    finishBatch(batch, 'timeout', t('scan.timeout'))
+  }, SCAN_BATCH_TIMEOUT_MS)
+
+  try {
+    await requestScanStart({ scanId: id, paths: list, settings })
+  } catch (err) {
+    finishBatch(batch, 'failed', describeError(err, t('scan.failed')))
+  }
+}
+
+/** scan.file / scan.done 落到对应的卡片上。 */
+function onScanEvent(event: ScanEvent): void {
+  const batch = scanBatches.get(event.runId)
+  if (!batch) return // 这一批已经被取消/换掉了，晚到的事件直接丢
+
+  if (event.type === 'scan.done') {
+    // 正常情况下这时每行都已经有自己的结果；还停在「扫描中」的行说明事件丢了，
+    // 按超时结掉，别让「开始」永远灰着。
+    finishBatch(batch, event.cancelled ? 'cancelled' : 'timeout', t('scan.timeout'))
+    return
+  }
+
+  const row = rowOfPage(batch.mode, event.path ?? '')
+  if (!row) return
+  if (row.scanBatch !== undefined && row.scanBatch !== batch.id) return // 上一批晚到的结果
+
+  if (event.cancelled) {
+    row.scan = 'cancelled'
+    row.scanError = undefined
+    row.scanBatch = undefined
+    row.images = null
+    return
+  }
+  if (event.timedOut) {
+    row.scan = 'timeout'
+    row.scanError = t('scan.timeout')
+    row.scanBatch = undefined
+    return
+  }
+
+  const files = event.scanned ?? []
+  if (files.length === 0) {
+    row.scan = 'failed'
+    row.scanError = t('scan.notFound')
+    row.scanBatch = undefined
+    row.missing = true
+    return
+  }
+
+  writeScanResult(row, files)
+  row.scan = 'ok'
+  row.scanError = undefined
+  row.scanBatch = undefined
+  if (batch.mode === activePage) seedImagesFromRows()
+}
+
+/** 掐掉一批（整批或单个文件）。 */
+function requestBatchCancel(batch: ScanBatch, path?: string): void {
+  void requestCancelScan(path === undefined ? { scanId: batch.id } : { scanId: batch.id, path }).catch(
+    () => {
+      // 取消是「尽力而为」：后端已经不认这一批了也算成功，界面上的状态早就改好了。
+    },
+  )
+}
+
+/** 取消某一张卡片的扫描（卡片上的「取消扫描」）。 */
+export function cancelRowScan(id: string): void {
+  const row = rows.value.find((item) => item.id === id)
+  if (!row) return
+  if ((row.scan ?? 'idle') !== 'scanning') return
+
+  row.scan = 'cancelled'
+  row.scanError = undefined
+  row.scanBatch = undefined
+  row.images = null
+  const key = pathKey(row.path)
+  for (const batch of scanBatches.values()) {
+    if (batch.mode !== activePage) continue
+    if (!batch.paths.some((path) => pathKey(path) === key)) continue
+    requestBatchCancel(batch, row.path)
+    return
+  }
+}
+
+/** 重新扫一张卡片（取消/失败/超时之后）。 */
+export function retryRowScan(id: string, settings: Settings): void {
+  const row = rows.value.find((item) => item.id === id)
+  if (!row) return
+  if ((row.scan ?? 'idle') === 'scanning') return
+  void scanPaths(activePage, [row.path], settings)
+}
+
+/** 掐掉这一页所有还在跑的扫描（清空队列、离开这一页时兜底）。 */
+export function cancelPageScans(): void {
+  for (const batch of [...scanBatches.values()]) {
+    if (batch.mode !== activePage) continue
+    if (batch.timer !== null) {
+      window.clearTimeout(batch.timer)
+      batch.timer = null
+    }
+    scanBatches.delete(batch.id)
+    requestBatchCancel(batch)
+  }
+}
+
+/** 这一页还有几行在扫（页头写「正在扫描 3/10」用）。 */
+export function pageScanningCount(mode: RemoteMode): number {
+  return pageRows(mode).filter((row) => (row.scan ?? 'idle') === 'scanning').length
 }
 
 async function start(paths: string[], settings: Settings): Promise<boolean> {
-  if (busy.value) return false
+  const owner = activePage
+  if (runningModes.has(owner)) return false
   if (paths.length === 0) {
     warning(t('toast.queueEmpty'))
     return false
   }
 
-  clearCancelTimer()
+  clearCancelTimer(owner)
   phase.value = 'preparing'
   runId.value = null
   summary.value = null
   resetRowsForRun()
   // 这一轮属于「开始它的那一页」：之后怎么切页都不影响它的进度往哪儿写。
-  runningPage.value = activePage
+  markRunning(owner, null)
+  // 调试模式来自构建标记（health.debug），不是设置项。
+  runningDebug.value = useHealth().health.value?.debug === true
 
   if (!connected.value) {
     warning(t('toast.eventsNotReady'))
@@ -1206,21 +1692,34 @@ async function start(paths: string[], settings: Settings): Promise<boolean> {
     if (typeof started.runId !== 'string' || started.runId === '') {
       throw new Error(t('error.noRunId'))
     }
-    if (runId.value === null && phase.value === 'preparing') {
-      runId.value = started.runId
-    }
-    if (phase.value === 'preparing') phase.value = 'running'
+    // 请求飞在路上时用户可能已经切页：返回值要写回开始它的那一页。
+    withPage(owner, () => {
+      // 这一轮可能已经跑完（事件比返回值先到）：收工了就别再把它标成在跑。
+      if (phase.value !== 'preparing' && phase.value !== 'running') return
+      markRunning(owner, started.runId)
+      if (runId.value === null) runId.value = started.runId
+      if (phase.value === 'preparing') phase.value = 'running'
+    })
     return true
   } catch (err) {
-    if (runId.value !== null) return true
-    phase.value = 'idle'
-    runningPage.value = null
-    danger(describeError(err, t('error.startRun')))
-    return false
+    let startedAnyway = false
+    let failedHere = false
+    withPage(owner, () => {
+      if (runId.value !== null) {
+        startedAnyway = true
+        return
+      }
+      phase.value = 'idle'
+      clearRunning(owner)
+      failedHere = true
+    })
+    if (!startedAnyway && failedHere) danger(describeError(err, t('error.startRun')))
+    return startedAnyway
   }
 }
 
 async function cancel(): Promise<void> {
+  const owner = activePage
   if (phase.value !== 'running') return
   if (runId.value === null) {
     warning(t('toast.noRunId'))
@@ -1229,28 +1728,38 @@ async function cancel(): Promise<void> {
 
   phase.value = 'cancelling'
   const cancellingRunId = runId.value
-  clearCancelTimer()
-  cancelTimer = window.setTimeout(() => {
-    cancelTimer = null
-    if (phase.value === 'cancelling') {
-      phase.value = 'cancelled'
-      runningPage.value = null
-      markUnsettledCancelled()
-      warning(t('toast.cancelUnconfirmed'))
-    }
-  }, 5000)
+  clearCancelTimer(owner)
+  cancelTimers.set(
+    owner,
+    window.setTimeout(() => {
+      cancelTimers.delete(owner)
+      withPage(owner, () => {
+        if (phase.value !== 'cancelling' || runId.value !== cancellingRunId) return
+        phase.value = 'cancelled'
+        clearRunning(owner, cancellingRunId)
+        markUnsettledCancelled()
+        runId.value = null
+        warning(t('toast.cancelUnconfirmed'))
+      })
+    }, 5000),
+  )
 
   try {
     await requestCancelRun(cancellingRunId)
   } catch (err) {
-    clearCancelTimer()
-    phase.value = 'running'
-    danger(describeError(err, t('error.cancelRun')))
+    withPage(owner, () => {
+      if (phase.value !== 'cancelling' || runId.value !== cancellingRunId) return
+      clearCancelTimer(owner)
+      phase.value = 'running'
+      danger(describeError(err, t('error.cancelRun')))
+    })
   }
 }
 
 function removeRow(id: string): void {
-  if (busy.value) return
+  if (runningModes.has(activePage)) return
+  // 正在扫的那一份先掐掉：行都没了，后台还在读盘就是白干。
+  cancelRowScan(id)
   rows.value = rows.value.filter(row => row.id !== id)
   reindexRows()
   if (rows.value.length === 0) {
@@ -1262,10 +1771,11 @@ function removeRow(id: string): void {
 }
 
 function clearQueue(): void {
-  if (busy.value) {
+  if (runningModes.has(activePage)) {
     warning(t('toast.clearLocked'))
     return
   }
+  cancelPageScans()
   clearCancelTimer()
   rows.value = []
   reindexRows()
@@ -1282,18 +1792,18 @@ export function useRun() {
     rowViews,
     stats,
     summary,
-    connected,
-    reconnecting,
     busy,
+    runningPages,
+    isRunBusy,
     totalCount,
     completedCount,
-    imageTotal,
-    imageDone,
     revealTarget,
     connect,
     disconnect,
     addPaths,
-    applyPreview,
+    scanPaths,
+    cancelRowScan,
+    retryRowScan,
     start,
     cancel,
     removeRow,

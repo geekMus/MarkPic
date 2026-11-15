@@ -6,7 +6,7 @@ import { PROJECT_URL, useUpdate } from '../composables/useUpdate'
 import { useI18n } from '../i18n'
 
 const props = defineProps<{
-  /** 服务端报上来的版本串，例如 1.0.0 (b7fb0d2)。 */
+/** 服务端报上来的版本串，例如 2026.11.14+dev (91eca40)。 */
   version: string
   /** 设置与 WebView 缓存所在的位置。 */
   dataDir?: string
@@ -127,7 +127,7 @@ async function openDataDir(): Promise<void> {
 </script>
 
 <template>
-  <!-- 关于 / 更新：版本号从标题栏挪到这里，点底栏的版本号就能打开 -->
+  <!-- 关于 / 更新：版本号在侧边栏左下角，点那里打开 -->
   <div class="dlg" @mousedown.self="emit('close')">
     <section
       ref="panel"

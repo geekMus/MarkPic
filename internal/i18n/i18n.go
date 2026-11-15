@@ -127,8 +127,12 @@ const (
 	KeySettingsBrokenValues  Key = "settings.brokenValues"
 	KeySettingsBrokenKept    Key = "settings.brokenKept"
 
-	KeySettingsUnknownRemote     Key = "settings.unknownRemote"
-	KeySettingsRemoteDirAbsolute Key = "settings.remoteDirAbsolute"
+	KeySettingsUnknownRemote      Key = "settings.unknownRemote"
+	KeySettingsRemoteDirAbsolute  Key = "settings.remoteDirAbsolute"
+	KeySettingsUnknownCloseAction Key = "settings.unknownCloseAction"
+
+	KeyTrayOpen Key = "tray.open"
+	KeyTrayQuit Key = "tray.quit"
 
 	KeyPlatformNoDialog     Key = "platform.noDialog"
 	KeyPlatformNoFolderPath Key = "platform.noFolderPath"
@@ -513,7 +517,20 @@ var catalog = map[Key]entry{
 	KeySettingsRemoteDirAbsolute: {
 		"本地目录要写相对路径（例如 images 或 ../images）",
 		"The local folder must be a relative path (for example images or ../images)",
-	}, KeySettingsBrokenJSON: {
+	},
+	KeySettingsUnknownCloseAction: {
+		"未知的关闭行为: %q",
+		"Unknown close action: %q",
+	},
+	KeyTrayOpen: {
+		"显示界面",
+		"Show window",
+	},
+	KeyTrayQuit: {
+		"退出程序",
+		"Quit MarkPic",
+	},
+	KeySettingsBrokenJSON: {
 		"设置文件读不出来（不是合法的 JSON），已改用默认值。",
 		"The settings file could not be read (not valid JSON), so defaults are in use.",
 	},
@@ -588,8 +605,8 @@ var catalog = map[Key]entry{
 		"Choose a file or folder first",
 	},
 	KeyServerBusy: {
-		"已经有一次转换在跑，等它结束或先取消再试",
-		"A conversion is already running — wait for it to finish or cancel it first",
+		"这一页已经有一个任务在跑，等它结束或先取消再试",
+		"A task is already running on this page — wait for it to finish or cancel it first",
 	},
 	KeyServerMissingFilePath: {
 		"缺少文件路径",

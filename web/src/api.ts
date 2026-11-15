@@ -4,7 +4,9 @@ import type {
   Health,
   OkResult,
   PreviewResult,
+  RemoteMode,
   RunStartResult,
+  ScanStartResult,
   Settings,
   UpdateStatus,
 } from './types'
@@ -124,6 +126,13 @@ export function putSettings(settings: Partial<Settings>): Promise<Settings> {
   return call<Settings>('settings.put', settings)
 }
 
+/** 只改关闭行为：首次关窗勾了「不再提示」时用，不碰设置页里没保存的草稿。 */
+export function setCloseAction(
+  action: Settings['closeAction'],
+): Promise<{ closeAction: Settings['closeAction'] }> {
+  return call<{ closeAction: Settings['closeAction'] }>('settings.closeAction', { action })
+}
+
 export async function pickFiles(): Promise<string[]> {
   const data = await call<DialogResult>('dialog.files')
   return data.paths
@@ -138,6 +147,25 @@ export function preview(paths: string[], settings?: Partial<Settings>): Promise<
   return call<PreviewResult>('preview', { paths, settings })
 }
 
+/**
+ * 让后端开扫一批文件。
+ *
+ * 回来的只是「已经收下了」：每个文件扫完会推一条 scan.file 事件回来。
+ * scanId 由前端生成，取消和事件归属都靠它认。
+ */
+export function scanStart(params: {
+  scanId: string
+  paths: string[]
+  settings?: Partial<Settings>
+}): Promise<ScanStartResult> {
+  return call<ScanStartResult>('scan.start', params)
+}
+
+/** 取消一批扫描；带 path 就只取消那一份。 */
+export function cancelScan(params: { scanId: string; path?: string }): Promise<{ cancelled: boolean }> {
+  return call<{ cancelled: boolean }>('scan.cancel', params)
+}
+
 export function startRun(paths: string[], settings?: Partial<Settings>): Promise<RunStartResult> {
   return call<RunStartResult>('run.start', { paths, settings })
 }
@@ -146,9 +174,9 @@ export function cancelRun(runId: string): Promise<OkResult> {
   return call<OkResult>('run.cancel', { runId })
 }
 
-/** Go 侧现在在跑哪一轮、已经出了哪些结果（界面重载后靠它接回来）。 */
-export function getCurrentRun(): Promise<CurrentRun> {
-  return call<CurrentRun>('run.current')
+/** Go 侧那一页现在在跑哪一轮、已经出了哪些结果（界面重载后靠它接回来）。 */
+export function getCurrentRun(mode?: RemoteMode): Promise<CurrentRun> {
+  return call<CurrentRun>('run.current', mode === undefined ? {} : { mode })
 }
 
 export function revealPath(path: string): Promise<OkResult> {

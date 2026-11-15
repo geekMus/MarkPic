@@ -10,7 +10,6 @@ export type Settings = {
   suffix: string
   outDir: string
   backup: boolean
-  dryRun: boolean
   /** 复用上一次运行留下的上传结果，同一张图不再重传。 */
   reuseUploads: boolean
   /**
@@ -20,6 +19,8 @@ export type Settings = {
   remote: RemoteMode
   /** download 模式下图片落到文档旁边的哪个子目录。 */
   remoteDir: string
+  /** 点窗口叉号时怎么办：每次询问、最小化到托盘，或者直接退出；有任务时总会先确认。 */
+  closeAction: 'ask' | 'tray' | 'exit'
 }
 
 export type RemoteMode = 'ignore' | 'check' | 'download'
@@ -198,10 +199,37 @@ export type RunFileInfo = {
   images: number
 }
 
+/**
+ * 扫描事件：Go 侧每扫完一个文件就推一条，扫完一整批再推 scan.done。
+ *
+ * 和转换事件走同一条推送通道，但语义是分开的：runId 那个位置放的是前端生成的
+ * scanId，路径直接写在事件里 —— 一张卡片对应一个文件，谁的结果贴给谁不用猜。
+ */
+export type ScanEvent =
+  | {
+      type: 'scan.file'
+      runId: string
+      path: string
+      scanned?: FileResult[]
+      cancelled?: boolean
+      timedOut?: boolean
+    }
+  | { type: 'scan.done'; runId: string; cancelled?: boolean }
+
 export type RunEvent =
-  | { type: 'run.started'; runId: string; files: RunFileInfo[] }
+  | ScanEvent
+  | { type: 'run.started'; runId: string; mode?: RemoteMode; files: RunFileInfo[] }
   | { type: 'file.started'; runId: string; id: string }
-  | { type: 'file.progress'; runId: string; id: string; done?: number; uploaded: number; total: number }
+  | {
+      type: 'file.progress'
+      runId: string
+      id: string
+      done?: number
+      uploaded: number
+      total: number
+      /** 这一条进度里刚处理完的那几处（按 items 的下标），卡片据此逐条换状态。 */
+      items?: { index: number; item: ImageItem }[]
+    }
   | { type: 'file.finished'; runId: string; id: string; result: FileResult }
   | { type: 'run.finished'; runId: string; summary: RunSummary }
   | { type: 'run.cancelled'; runId: string; summary?: RunSummary }
@@ -222,6 +250,11 @@ export type Health = {
   dataNote?: string
   /** 设置文件读不出来时的说明（此时跑的是默认值），正常情况是空。 */
   settingsNote?: string
+  /**
+   * 调试构建（scripts/dev.mjs）：标题栏挂「调试模式」，整轮只扫描、不写文件、不上传。
+   * 发布版里恒为 false —— 这个概念只存在于开发阶段，不是用户设置。
+   */
+  debug: boolean
 }
 
 export type DialogResult = { paths: string[] }
@@ -229,6 +262,9 @@ export type DialogResult = { paths: string[] }
 export type PreviewResult = { files: FileResult[]; summary: RunSummary }
 
 export type RunStartResult = { runId: string }
+
+/** scan.start 的返回：只是确认收下了，结果走 scan.file 事件。 */
+export type ScanStartResult = { scanId: string; paths: string[] }
 
 /**
  * 服务端眼里的「这一轮」。刷新页面之后前端内存里的 runId 就没了，
@@ -238,6 +274,8 @@ export type CurrentRun = {
   running: boolean
   done: boolean
   runId?: string
+  /** 这一轮属于哪一页：run.current 按页取，重连时各页各自接回自己的快照。 */
+  mode?: RemoteMode
   files?: RunFileInfo[]
   results?: FileResult[]
   summary?: RunSummary

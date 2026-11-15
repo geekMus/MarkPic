@@ -21,6 +21,20 @@ func TestDefaultIsUsable(t *testing.T) {
 	if cfg.Concurrency != DefaultConcurrency || cfg.Retries != 2 || cfg.Output != OutputSidecar || cfg.Suffix != ".converted" || !cfg.Backup {
 		t.Fatalf("默认值不对: %+v", cfg)
 	}
+	if cfg.CloseAction != CloseActionAsk {
+		t.Fatalf("默认关闭行为 = %q", cfg.CloseAction)
+	}
+}
+
+func TestLegacyMinimizeMigratesToTray(t *testing.T) {
+	cfg := Default()
+	cfg.CloseAction = "minimize"
+	if err := cfg.Normalize(); err != nil {
+		t.Fatalf("旧值应当能迁移: %v", err)
+	}
+	if cfg.CloseAction != CloseActionTray {
+		t.Fatalf("旧的最小化应当迁到托盘，实际 %q", cfg.CloseAction)
+	}
 }
 
 func TestNormalize(t *testing.T) {
@@ -33,26 +47,31 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "补全协议并去掉结尾斜杠",
 			in:   Settings{Endpoint: "127.0.0.1:36677/", Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, CloseAction: CloseActionAsk, Concurrency: 4, Retries: 2, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "并发与重试夹到区间内",
 			in:   Settings{Concurrency: 99, Retries: 99, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: MaxConcurrency, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, CloseAction: CloseActionAsk, Concurrency: MaxConcurrency, Retries: 5, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "下限同样夹住",
 			in:   Settings{Concurrency: -3, Retries: -3, Output: OutputSidecar, Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 1, Retries: 0, Output: OutputSidecar, Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, CloseAction: CloseActionAsk, Concurrency: 1, Retries: 0, Output: OutputSidecar, Suffix: ".c"},
 		},
 		{
 			name: "空输出方式回落到旁路模式",
 			in:   Settings{Concurrency: 4, Suffix: ""},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 4, Output: OutputSidecar, Suffix: ".converted"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, CloseAction: CloseActionAsk, Concurrency: 4, Output: OutputSidecar, Suffix: ".converted"},
 		},
 		{
 			name:    "未知输出方式报错",
 			in:      Settings{Output: "somewhere"},
+			wantErr: true,
+		},
+		{
+			name:    "未知关闭行为报错",
+			in:      Settings{CloseAction: "shutdown"},
 			wantErr: true,
 		},
 		{
@@ -68,7 +87,7 @@ func TestNormalize(t *testing.T) {
 		{
 			name: "输出到目录且给了目录",
 			in:   Settings{Output: OutputDirectory, OutDir: " out ", Suffix: ".c"},
-			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, Concurrency: 1, Output: OutputDirectory, OutDir: "out", Suffix: ".c"},
+			want: Settings{Endpoint: "http://127.0.0.1:36677", Remote: RemoteIgnore, RemoteDir: DefaultRemoteDir, CloseAction: CloseActionAsk, Concurrency: 1, Output: OutputDirectory, OutDir: "out", Suffix: ".c"},
 		},
 	}
 

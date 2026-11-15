@@ -13,6 +13,12 @@ const props = defineProps<{
   picgo: Health['picgo'] | null
   // 这一轮到底用不用得着 PicGo，由面板里那份设置决定（可能还没保存）。
   picgoNeeded?: boolean
+  /**
+   * 调试构建（scripts/dev.mjs）：标题栏挂一枚橙色标记。
+   *
+   * 发布版里恒为 false —— 调试模式只存在于开发阶段，不该出现在用户面前。
+   */
+  debug: boolean
   healthChecking: boolean
   theme: 'light' | 'dark'
   phase: RunPhase
@@ -38,20 +44,23 @@ const { choice: themeChoice } = useTheme()
 const needed = computed(() => props.picgoNeeded ?? props.picgo?.needed ?? true)
 
 const picgoTone = computed<'neutral' | 'success' | 'danger'>(() => {
-  if (props.picgo === null) return props.healthChecking ? 'neutral' : 'danger'
+  // 手动刷新时先把灯变灰、文字换成「检查中…」：Ping 很快时如果什么都不变，
+  // 用户根本看不出这一下有没有生效。
+  if (props.healthChecking) return 'neutral'
+  if (props.picgo === null) return 'danger'
   if (props.picgo.online) return 'success'
   return needed.value ? 'danger' : 'neutral'
 })
 
 const picgoLabel = computed(() => {
-  if (props.picgo === null) {
-    return props.healthChecking ? t('header.picgo.checking') : t('header.picgo.offline')
-  }
+  if (props.healthChecking) return t('header.picgo.checking')
+  if (props.picgo === null) return t('header.picgo.offline')
   if (props.picgo.online) return t('header.picgo.online')
   return needed.value ? t('header.picgo.offline') : t('header.picgo.notNeeded')
 })
 
 const picgoTitle = computed(() => {
+  if (props.healthChecking) return t('header.picgo.checkingHint')
   const detail = props.picgo?.detail.trim() ?? ''
   return detail === '' ? t('header.picgo.recheck') : t('header.picgo.recheckDetail', { detail })
 })
@@ -104,6 +113,11 @@ function handleDoubleClick(event: MouseEvent): void {
     </div>
 
     <div class="tb__status">
+      <!-- 调试构建的标记：release 构建里 debug 恒 false，这块根本不渲染。 -->
+      <span v-if="debug" class="tb__debug" :title="t('debug.title')">
+        <span class="tb__debug-dot" aria-hidden="true" />
+        {{ t('debug.badge') }}
+      </span>
       <StatusPill v-if="runVisible" :label="runLabel" tone="accent" pulse />
     </div>
 
@@ -112,7 +126,10 @@ function handleDoubleClick(event: MouseEvent): void {
         type="button"
         class="health"
         :data-tone="picgoTone"
+        :data-busy="healthChecking ? 'true' : undefined"
         :title="picgoTitle"
+        :disabled="healthChecking"
+        :aria-busy="healthChecking"
         @click="emit('refresh-health')"
       >
         <span class="health__dot" aria-hidden="true" />
@@ -239,6 +256,31 @@ function handleDoubleClick(event: MouseEvent): void {
   min-width: 0;
 }
 
+/* 调试构建的标记：橙色胶囊 + 一颗实心点，和右侧的 PicGo 状态灯区分开。
+   发布版没有这一块（health.debug 恒为 false）。 */
+.tb__debug {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 7px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-pill);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+}
+
+.tb__debug-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .tb__tools {
   display: flex;
   align-items: center;
@@ -271,11 +313,38 @@ function handleDoubleClick(event: MouseEvent): void {
   box-shadow: 0 1px 2px rgba(13, 17, 23, 0.06);
 }
 
+.health:disabled {
+  cursor: progress;
+}
+
+.health:disabled:hover {
+  border-color: var(--line-2);
+  background: transparent;
+  box-shadow: none;
+}
+
 .health__dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--ink-3);
+}
+
+/* 检测中：小圆点一呼一吸，配合「检查中…」告诉用户这一下已经点到了 */
+.health[data-busy='true'] .health__dot {
+  animation: health-pulse 1s var(--ease) infinite;
+}
+
+@keyframes health-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
 }
 
 .health[data-tone='success'] .health__dot {
@@ -348,6 +417,13 @@ function handleDoubleClick(event: MouseEvent): void {
 .wbtn--close:active {
   background: #b1271b;
   color: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .health[data-busy='true'] .health__dot {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* 窄窗口：先丢 PicGo 文字（只留状态点），再窄才丢字标 */

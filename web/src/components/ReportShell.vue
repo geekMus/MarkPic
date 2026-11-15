@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
 import AnimatedNumber from './AnimatedNumber.vue'
 import AppIcon from './AppIcon.vue'
 import type { IconName } from './AppIcon.vue'
@@ -9,7 +8,7 @@ import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 
 /**
- * 检测 / 下载两页共用的「报告外壳」：页头 + 一行结论 + 粘贴路径 + 可滚动的正文。
+ * 检测 / 下载两页共用的「报告外壳」：页头 + 一行结论 + 可滚动的正文。
  *
  * 只复用外壳，不复用内容 —— 检测页画地址、下载页画「远程 → 本地」，
  * 正文由各自的页面塞进 slot。以前三个作业页共用同一张文件表，
@@ -24,49 +23,22 @@ const props = defineProps<{
   /** 标题右边那句目标信息，例如「只读」「存到 images/」。 */
   tag?: string
   hasRows: boolean
-  manualOpen: boolean
   recent?: string[]
   /** 一行结论的几段：4 个地址 · 2 能打开 · 1 打不开。 */
   verdicts: { key: MessageKey; count: number; tone: 'plain' | 'ok' | 'warn' | 'bad' }[]
-  /** 这一页正在跑：页头下面那条细线跟着进度走。 */
+  /** 这一页正在跑：页头下面那条总进度线跟着走。 */
   busy?: boolean
   progress?: number
-  /** 进度说不准（只有一个文件）时，细线改成扫动。 */
-  indeterminate?: boolean
 }>()
 
 const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
   'pick-recent': [path: string]
-  'submit-paths': [paths: string[]]
   clear: []
-  'update:manualOpen': [open: boolean]
 }>()
 
 const { t } = useI18n()
-const manualText = ref('')
-const textarea = ref<HTMLTextAreaElement | null>(null)
-
-watch(
-  () => props.manualOpen,
-  async (open) => {
-    if (!open) return
-    await nextTick()
-    textarea.value?.focus()
-  },
-)
-
-function submitManual(): void {
-  const paths = manualText.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-  if (paths.length === 0) return
-  emit('submit-paths', paths)
-  manualText.value = ''
-  emit('update:manualOpen', false)
-}
 </script>
 
 <template>
@@ -79,7 +51,6 @@ function submitManual(): void {
       :tag="tag"
       :busy="busy"
       :progress="progress"
-      :indeterminate="indeterminate"
     >
       <template #actions>
         <button
@@ -100,18 +71,6 @@ function submitManual(): void {
         >
           <AppIcon name="folder-plus" :size="16" />
         </button>
-        <button
-          type="button"
-          class="icon-btn"
-          :class="{ 'icon-btn--active': manualOpen }"
-          :title="t('queue.manual.toggle')"
-          :aria-label="t('queue.manual.toggle')"
-          :aria-pressed="manualOpen"
-          @click="emit('update:manualOpen', !manualOpen)"
-        >
-          <AppIcon name="clipboard" :size="16" />
-        </button>
-
         <span class="report__divider" aria-hidden="true" />
 
         <button
@@ -138,29 +97,6 @@ function submitManual(): void {
       </template>
     </p>
 
-    <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
-      <label class="manual__label" for="report-manual">{{ t('queue.manual.label') }}</label>
-      <textarea
-        id="report-manual"
-        ref="textarea"
-        v-model="manualText"
-        class="textarea"
-        rows="3"
-        spellcheck="false"
-        placeholder="D:\docs\post.md"
-        @keydown.enter.exact.prevent="submitManual"
-      />
-      <div class="manual__foot">
-        <span class="manual__hint">{{ t('queue.manual.hint') }}</span>
-        <button type="button" class="btn btn--ghost btn--sm" @click="emit('update:manualOpen', false)">
-          {{ t('common.cancel') }}
-        </button>
-        <button type="submit" class="btn btn--secondary btn--sm" :disabled="manualText.trim() === ''">
-          {{ t('queue.manual.submit') }}
-        </button>
-      </div>
-    </form>
-
     <div v-if="hasRows" class="report__body">
       <slot />
     </div>
@@ -171,7 +107,6 @@ function submitManual(): void {
         @pick-files="emit('pick-files')"
         @pick-folder="emit('pick-folder')"
         @pick-recent="emit('pick-recent', $event)"
-        @manual="emit('update:manualOpen', true)"
       />
     </div>
     <!-- 底栏（统计与主按钮）由页面塞进来：它是这张卡片的脚注，和卡片同宽同底 -->

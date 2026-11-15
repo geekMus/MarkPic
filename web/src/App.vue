@@ -5,6 +5,7 @@ import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
 import AppRail from './components/AppRail.vue'
 import CheckPage from './components/CheckPage.vue'
+import CloseConfirmDialog from './components/CloseConfirmDialog.vue'
 import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
@@ -14,18 +15,18 @@ import {
   isDialogUnsupported,
   pickFiles,
   pickFolder,
-  preview,
   revealPath,
 } from './api'
 import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
 import {
-  applyPreviewOn,
+  cancelRowScan,
   currentQueuePage,
   queuePagePaths,
   queuePagePendingPreview,
   restoreQueuePage,
-  runningQueuePage,
+  retryRowScan,
+  scanPaths,
   setQueuePage,
   useRun,
 } from './composables/useRun'
@@ -39,11 +40,11 @@ import { JOB_VIEWS, modeOfView, viewOfMode, type JobView, type RemoteMode, type 
 
 const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
 
-const { toasts, dismiss, warning } = useToasts()
+const { toasts, dismiss, warning, success, info } = useToasts()
 const { t } = useI18n()
 const { resolved: theme, cycle: toggleTheme } = useTheme()
 // 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
-const { available: windowChrome, startResize } = useWindowControls()
+const { available: windowChrome, quit, startResize } = useWindowControls()
 const { health, loading: healthLoading, refresh: refreshHealth } = useHealth()
 
 const {
@@ -55,6 +56,7 @@ const {
   loadError: settingsError,
   load: loadSettings,
   save: saveSettings,
+  rememberCloseAction,
   update: updateSettings,
   discard: discardSettings,
   snapshot: settingsSnapshot,
@@ -65,15 +67,14 @@ const {
   rowViews,
   stats,
   busy,
+  runningPages,
+  isRunBusy,
   totalCount,
   completedCount,
-  imageTotal,
-  imageDone,
   revealTarget,
   connect,
   disconnect,
   addPaths,
-  applyPreview,
   start,
   cancel,
   removeRow,
@@ -82,7 +83,22 @@ const {
 
 // 主视图 = 侧边栏上的菜单项。左边三项是作业视图（共用一条队列，区别只在远程图
 // 怎么处理），右边两项是表单页（结果写到哪 / 怎么跑）。设置不再占用弹窗。
-const view = ref<View>('convert')
+//
+// 关掉再打开要回到上次停留的那一页：队列本来就是按页存的，回来时接着看。
+const VIEW_KEY = 'markpic.view'
+const SAVED_VIEWS: readonly View[] = [...JOB_VIEWS, 'settings']
+
+function readView(): View {
+  try {
+    const raw = window.localStorage.getItem(VIEW_KEY)
+    if (raw !== null && (SAVED_VIEWS as readonly string[]).includes(raw)) return raw as View
+  } catch {
+    /* 存不了就当没存过 */
+  }
+  return 'convert'
+}
+
+const view = ref<View>(readView())
 
 /** 作业视图对应的远程图处理方式；表单页没有这个属性。 */
 function jobModeOf(next: View): RemoteMode | null {
@@ -108,40 +124,101 @@ const JOB_MODES: readonly RemoteMode[] = ['ignore', 'download', 'check']
 watch(
   view,
   (next) => {
+    try {
+      localStorage.setItem(VIEW_KEY, next)
+    } catch {
+      /* 存不下不影响切换 */
+    }
     const nextMode = jobModeOf(next)
     if (nextMode === null) return
     setQueuePage(nextMode)
-    // 切到哪一页，就补扫那一页还没统计过的行（启动时只扫了当时停留的那一页）
-    void previewPage(nextMode)
+    // 切到哪一页，就补扫那一页还没扫描过的行（启动时只扫了当时停留的那一页）
+    scanPage(nextMode)
   },
   { immediate: true },
 )
 
-/** 哪个作业页正在跑：侧边栏那个按钮上点个记号，别让人以为作业丢了。 */
-const runningView = computed<View | null>(() => {
-  const owner = runningQueuePage()
-  return owner === null ? null : viewOfMode(owner)
-})
+/** 哪些作业页正在跑：侧边栏每个跑着的按钮上都点个记号，别让人以为作业丢了。 */
+const runningViews = computed<View[]>(() => runningPages.value.map(viewOfMode))
 
-/** 当前这一页是不是正在跑：页头下面那条细线只在跑的时候出现。 */
-const jobBusy = computed(() => busy.value && runningView.value === view.value)
+/** 当前这一页是不是正在跑：页头细线和底栏按钮只看这一页。 */
+const jobBusy = computed(() => isRunBusy(mode.value))
 
-/** 这一轮的进度（0..1），给页头那条细线用。 */
+/**
+ * 这一轮的总进度（0..1），给页头那条细线和百分比用。
+ *
+ * 按「真正要处理的单元」算，而不是按文件数：一轮只有一个文件时文件级进度永远
+ * 停在 0；按全部图片数算又会把检测/下载模式下根本不碰的本地图也算进分母。
+ * 每个行上的 workTotal 是该文件本模式的去重单元数（上传=本地图，检测/下载=远程
+ * 地址），file.progress 一到就由服务端换成权威值。一个单元都没有的文件不进分母；
+ * 有单元的文件跑完后 workDone 等于 workTotal，分子分母一起计入，进度条不会卡在中间。
+ */
 const jobProgress = computed(() => {
-  const files = totalCount.value > 0 ? completedCount.value / totalCount.value : 0
-  // 一轮只有一个文件时文件级进度永远停在 0，取图张数进度里更靠前的那个
-  const images = imageTotal.value > 0 ? imageDone.value / imageTotal.value : 0
-  return Math.max(files, Math.min(1, images))
+  let done = 0
+  let total = 0
+  for (const row of rowViews.value) {
+    const units = row.workTotal ?? 0
+    if (units <= 0) continue
+    total += units
+    done += Math.min(row.workDone ?? 0, units)
+  }
+  if (total > 0) return Math.max(0, Math.min(1, done / total))
+  // 还没有任何单元数（例如刚点开始、第一个事件没到）：先按文件完成度垫着。
+  return totalCount.value > 0 ? completedCount.value / totalCount.value : 0
 })
 
-/** 跑着的画面不在眼前时，底栏说一句「转换 正在运行」，否则开始按钮灰着没人知道为什么。 */
+/** 别页在跑时，底栏说一句是哪几页：三页能同时跑，但别处的活也该有个交代。 */
 const runningElsewhere = computed<string>(() => {
-  const owner = runningQueuePage()
-  if (owner === null || owner === mode.value) return ''
-  return t('footer.runningElsewhere', { page: t(`nav.${viewOfMode(owner)}` as MessageKey) })
+  const others = runningPages.value.filter(pageMode => pageMode !== mode.value)
+  if (others.length === 0) return ''
+  const names = others.map(pageMode => t(`nav.${viewOfMode(pageMode)}` as MessageKey))
+  if (names.length === 1) return t('footer.runningElsewhere', { page: names[0] })
+  return t('footer.runningElsewhereMany', { pages: names.join(t('common.listJoin')) })
 })
 const aboutOpen = ref(false)
-const manualOpen = ref(false)
+
+/**
+ * 点叉号需要确认的两种情况（见 cmd/markpic/chrome_windows.go 的 WM_CLOSE）：
+ * - 没有任务、设置是「每次询问」：确认是否退出，可勾「不再提示」。
+ * - 还有任务：只确认是否退出，正文写清任务数；永远不给「不再提示」。
+ */
+interface CloseRequestWindow extends Window {
+  __markpicCloseRequest?: (count: number, ask?: boolean) => void
+}
+const closeBridge = window as CloseRequestWindow
+const closePrompt = ref(false)
+const closePromptCount = ref(0)
+const closePromptAsk = ref(false)
+
+function handleCloseRequest(count: number, ask = false): void {
+  closePromptCount.value = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0
+  // 有任务时只做退出确认；后端已经保证这一点，这里再兜一层，免得旧消息带出「不再提示」。
+  closePromptAsk.value = ask === true && closePromptCount.value === 0
+  closePrompt.value = true
+}
+
+function dismissClosePrompt(): void {
+  closePrompt.value = false
+}
+
+async function quitClosePrompt(remember: boolean): Promise<void> {
+  closePrompt.value = false
+  if (remember) await rememberCloseAction('exit')
+  quit()
+}
+
+// 弹窗开着的时候任务状态变了：
+// - 任务跑起来时，没任务的那问已经过期，收起，等真正关窗再按任务数确认；
+// - 任务跑完时，带任务数的确认框已经没意义，直接收起。
+watch(busy, (running) => {
+  if (!closePrompt.value) return
+  if (running) {
+    if (closePromptAsk.value) closePrompt.value = false
+    return
+  }
+  if (closePromptAsk.value) closePromptCount.value = 0
+  else closePrompt.value = false
+})
 // 选中哪一行：只用来给那一行描边，明细由行自己展开。
 const selectedId = ref<string | null>(null)
 
@@ -155,12 +232,18 @@ const version = computed(() => health.value?.version ?? '')
 const picgo = computed(() => health.value?.picgo ?? null)
 // 服务端给的 needed 是按**已保存**的设置算的，而面板里的选择可能还没保存就开跑
 // （整轮用的就是面板里这份）。这盏灯回答的是「现在能不能开始」，所以按面板里
-// 真正会用的那份设置来判：只检测 / 只下载 / 试运行都不上传。
-const picgoNeeded = computed(() => mode.value === 'ignore' && !settings.dryRun)
+// 真正会用的那份设置来判：只检测 / 只下载 / 调试构建都不上传。
+const picgoNeeded = computed(() => mode.value === 'ignore' && !debug.value)
 const dataDir = computed(() => health.value?.dataDir ?? '')
 const dataNote = computed(() => health.value?.dataNote ?? '')
 const settingsNote = computed(() => health.value?.settingsNote ?? '')
-const dryRun = computed(() => settings.dryRun)
+/**
+ * 调试构建（scripts/dev.mjs）：整轮只扫描、不写文件、不上传。
+ *
+ * 发布版里 health.debug 恒为 false，界面据此不渲染任何「调试模式」字样 ——
+ * 这个概念只存在于开发阶段，不是用户设置。
+ */
+const debug = computed(() => health.value?.debug === true)
 
 // 队列面板标题右边那枚小标签：这一刻这件事的结果落在哪儿。
 // 三个作业视图共用一份队列，只有这一行和底栏按钮能说明「我切到哪了」。
@@ -170,19 +253,37 @@ const jobTag = computed(() => {
     const dir = settings.remoteDir.trim() === '' ? 'images' : settings.remoteDir.trim()
     return t('view.tag.into', { dir })
   }
-  if (settings.dryRun) return t('view.tag.dry')
-  const endpoint = settings.endpoint.trim()
-  if (endpoint === '') return t('view.tag.noPicgo')
-  return endpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+  // 标题旁边只说「结果去哪」，不摆 PicGo 地址：上传页和检测 / 下载页读起来要一致。
+  return t('view.tag.upload')
 })
 
-const canStart = computed(() => !busy.value && rowViews.value.length > 0)
-const canReveal = computed(() => revealTarget.value !== null)
+/**
+ * 扫描没通过的行：正在扫、超时、被取消、找不到文件。
+ *
+ * 这些行参与不了这一轮 —— 图片数和远程地址都是跑之前就要算清的东西，
+ * 带着一份没扫通的文件去跑，只会跑到一半才发现数不对。
+ */
+const scanBlocked = computed(() => rowViews.value.filter((row) => (row.scan ?? 'idle') !== 'ok'))
 
-function dialogFallback(): void {
-  warning(t('toast.dialogFallback'))
-  manualOpen.value = true
-}
+/** 正在扫的行数：底栏据此说「正在扫描 2 个文件…」，而不是干灰着按钮。 */
+const scanningCount = computed(
+  () => rowViews.value.filter((row) => (row.scan ?? 'idle') === 'scanning').length,
+)
+
+// 全都扫通了才允许开始。强行点击也进不来：handleRun 还要再判一次 canStart。
+const canStart = computed(
+  () => !isRunBusy(mode.value) && rowViews.value.length > 0 && scanBlocked.value.length === 0,
+)
+
+/** 按钮为什么是灰的：给底栏一句话，别让人对着禁用按钮猜。 */
+const startHint = computed(() => {
+  if (isRunBusy(mode.value)) return ''
+  if (rowViews.value.length === 0) return ''
+  if (scanningCount.value > 0) return t('footer.blocked.scanning', { count: scanningCount.value })
+  if (scanBlocked.value.length > 0) return t('footer.blocked.problem', { count: scanBlocked.value.length })
+  return ''
+})
+const canReveal = computed(() => revealTarget.value !== null)
 
 async function pick(kind: 'files' | 'folder'): Promise<void> {
   try {
@@ -191,7 +292,7 @@ async function pick(kind: 'files' | 'folder'): Promise<void> {
     await enqueue(paths)
   } catch (error) {
     if (isDialogUnsupported(error)) {
-      dialogFallback()
+      warning(t('toast.dialogFallback'))
       return
     }
     warning(t('error.pickPath', { detail: describeError(error, t('error.unknown')) }))
@@ -274,47 +375,59 @@ function jobSettings() {
   return settingsSnapshot({ remote: mode.value })
 }
 
-/** 扫一遍某一页里还没统计过的行（切到这一页时顺手做，别让三页在启动时抢网络）。 */
-async function previewPage(pageMode: RemoteMode): Promise<void> {
+/**
+ * 扫一遍某一页里还没扫过的行（切到这一页时顺手做，别让三页在启动时抢网络）。
+ *
+ * 不等结果：每份文件扫完会自己推事件回来，哪张卡片先扫通哪张先亮。
+ */
+function scanPage(pageMode: RemoteMode): void {
   const paths = queuePagePendingPreview(pageMode)
   if (paths.length === 0) return
-  try {
-    applyPreviewOn(pageMode, await preview(paths, settingsSnapshot({ remote: pageMode })), paths)
-  } catch {
-    /* 预览失败就当没扫过，行还在，用户点开始也行 */
-  }
+  void scanPaths(pageMode, paths, settingsSnapshot({ remote: pageMode }))
 }
 
 /** 启动时把三页各自的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
 async function restoreQueue(): Promise<void> {
-  if (busy.value) return
   const saved = readQueues()
   for (const pageMode of JOB_MODES) {
     const paths = saved[pageMode] ?? []
-    if (paths.length === 0) continue
+    if (paths.length === 0 || isRunBusy(pageMode)) continue
     restoreQueuePage(pageMode, paths)
   }
-  void previewPage(currentQueuePage())
+  if (!isRunBusy(mode.value)) scanPage(currentQueuePage())
 }
 
 async function enqueue(paths: string[]): Promise<void> {
   const added = addPaths(paths)
   if (added.length === 0) {
-    if (!busy.value) warning(t('toast.pathsQueued'))
+    if (!isRunBusy(mode.value)) warning(t('toast.pathsQueued'))
     return
   }
-  manualOpen.value = false
   rememberPaths(added)
-  try {
-    applyPreview(await preview(added, jobSettings()), added)
-  } catch (error) {
-    warning(t('error.preview', { detail: describeError(error, t('error.unknown')) }))
-  }
+  // 进队列就开始扫，但不等它：卡片先出来，扫完一份亮一份。
+  void scanPaths(mode.value, added, jobSettings())
+}
+
+/** 卡片上的「取消扫描」/「恢复扫描」「重试」。 */
+function handleCancelScan(id: string): void {
+  cancelRowScan(id)
+}
+
+function handleRetryScan(id: string): void {
+  retryRowScan(id, jobSettings())
 }
 // 拖进窗口就等于加进队列；拦不住 drag 事件的话 WebView2 会把窗口导航到那个文件
 const { active: dropActive } = useFileDrop({
   onPaths: (paths) => void enqueue(paths),
-  onUnsupported: () => warning(t('drop.unsupported')),
+  onUnsupported: (hadFiles) => {
+    if (hadFiles) {
+      // WebView2 不暴露拖入文件的本地路径，退回系统选择框，让用户点选一次就能进队列
+      warning(t('drop.pickFallback'))
+      void pick('files')
+    } else {
+      warning(t('drop.unsupported'))
+    }
+  },
 })
 
 function handleRun(): void {
@@ -327,6 +440,21 @@ function handleRun(): void {
 
 async function handleSaveSettings(): Promise<void> {
   if (await saveSettings({ remote: mode.value })) await refreshHealth()
+}
+
+/**
+ * 手动刷新标题栏的 PicGo 状态。
+ *
+ * 刷新本身很快，连得上时界面没有任何变化；这里补一句结果，点过之后才知道
+ * 那一下真的发生了。请求失败时 useHealth 已经弹过危险提示，不再重复。
+ */
+async function handleRefreshHealth(): Promise<void> {
+  await refreshHealth()
+  if (health.value === null) return
+  const status = health.value.picgo
+  if (status.online) success(t('toast.healthOnline'))
+  else if (picgoNeeded.value) warning(t('toast.healthOffline'))
+  else info(t('toast.healthNotNeeded'))
 }
 
 async function handleReveal(): Promise<void> {
@@ -405,16 +533,16 @@ function handleKeydown(event: KeyboardEvent): void {
     return
   }
   if (event.key === 'Escape') {
+    if (closePrompt.value) {
+      closePrompt.value = false
+      return
+    }
     if (aboutOpen.value) {
       aboutOpen.value = false
       return
     }
     if (isFormView.value) {
       goView(viewOfMode(mode.value))
-      return
-    }
-    if (manualOpen.value) {
-      manualOpen.value = false
       return
     }
   }
@@ -436,6 +564,8 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  // 后端点叉号时调用；浏览器预览里没有这个函数，弹窗也就不会出现。
+  closeBridge.__markpicCloseRequest = handleCloseRequest
   connect()
   // 队列记在本地；加进来/清掉时同步写一次
   watch(
@@ -446,13 +576,16 @@ onMounted(() => {
   void refreshHealth()
   void loadSettings()
   window.addEventListener('keydown', handleKeydown)
-  // 启动后悄悄查一次（可在「关于」里关掉），查到就在底栏版本号旁点个记号。
+  // 启动后悄悄查一次（可在「关于」里关掉），查到就在侧边栏版本号旁点个记号。
   if (autoCheck.value) {
     window.setTimeout(() => void checkUpdate(true), 1200)
   }
 })
 
 onBeforeUnmount(() => {
+  if (closeBridge.__markpicCloseRequest === handleCloseRequest) {
+    delete closeBridge.__markpicCloseRequest
+  }
   window.removeEventListener('keydown', handleKeydown)
   stopPolling()
   disconnect()
@@ -463,21 +596,24 @@ onBeforeUnmount(() => {
   <div class="app">
     <AppHeader
       :picgo="picgo"
+      :debug="debug"
       :picgo-needed="picgoNeeded"
       :health-checking="healthLoading"
       :theme="theme"
       :phase="phase"
       :completed="completedCount"
       :total="totalCount"
-      @refresh-health="refreshHealth"
+      @refresh-health="handleRefreshHealth"
       @toggle-theme="toggleTheme"
     />
 
     <div class="app__body">
       <AppRail
         :view="view"
-        :running="runningView"
+        :running="runningViews"
         :dirty="dirty"
+        :version="version"
+        :has-update="hasUpdate"
         @navigate="goView($event)"
         @about="aboutOpen = true"
       />
@@ -501,7 +637,6 @@ onBeforeUnmount(() => {
             :phase="phase"
             :completed="completedCount"
             :total="totalCount"
-            :manual-open="manualOpen"
             :remote-mode="mode"
             :mode-tag="jobTag"
             :busy="jobBusy"
@@ -512,12 +647,12 @@ onBeforeUnmount(() => {
             @pick-files="pick('files')"
             @pick-folder="pick('folder')"
             @pick-recent="enqueue([$event])"
-            @submit-paths="enqueue"
             @remove="removeRow"
             @reveal="revealRow"
             @select="selectRow"
             @clear="clearQueue"
-            @update:manual-open="manualOpen = $event"
+            @cancel-scan="handleCancelScan"
+            @retry-scan="handleRetryScan"
           />
           <CheckPage
             v-else-if="view === 'check'"
@@ -526,16 +661,15 @@ onBeforeUnmount(() => {
             :tag="jobTag"
             :busy="jobBusy"
             :progress="jobProgress"
-            :manual-open="manualOpen"
             :recent="recentPaths"
             @pick-files="pick('files')"
             @pick-folder="pick('folder')"
             @pick-recent="enqueue([$event])"
-            @submit-paths="enqueue"
             @remove="removeRow"
             @reveal="revealRow"
             @clear="clearQueue"
-            @update:manual-open="manualOpen = $event"
+            @cancel-scan="handleCancelScan"
+            @retry-scan="handleRetryScan"
           />
           <DownloadPage
             v-else-if="view === 'download'"
@@ -544,21 +678,21 @@ onBeforeUnmount(() => {
             :tag="jobTag"
             :busy="jobBusy"
             :progress="jobProgress"
-            :manual-open="manualOpen"
             :recent="recentPaths"
             @pick-files="pick('files')"
             @pick-folder="pick('folder')"
             @pick-recent="enqueue([$event])"
-            @submit-paths="enqueue"
             @remove="removeRow"
             @reveal="revealRow"
             @clear="clearQueue"
-            @update:manual-open="manualOpen = $event"
+            @cancel-scan="handleCancelScan"
+            @retry-scan="handleRetryScan"
           />
           <OptionsPanel
             v-else
             key="settings"
             :settings="settings"
+            :debug="debug"
             :picgo-needed="picgoNeeded"
             :dirty="dirty"
             :loaded="settingsLoaded"
@@ -575,19 +709,17 @@ onBeforeUnmount(() => {
         <AppFooter
           v-if="isJobView"
           :busy-elsewhere="runningElsewhere"
+          :blocked-hint="startHint"
           :stats="stats"
           :phase="phase"
           :remote-mode="mode"
-          :busy="busy"
+          :busy="jobBusy"
           :can-start="canStart"
           :can-reveal="canReveal"
-          :dry-run="mode !== 'check' && dryRun"
-          :version="version"
-          :has-update="hasUpdate"
+          :debug="mode !== 'check' && debug"
           @run="handleRun"
           @cancel="cancel"
           @reveal="handleReveal"
-          @about="aboutOpen = true"
         />
           </div>
           </Transition>
@@ -604,7 +736,7 @@ onBeforeUnmount(() => {
 
     <ToastStack :toasts="toasts" @dismiss="dismiss" />
 
-    <!-- 关于 / 更新：版本号挪到页面底部后，从那里点开 -->
+    <!-- 关于 / 更新：版本号在侧边栏左下角，点那里打开 -->
     <AboutDialog
       v-if="aboutOpen"
       :version="version"
@@ -612,6 +744,15 @@ onBeforeUnmount(() => {
       :data-note="dataNote"
       :settings-note="settingsNote"
       @close="aboutOpen = false"
+    />
+
+    <!-- 点叉号需要确认时：没有任务可以勾「不再提示」，有任务会写清数量 -->
+    <CloseConfirmDialog
+      v-if="closePrompt"
+      :count="closePromptCount"
+      :ask="closePromptAsk"
+      @cancel="dismissClosePrompt"
+      @quit="quitClosePrompt"
     />
 
     <!-- 桌面窗口里四条边的缩放热区；浏览器里不需要 -->

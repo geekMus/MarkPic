@@ -733,49 +733,6 @@ button {
   border-top: 1px solid var(--line);
 }
 
-/* 粘贴路径：转换页与检测/下载页都要用，所以放在全局，别再各写一份。
-   右 18px = 行的内边距 8 + 滚动条 10，跟正文右端对齐。 */
-.manual {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: 9px;
-  padding: 14px 34px 15px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel-2);
-}
-
-.manual__label {
-  color: var(--ink-2);
-  font-size: var(--fs-2);
-  font-weight: 500;
-}
-
-.manual__foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.manual__hint {
-  flex: 1;
-  min-width: 0;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-@keyframes manual-in {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 /* ------------------------------------------------------------------ 对话框
    设置、关于都是弹窗：遮罩从标题栏下面开始铺，弹窗开着时窗口仍可拖动、仍可关闭。 */
 
@@ -1021,6 +978,36 @@ button {
   gap: 12px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);
+}
+
+/* 跑动中整张卡的进度轨：卡头的徽标说逐图结论，这条说整篇走到哪 */
+.group-card__rail {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.group-card__rail span {
+  display: block;
+  height: 100%;
+  background: var(--accent-vivid);
+  transition: width var(--t-slow) var(--ease);
+}
+
+.group-card__rail--wait span {
+  width: 32%;
+  animation: group-rail-wait 1.4s var(--ease) infinite;
+}
+
+@keyframes group-rail-wait {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
 }
 
 /* 卡头照上传页的卡来：左边一个小图标块，中间名字 + 一行说明，右边徽标与开关 */

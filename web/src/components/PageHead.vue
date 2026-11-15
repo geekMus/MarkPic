@@ -24,18 +24,20 @@ const props = withDefaults(defineProps<{
   tag?: string
   /** 这一页正在跑：页头下面那条进度线才出现。 */
   busy?: boolean
-  /** 0..1 的进度。刚开始跑就给一小段，别让线是看不见的。 */
-  progress?: number
   /**
-   * 进度说不准（一轮只有一个文件时，文件级进度永远是 0）：
-   * 改成一段来回扫的光，比钉在 5% 的死线诚实。
+   * 0..1 的总进度。
+   *
+   * 分母是「这一轮真正要处理的单元」而不是文件数：上传按去重后的本地图算，
+   * 检测/下载按去重后的远程地址算。所以一轮只有一个文件时，这条线也会随
+   * 每张图推进，不再退回 indeterminate 那种来回扫的光。
    */
-  indeterminate?: boolean
-}>(), { busy: false, progress: 0, indeterminate: false })
+  progress?: number
+}>(), { busy: false, progress: 0 })
 
 const { t } = useI18n()
 
-const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
+const fill = computed(() => Math.max(0, Math.min(1, props.progress)))
+const percent = computed(() => Math.round(fill.value * 100))
 </script>
 
 <template>
@@ -48,6 +50,7 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
         <h2 :id="id" class="pagehead__title">{{ t(titleKey) }}</h2>
         <slot name="badge" />
         <span v-if="tag" class="pagehead__tag num">{{ tag }}</span>
+        <span v-if="busy" class="pagehead__pct num" aria-hidden="true">{{ percent }}%</span>
       </div>
       <p class="pagehead__lead">{{ t(leadKey) }}</p>
     </div>
@@ -55,9 +58,9 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
       <slot name="actions" />
     </div>
 
-    <!-- 跑起来的时候，页头下面亮一条极细的进度线；停下来就消失，不留痕迹。 -->
-    <span v-if="busy" class="pagehead__rule" :class="{ 'pagehead__rule--sweep': indeterminate }" aria-hidden="true">
-      <span class="pagehead__fill" :style="indeterminate ? undefined : { transform: `scaleX(${fill})` }" />
+    <!-- 跑起来的时候，页头下面亮一条极细的总进度线；停下来就消失，不留痕迹。 -->
+    <span v-if="busy" class="pagehead__rule" aria-hidden="true">
+      <span class="pagehead__fill" :style="{ transform: `scaleX(${fill})` }" />
     </span>
   </header>
 </template>
@@ -133,6 +136,15 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
   white-space: nowrap;
 }
 
+/* 总进度百分比：和页头的细线一起出现，跑完就一起消失。 */
+.pagehead__pct {
+  min-width: 3ch;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* 说明单独一行，跟标题之间留 8px：读起来是「标题 + 一句话」，不是一条工具条 */
 .pagehead__lead {
   margin: 8px 0 0;
@@ -193,28 +205,10 @@ const fill = computed(() => Math.max(0.05, Math.min(1, props.progress)))
   }
 }
 
-/* 进度说不准的时候：一小段光从左扫到右，重复。 */
-.pagehead__rule--sweep .pagehead__fill {
-  width: 38%;
-  transform: none;
-  animation: pagehead-sweep 1.15s var(--ease) infinite;
-}
-
-@keyframes pagehead-sweep {
-  from {
-    transform: translateX(-110%);
-  }
-
-  to {
-    transform: translateX(280%);
-  }
-}
-
+/* 进度条只按真实比例伸缩；不再有「说不准就来回扫」的分支。 */
 @media (prefers-reduced-motion: reduce) {
-  .pagehead__rule--sweep .pagehead__fill {
-    width: 100%;
-    animation: none;
-    opacity: 0.5;
+  .pagehead__fill {
+    transition: none;
   }
 }
 </style>

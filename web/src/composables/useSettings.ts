@@ -1,9 +1,10 @@
 import { computed, reactive, ref } from 'vue'
-import { describeError, getSettings, putSettings } from '../api'
+import { describeError, getSettings, putSettings, setCloseAction } from '../api'
 import { t } from '../i18n'
 import type { MessageKey } from '../i18n'
 import type { Settings } from '../types'
 import { useToasts } from './useToasts'
+import { useHealth } from './useHealth'
 
 const { danger, warning, success } = useToasts()
 
@@ -32,10 +33,10 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
   'suffix',
   'outDir',
   'backup',
-  'dryRun',
   'reuseUploads',
   'remote',
   'remoteDir',
+  'closeAction',
 ]
 
 function defaultSettings(): Settings {
@@ -49,12 +50,12 @@ function defaultSettings(): Settings {
     suffix: '.converted',
     outDir: '',
     backup: true,
-    dryRun: false,
     // 同一张图第二次跑就不用再传了，直接复用上次拿到的地址。
     reuseUploads: true,
     // 默认什么都不做：远程图原样留着，和以前的行为一致。
     remote: 'ignore',
     remoteDir: 'images',
+    closeAction: 'ask',
   }
 }
 
@@ -94,7 +95,6 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
     suffix: typeof value.suffix === 'string' ? value.suffix : base.suffix,
     outDir: typeof value.outDir === 'string' ? value.outDir.trim() : base.outDir,
     backup: typeof value.backup === 'boolean' ? value.backup : base.backup,
-    dryRun: typeof value.dryRun === 'boolean' ? value.dryRun : base.dryRun,
     reuseUploads:
       typeof value.reuseUploads === 'boolean' ? value.reuseUploads : base.reuseUploads,
     remote:
@@ -105,6 +105,12 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
       typeof value.remoteDir === 'string' && value.remoteDir.trim() !== ''
         ? value.remoteDir.trim()
         : base.remoteDir,
+    closeAction:
+      value.closeAction === 'ask' || value.closeAction === 'tray' || value.closeAction === 'exit'
+        ? value.closeAction
+        : (value.closeAction as string | undefined) === 'minimize'
+          ? 'tray'
+          : base.closeAction,
   }
 }
 
@@ -179,9 +185,9 @@ async function save(override?: Partial<Settings>): Promise<boolean> {
 
   const merged = { ...draft, ...override }
   const endpoint = merged.endpoint.trim()
-  // 只有真要上传时才非得有 PicGo 地址：只检测 / 只下载远程图、以及试运行都不上传，
+  // 只有真要上传时才非得有 PicGo 地址：只检测 / 只下载远程图、以及调试构建都不上传，
   // 这时候拦住「保存」纯属添乱（服务端本来也会把空地址回落成默认值）。
-  const uploads = merged.remote === 'ignore' && !merged.dryRun
+  const uploads = merged.remote === 'ignore' && !useHealth().health.value?.debug
   if (uploads && endpoint === '') {
     warning(t('error.picgoRequired'))
     return false
@@ -212,6 +218,19 @@ async function save(override?: Partial<Settings>): Promise<boolean> {
   }
 }
 
+/** 首次关窗勾了「不再提示」：只把这一项写回设置，保留别的草稿与脏标记。 */
+async function rememberCloseAction(action: Settings['closeAction']): Promise<boolean> {
+  try {
+    const persisted = await setCloseAction(action)
+    draft.closeAction = persisted.closeAction
+    baseline.value = { ...baseline.value, closeAction: persisted.closeAction }
+    return true
+  } catch (err) {
+    danger(describeError(err, t('error.saveSettings')))
+    return false
+  }
+}
+
 export function useSettings() {
   return {
     draft,
@@ -223,6 +242,7 @@ export function useSettings() {
     loadError,
     load,
     save,
+    rememberCloseAction,
     update,
     discard,
     snapshot,

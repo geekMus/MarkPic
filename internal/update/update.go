@@ -156,7 +156,14 @@ func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release,
 
 // Compare 比较两个版本号，a<b 返回 -1，相等返回 0，a>b 返回 1。
 //
-// 只比数字主体：1.0.0-beta、1.0.0-3-gabc1234 这类后缀不参与比较，都当作 1.0.0。
+// 版本号是日历版本（YYYY.MM.DD），这里按点分数字段逐段比较：
+//
+//	2026.11.14 < 2026.11.14.1   同一天的第二版
+//	2026.09.30 < 2026.10.01     补零后字符串序与时间序一致
+//	1.0.0      < 2026.11.14     老的语义化版本一次性迁到日期版
+//
+// 缺的段按 0 算，所以 2026.11.14 与 2026.11.14.0 相等。
+// 后缀不参与比较：2026.11.14+dev、1.0.0-3-gabc1234 都只比 + / - 前面的部分，
 // 这样从 git describe 出来的开发版号不会把「已是最新」误判成「有新版本」。
 func Compare(a, b string) int {
 	left, right := versionNumbers(a), versionNumbers(b)

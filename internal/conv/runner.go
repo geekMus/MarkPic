@@ -58,6 +58,11 @@ type Runner struct {
 	runID  string
 	emit   Emit
 
+	// previewOnly 让这一轮只扫描计数、不做任何网络动作（不传图、不检测、不下载）。
+	// 预检（拖文件进队列时的那次）就靠它和「试运行」区分开：试运行只是不落盘，
+	// 检测模式照样要探活；而预检连探活都不该做 —— 用户还没点「开始」。
+	previewOnly bool
+
 	sem chan struct{}
 
 	mu      sync.Mutex
@@ -140,6 +145,12 @@ type stamp struct {
 	ok    bool
 	size  int64
 	mtime int64
+}
+
+// UsePreview 标记这一轮只是预检：只扫描计数，不发任何网络请求。
+func (r *Runner) UsePreview() *Runner {
+	r.previewOnly = true
+	return r
 }
 
 // UseUploadCache 挂上跨运行的上传结果缓存（传 nil 等于关掉）。
@@ -445,7 +456,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	// 预检算出来的路径也就是真正会写出去的路径。
 	r.planOutputs(files)
 
-	r.notify(Event{Type: EventRunStarted, Files: tasks})
+	r.notify(Event{Type: EventRunStarted, Mode: string(r.cfg.Remote), Files: tasks})
 
 	results := make([]FileResult, len(files))
 	work := make(chan int)
@@ -675,7 +686,10 @@ func (r *Runner) processFile(ctx context.Context, id, path string) FileResult {
 	// 但「只检测远程图」这一档是纯读的：不发一张图、不改一个字节，检测结果本身
 	// 就是用户要的东西 —— 跳过它等于什么都没查。实测 449 篇的真实语料里，加上
 	// --dry-run 就只有「无图 67 个」，380 处死链一个都没查出来。
-	if !r.cfg.DryRun {
+	if r.previewOnly {
+		// 预检只扫描计数：远程图保持 status=remote（前端显示「待检测」），
+		// 本地图保持 pending，等用户真正点「开始」才发网络请求。
+	} else if !r.cfg.DryRun {
 		r.runUnits(ctx, id, r.remoteBaseDir(path), groups, remotes, items)
 	} else if remoteMode == settings.RemoteCheck {
 		r.runUnits(ctx, id, r.remoteBaseDir(path), nil, remotes, items)

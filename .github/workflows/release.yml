@@ -1,6 +1,7 @@
 # 推送到 main 后自动构建并发版。规则：
-#   - 版本号取根目录 package.json 的 version：想发下一个版本，先把它改成新版本号再推送；
-#   - 同名 tag 已存在就跳过（绿灯结束），连推几个提交也只会发一次；
+#   - 版本号就是发布当天的日期（CalVer，Asia/Shanghai）：2026.11.14；
+#     同一天再推一次自动顺延成 2026.11.14.1、2026.11.14.2……
+#   - 提交信息里带 [no-release] 的推送只跑检查、不发版；
 #   - Release 记录按提交主题前缀分组：界面/资源 → 新功能，改进/重构/更名 → 改进，修复 → 修复，其余 → 其他；
 #   - 顺序铁律：先把 exe 传上 release，再把 version.json 推回 main——老版本不能在下载地址
 #     还不存在时看到「有新版本」；
@@ -21,41 +22,37 @@ concurrency:
 
 jobs:
   prepare:
-    name: 读取版本并查重
+    name: 按日期定版本号
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
-      skip: ${{ steps.check.outputs.skip }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 读取 package.json 的版本号
+      - name: 按日期算版本号（同一天第二次发布自动加序号）
         id: ver
         run: |
-          v=$(jq -r .version package.json)
-          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::package.json 里的 version（$v）不是 x.y.z 格式"
+          base=$(TZ=Asia/Shanghai date +%Y.%m.%d)
+          v="$base"
+          n=0
+          while git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; do
+            n=$((n + 1))
+            v="$base.$n"
+          done
+          if ! [[ "$v" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+            echo "::error::算出来的版本号（$v）不是日期格式"
             exit 1
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
-
-      - name: 这个版本是否已经发过
-        id: check
-        run: |
-          if git rev-parse -q --verify "refs/tags/v${{ steps.ver.outputs.version }}" >/dev/null; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "v${{ steps.ver.outputs.version }} 已发过，本次跳过。"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
+          echo "本次发布：v$v"
 
   release:
     name: 构建并发布
     needs: prepare
-    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.skip != 'true'
+    if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[no-release]')
     runs-on: windows-latest
     timeout-minutes: 30
     defaults:
@@ -81,12 +78,14 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      - name: 安装前端依赖
+        run: pnpm --dir web install --frozen-lockfile
+
       - name: 重建前端、跑测试、编译 exe
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          $v = $env:VERSION
-          ./scripts/build.ps1 -Web -Test -Version $v -Output "bin/MarkPic-v$v-windows-amd64.exe"
+          node scripts/build.mjs --web --test --version $env:VERSION --output "bin/MarkPic-v$env:VERSION-windows-amd64.exe"
 
       - name: 生成 Release 记录
         id: notes
@@ -177,10 +176,17 @@ jobs:
           git clean -fd internal/ui/dist
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add version.json
+          # package.json 的版本号跟着回到刚发的这一版（只换第一个 version 字段，避免整份重排）。
+          $pkgPath = "$env:GITHUB_WORKSPACE/package.json"
+          $pkgText = [IO.File]::ReadAllText($pkgPath)
+          $pattern = [regex]'"version"\s*:\s*"[^"]*"'
+          $pkgText = $pattern.Replace($pkgText, '"version": "' + $v + '"', 1)
+          [IO.File]::WriteAllText($pkgPath, $pkgText, [Text.UTF8Encoding]::new($false))
+
+          git add version.json package.json
           git diff --cached --quiet
           if ($LASTEXITCODE -eq 0) {
-            Write-Host 'version.json 无变化，跳过推送。'
+            Write-Host 'version.json 与 package.json 都没变化，跳过推送。'
           }
           else {
             git commit -m "release $tag [skip ci]"

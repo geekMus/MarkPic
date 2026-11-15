@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
+import ScanBadge from './ScanBadge.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
 import type { RunRowView } from '../composables/useRun'
@@ -30,6 +31,9 @@ const emit = defineEmits<{
   remove: [id: string]
   reveal: [path: string]
   select: [id: string]
+  /** 这张卡自己的扫描：取消 / 恢复（重试）。 */
+  'cancel-scan': [id: string]
+  'retry-scan': [id: string]
   /** 卡片正在做高度动画：外面的虚拟列表这段时间先别重新量行高。 */
   animating: [active: boolean]
 }>()
@@ -161,16 +165,6 @@ function isLocalRef(target: string): boolean {
 }
 
 /**
- * 上传页只数本地图片。混着远程图的那篇，数目里带上它会让人以为
- * 「2 张图等着传」，其实两张都是网络地址、原样保留。
- */
-const localCount = computed(() => {
-  const result = props.row.result
-  if (!result) return null
-  return result.items.filter((item) => isLocalRef(item.target)).length
-})
-
-/**
  * 一张图都没有的卡才画成「空卡」（斜纹底）。只有远程图的文档图是有的、
  * 只是不用上传，不该跟它长得一样 —— 它单独标「无本地图」。
  */
@@ -178,12 +172,16 @@ const emptyCard = computed(
   () => (props.remoteMode ?? 'ignore') === 'ignore' && items.value.length === 0,
 )
 
+/** 扫通了没有：没扫通的卡上都在说扫描的事，不再写「几张图」。 */
+const scanOk = computed(() => (props.row.scan ?? 'idle') === 'ok')
+
 const countLabel = computed(() => {
   const mode = props.remoteMode ?? 'ignore'
-  if (mode === 'ignore' && localCount.value !== null) {
+  const local = counts.value.local
+  if (mode === 'ignore' && local !== null) {
     if (items.value.length === 0) return t('row.status.noImages')
-    if (localCount.value === 0) return t('row.status.noLocal')
-    return t('row.count', { count: localCount.value })
+    if (local === 0) return t('row.status.noLocal')
+    return t('row.count', { count: local })
   }
   const images = props.row.result?.images ?? props.row.images
   if (images === null || images === undefined) {
@@ -228,41 +226,41 @@ const lede = computed(() => {
   }
 
   const total = items.value.length
-  const bad = items.value.filter((item) => item.status === 'remote-bad').length
+  const bad = counts.value.remoteBad
   const parts: (() => string)[] = []
 
   if (mode === 'check') {
     if (total === 0) return t('row.lede.noImages')
-    parts.push(() => t('row.lede.check', { total, ok: total - bad - remoteUnsupportedCount.value, bad }))
+    parts.push(() => t('row.lede.check', { total, ok: total - bad - counts.value.remoteUnsupported, bad }))
   } else if (mode === 'download') {
     if (total === 0) return t('row.lede.noImages')
-    parts.push(() => t('row.lede.download', { total, saved: localizedUniqueCount.value }))
-    if (localKeptCount.value > 0) parts.push(() => t('row.lede.kept', { count: localKeptCount.value }))
+    parts.push(() => t('row.lede.download', { total, saved: counts.value.localizedUnique }))
+    if (counts.value.localKept > 0) parts.push(() => t('row.lede.kept', { count: counts.value.localKept }))
   } else if (result.status === 'preview') {
     // 预检只是扫了一遍：没有「替换」也没有「失败」，只有「扫到什么」。
     // 这里说的是「本地图片」的处数，混进来的远程图不算。
-    const local = localCount.value ?? total
+    const local = counts.value.local ?? total
     if (local === 0) return t('row.status.noImages')
-    // 试运行跑完还是「预览」态（什么都没写），得把「跑过了、只是没动文件」说出来，
+    // 调试构建跑完还是「预览」态（什么都没写），得把「跑过了、只是没动文件」说出来，
     // 否则点完「开始上传」这一页一个字都不变，像没反应。
     if (props.row.phase === 'settled') {
-      return t('row.lede.dryRun', { count: local })
+      return t('row.lede.debug', { count: local })
     }
     parts.push(() => t('row.lede.scanLocal', { count: local }))
-    if (missingCount.value > 0) parts.push(() => t('row.lede.missing', { count: missingCount.value }))
+    if (counts.value.missing > 0) parts.push(() => t('row.lede.missing', { count: counts.value.missing }))
   } else {
     if ((result.uploaded ?? 0) > 0) parts.push(() => t('row.lede.uploaded', { count: result.uploaded ?? 0 }))
-    if (reusedCount.value > 0) parts.push(() => t('row.lede.reused', { count: reusedCount.value }))
-    if (localKeptCount.value > 0) parts.push(() => t('row.lede.kept', { count: localKeptCount.value }))
+    if (counts.value.reused > 0) parts.push(() => t('row.lede.reused', { count: counts.value.reused }))
+    if (counts.value.localKept > 0) parts.push(() => t('row.lede.kept', { count: counts.value.localKept }))
   }
 
   if (skippedOnly.value > 0) parts.push(() => t('row.lede.skipped', { count: skippedOnly.value }))
-  if (failureCount.value > 0) parts.push(() => t('row.lede.failed', { count: failureCount.value }))
+  if (counts.value.failed > 0) parts.push(() => t('row.lede.failed', { count: counts.value.failed }))
   if (mode !== 'check') {
     const dead = deadCount(result)
     if (dead > 0) parts.push(() => t('row.lede.dead', { count: dead }))
-    if (remoteUnsupportedCount.value > 0) {
-      parts.push(() => t('row.lede.unsupported', { count: remoteUnsupportedCount.value }))
+    if (counts.value.remoteUnsupported > 0) {
+      parts.push(() => t('row.lede.unsupported', { count: counts.value.remoteUnsupported }))
     }
   }
 
@@ -291,43 +289,157 @@ const indeterminate = computed(
 // 只在真跑的时候画进度条：排队中的卡片如果也挂一条闪动的线，八张卡会一起闪，像一堆进度条
 const barVisible = computed(() => props.row.phase === 'running')
 
-const items = computed<ImageItem[]>(() => props.row.result?.items ?? [])
-
-/**
- * 同一张图在本轮已经上传过、这里直接复用地址的引用数。
- * 注意 uploaded 是「指向图床的引用数」（含复用），skipped 是「跳过的引用数」
- * （网络图片等），两者都不是上传请求数，所以分开显示。
- */
-const reusedCount = computed(
-  () => items.value.filter(item => item.status === 'reused' || item.status === 'cached').length,
+const items = computed<ImageItem[]>(
+  () => props.row.liveItems ?? props.row.result?.items ?? [],
 )
 
-/** 引用的本地文件根本不在：预检就能看出来，不试上传。 */
-const missingCount = computed(() => items.value.filter(item => item.status === 'missing').length)
+/** 跑动中卡片上那行逐图小结用什么语气。 */
+type LiveTone = 'plain' | 'ok' | 'warn' | 'bad'
+interface LivePart {
+  key: MessageKey
+  text: string
+  tone: LiveTone
+}
 
-/** 真试过、真没成的那几张（本地文件不存在不算，那是另一个问题）。 */
-const failureCount = computed(() => items.value.filter(item => item.status === 'failed').length)
-
-/** 预检模式下所有待上传的引用都还没有真正上传，单独数一遍，别混进「跳过」。 */
-const pendingCount = computed(() => items.value.filter(item => item.status === 'pending').length)
+interface ItemCounts {
+  reused: number
+  missing: number
+  failed: number
+  pending: number
+  localizedUnique: number
+  local: number | null
+  localKept: number
+  localKeptAll: number
+  remoteUnsupported: number
+  remotePending: number
+  remoteOk: number
+  remoteBad: number
+  localizedSaved: number
+  localizedReused: number
+  uploaded: number
+}
 
 /**
- * 上面那个数按引用处算：同一张图在这篇文档里被引用 20 次就是 20，
- * 可 images/ 里只有一个文件。这一行要显示的是「下成了几个文件」。
+ * 一张卡的逐图计数只扫一遍。
+ *
+ * 之前每个数字各写一个 filter，同一份 items 在一次渲染里被扫了十来遍；
+ * 一篇几千张图的文档展开时，这些「顺手数一下」就是实打实的帧时间。
+ * 现在一次遍历同时累计所有状态，顺带把去重后的本地文件数也收进来。
  */
-const localizedUniqueCount = computed(() => {
-  const seen = new Set<string>()
+const counts = computed<ItemCounts>(() => {
+  const localized = new Set<string>()
+  let reused = 0
+  let missing = 0
+  let failed = 0
+  let pending = 0
+  let local = 0
+  let localKept = 0
+  let localKeptAll = 0
+  let remoteUnsupported = 0
+  let remotePending = 0
+  let remoteOk = 0
+  let remoteBad = 0
+  let localizedSaved = 0
+  let localizedReused = 0
+  let uploaded = 0
+
   for (const item of items.value) {
-    if (item.status !== 'localized') continue
-    seen.add(item.url ?? item.target)
+    if (isLocalRef(item.target)) local += 1
+    switch (item.status) {
+      case 'reused':
+      case 'cached':
+        reused += 1
+        uploaded += 1
+        break
+      case 'uploaded':
+        uploaded += 1
+        break
+      case 'missing':
+        missing += 1
+        break
+      case 'failed':
+        failed += 1
+        break
+      case 'pending':
+        pending += 1
+        break
+      case 'local-kept':
+        localKeptAll += 1
+        if (!item.error) localKept += 1
+        break
+      case 'remote':
+        if (item.error) remoteUnsupported += 1
+        else remotePending += 1
+        break
+      case 'remote-ok':
+        remoteOk += 1
+        break
+      case 'remote-bad':
+        remoteBad += 1
+        break
+      case 'localized':
+        localized.add(item.url ?? item.target)
+        if (item.reused) localizedReused += 1
+        else localizedSaved += 1
+        break
+    }
   }
-  return seen.size
+
+  return {
+    reused,
+    missing,
+    failed,
+    pending,
+    localizedUnique: localized.size,
+    local: props.row.result ? local : null,
+    localKept,
+    localKeptAll,
+    remoteUnsupported,
+    remotePending,
+    remoteOk,
+    remoteBad,
+    localizedSaved,
+    localizedReused,
+    uploaded,
+  }
 })
 
 /**
- * 「本地保留」里有一部分其实找不到：检测/下载模式不碰本地图，但引用坏掉的
- * 文件名还是要数出来，否则一行「本地保留 3」看着像三张图都在。
+ * 正在跑的这一篇，按逐条状态数一遍：卡片上要能看出「已取回 3 · 待取回 4」，
+ * 而不是只有一根从 0% 走到 100% 的进度条 —— 用户想知道的是某张图到底下没下。
+ *
+ * 跑完后 liveItems 会被整份 result 换掉，这里自然就不再显示。
  */
+const liveParts = computed<LivePart[]>(() => {
+  if (props.row.phase !== 'running') return []
+  const countsNow = counts.value
+  const parts: LivePart[] = []
+  const add = (key: MessageKey, n: number, tone: LiveTone = 'plain') => {
+    if (n > 0) parts.push({ key, text: t(key, { count: n }), tone })
+  }
+
+  if (props.remoteMode === 'download') {
+    add('row.live.saved', countsNow.localizedSaved, 'ok')
+    add('row.live.reused', countsNow.localizedReused, 'ok')
+    add('row.live.pendingDownload', countsNow.remotePending)
+    add('row.live.failed', countsNow.failed + countsNow.remoteBad, 'bad')
+    return parts
+  }
+
+  if (props.remoteMode === 'check') {
+    add('row.live.checked', countsNow.remoteOk, 'ok')
+    add('row.live.pendingCheck', countsNow.remotePending)
+    add('row.live.bad', countsNow.remoteBad, 'bad')
+    add('row.live.unsupported', countsNow.remoteUnsupported, 'warn')
+    return parts
+  }
+
+  add('row.live.uploaded', countsNow.uploaded, 'ok')
+  add('row.live.pendingUpload', countsNow.pending)
+  add('row.live.failed', countsNow.failed, 'bad')
+  return parts
+})
+
 /**
  * 这一行里「有几个坏掉的地址」。
  *
@@ -343,33 +455,16 @@ function deadCount(result: FileResult): number {
   return unique > 0 && unique < total ? unique : total
 }
 
-const localMissingCount = computed(() => items.value.filter(item => item.status === 'local-kept' && item.error).length)
-
-/** 下载模式下本地图片原样留着，它们既不是「替换」也不是「跳过」。 */
-const localKeptCount = computed(
-  () => items.value.filter(item => item.status === 'local-kept' && !item.error).length,
-)
-
-/** 碰不了的远程地址（ftp://、data:）：单独数，别混进「跳过」里当没事发生。 */
-const remoteUnsupportedCount = computed(
-  () => items.value.filter(item => item.status === 'remote' && item.error).length,
-)
-
 /** 后端把 pending 也算进 skipped（那是给命令行汇总用的），展示时要把它们剥离出来。 */
 const skippedOnly = computed(() =>
   Math.max(
     0,
     (props.row.result?.skipped ?? 0) -
-      pendingCount.value -
-      localKeptCount.value -
-      localMissingCount.value,
+      counts.value.pending -
+      counts.value.localKeptAll,
   ),
 )
 
-/**
- * 「替换」这个数在只碰远程图的模式里是句废话（永远是 0），
- * 那种时候把版面让给「下载」「本地保留」「检测」。
- */
 /**
  * 展开后没有明细可列时说的话，要跟这一行的实际处境对得上。
  * （路径根本没匹配到文件的行不展开，见 canExpand，所以这里只剩「没有本地图片」一种情况。）
@@ -567,14 +662,23 @@ function toggleExpanded(): void {
             <AppIcon name="chevron-down" :size="13" />
           </span>
         </span>
-        <!-- 没有明细可看的时候，状态只能写在卡面上；空卡的胶囊已经写了「无图片」 -->
-        <span v-else-if="!emptyCard" class="item__status">
+        <!-- 没有明细可看的时候，状态只能写在卡面上；空卡的胶囊已经写了「无图片」。
+             扫描没通过的卡说的是扫描，这句留给扫通之后。 -->
+        <span v-else-if="!emptyCard && scanOk" class="item__status">
           <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" compact />
         </span>
       </button>
 
       <!-- 打开、定位与移除放在卡面上：要删一张卡，不该先展开它 -->
       <span class="card__tools">
+        <!-- 扫描没通过时卡片上唯一该点的是「取消扫描」/「恢复扫描」 -->
+        <ScanBadge
+          :state="row.scan ?? 'idle'"
+          :error="row.scanError"
+          :busy="busy"
+          @cancel="emit('cancel-scan', row.id)"
+          @retry="emit('retry-scan', row.id)"
+        />
         <button
           type="button"
           class="icon-btn icon-btn--sm"
@@ -604,6 +708,16 @@ function toggleExpanded(): void {
           <AppIcon name="x" :size="13" />
         </button>
       </span>
+      </div>
+
+      <!-- 跑动中把逐图结论摊在卡面上：只有一根进度条时，用户不知道某张图到底下没下 -->
+      <div v-if="barVisible && liveParts.length > 0" class="item__live">
+        <span
+          v-for="part in liveParts"
+          :key="part.key"
+          class="item__live-part"
+          :data-tone="part.tone"
+        >{{ part.text }}</span>
       </div>
 
       <div v-if="barVisible" class="item__rail" :class="{ 'item__rail--wait': indeterminate }">
@@ -922,6 +1036,32 @@ function toggleExpanded(): void {
 
 .item__chev--on {
   transform: rotate(180deg);
+}
+
+.item__live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 0 14px 8px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.item__live-part {
+  font-variant-numeric: tabular-nums;
+}
+
+.item__live-part[data-tone='ok'] {
+  color: var(--ok);
+}
+
+.item__live-part[data-tone='warn'] {
+  color: var(--warn);
+}
+
+.item__live-part[data-tone='bad'] {
+  color: var(--bad);
 }
 
 .item__rail {

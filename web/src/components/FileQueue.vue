@@ -20,7 +20,8 @@ const props = defineProps<{
   phase: RunPhase
   completed: number
   total: number
-  manualOpen: boolean
+  /** 这一轮的总进度（0..1，按去重后的图片/地址算）；没给时退回文件完成度。 */
+  progress?: number
   /** 这一轮在做什么（上传 / 只检测 / 下载回本地），只用来给行内文案挑词。 */
   remoteMode?: 'ignore' | 'check' | 'download'
   /** 标题右边那句目标信息：图床地址 / 「只读」/「存到 images/」。 */
@@ -39,50 +40,30 @@ const emit = defineEmits<{
   'pick-files': []
   'pick-folder': []
   'pick-recent': [path: string]
-  'submit-paths': [paths: string[]]
   remove: [id: string]
   reveal: [path: string]
   select: [id: string]
   clear: []
-  'update:manualOpen': [open: boolean]
+  'cancel-scan': [id: string]
+  'retry-scan': [id: string]
 }>()
 
 const { t } = useI18n()
 const { success, danger } = useToasts()
 
-const manualText = ref('')
-const textarea = ref<HTMLTextAreaElement | null>(null)
-
 const busy = computed(
   () => props.phase === 'preparing' || props.phase === 'running' || props.phase === 'cancelling',
 )
 
-/** 页头下面那条细线的进度：跑完几个文件就往右挪一段。 */
-const progress = computed(() => (props.total > 0 ? props.completed / props.total : 0))
+/** 没有总进度时退回文件完成度：至少别让线一直是 0。 */
+const fileProgress = computed(() => (props.total > 0 ? props.completed / props.total : 0))
+/** 页头下面那条细线的进度：优先用 App 按图片单元算出来的总进度。 */
+const lineProgress = computed(() => props.progress ?? fileProgress.value)
+/** 只有没给总进度时才显示文件完成数：有百分比时两个数并排会读成互相矛盾。 */
+const showFileProgress = computed(() => props.progress === undefined)
 
 
-watch(
-  () => props.manualOpen,
-  async (open) => {
-    if (!open) return
-    await nextTick()
-    textarea.value?.focus()
-  },
-)
 
-function closeManual(): void {
-  emit('update:manualOpen', false)
-}
-
-function submitManual(): void {
-  const paths = manualText.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
-  if (paths.length === 0) return
-  emit('submit-paths', paths)
-  manualText.value = ''
-}
 
 /* ------------------------------------------------------------------ *
  * 列表虚拟化
@@ -211,6 +192,9 @@ function measureMountedRows(): void {
 const onlyProblems = ref(false)
 
 function isProblem(row: RunRowView): boolean {
+  // 扫描没通 / 扫超时 / 被取消：这份文档还什么都没算出来，也是问题。
+  const scan = row.scan ?? 'idle'
+  if (scan === 'failed' || scan === 'timeout' || scan === 'cancelled') return true
   if (row.missing) return true
   const res = row.result
   if (!res) return false
@@ -367,14 +351,6 @@ watch(
   },
 )
 
-watch(
-  () => props.manualOpen,
-  async () => {
-    await nextTick()
-    syncViewport()
-  },
-)
-
 function onScroll(): void {
   const el = body.value
   if (!el) return
@@ -391,14 +367,13 @@ function onScroll(): void {
       lead-key="view.convert.sub"
       :tag="modeTag"
       :busy="busy"
-      :progress="progress"
-      :indeterminate="props.rows.length <= 1"
+      :progress="lineProgress"
     >
       <template #badge>
         <span v-if="rows.length > 0" class="queue__count num">
           {{ t('queue.count', { count: rows.length }) }}
         </span>
-        <span v-if="busy" class="queue__progress num" role="status" aria-live="polite">
+        <span v-if="busy && showFileProgress" class="queue__progress num" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}
         </span>
       </template>
@@ -423,18 +398,6 @@ function onScroll(): void {
           >
             <AppIcon name="folder-plus" :size="16" />
           </button>
-          <button
-            type="button"
-            class="icon-btn"
-            :class="{ 'icon-btn--active': manualOpen }"
-            :title="t('queue.manual.toggle')"
-            :aria-label="t('queue.manual.toggle')"
-            :aria-pressed="manualOpen"
-            @click="emit('update:manualOpen', !manualOpen)"
-          >
-            <AppIcon name="clipboard" :size="16" />
-          </button>
-
           <!-- 队列几百上千行时，按文件名找比滚轮靠谱 -->
           <input
             v-if="searchOpen"
@@ -503,32 +466,6 @@ function onScroll(): void {
       </template>
     </PageHead>
 
-    <!-- 手动输入是一条全宽的条，和检测 / 下载两页同一个位置、同一套内边距。 -->
-    <form v-if="manualOpen" class="manual" @submit.prevent="submitManual">
-          <label class="manual__label" for="queue-manual">
-            {{ t('queue.manual.label') }}
-          </label>
-          <textarea
-            id="queue-manual"
-            ref="textarea"
-            v-model="manualText"
-            class="textarea"
-            rows="3"
-            spellcheck="false"
-            placeholder="D:\docs\post.md"
-            @keydown.enter.exact.prevent="submitManual"
-          />
-          <div class="manual__foot">
-            <span class="manual__hint">{{ t('queue.manual.hint') }}</span>
-            <button type="button" class="btn btn--ghost btn--sm" @click="closeManual">
-              {{ t('common.cancel') }}
-            </button>
-            <button type="submit" class="btn btn--secondary btn--sm" :disabled="manualText.trim() === ''">
-              {{ t('queue.manual.submit') }}
-            </button>
-          </div>
-    </form>
-
     <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
       <ul
         v-if="rows.length > 0"
@@ -554,6 +491,8 @@ function onScroll(): void {
           @remove="emit('remove', $event)"
           @reveal="emit('reveal', $event)"
           @select="emit('select', $event)"
+          @cancel-scan="emit('cancel-scan', $event)"
+          @retry-scan="emit('retry-scan', $event)"
           @animating="onRowAnimating"
         />
         <li
@@ -565,13 +504,12 @@ function onScroll(): void {
       </ul>
 
       <EmptyState
-        v-else-if="!manualOpen"
+        v-else
         :recent="props.recent ?? []"
         :remote-mode="remoteMode"
         @pick-files="emit('pick-files')"
         @pick-folder="emit('pick-folder')"
         @pick-recent="emit('pick-recent', $event)"
-        @manual="emit('update:manualOpen', true)"
       />
     </div>
     <!-- 底栏（统计与主按钮）由页面塞进来：它是这张卡片的脚注，和卡片同宽同底 -->

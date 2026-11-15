@@ -43,6 +43,16 @@ type Item struct {
 	Reused bool `json:"reused,omitempty"`
 }
 
+// ItemPatch 是 file.progress 里的一条增量：只带刚刚处理完的那几处引用。
+//
+// 一篇文档的 items 可能上万条（检测模式下每个地址都是一条），每完成一张就把
+// 整份明细重发一遍，事件会被撑到几十兆。界面在扫描阶段已经拿到了完整的 items，
+// 这里只需要说「第几个变成了什么」。
+type ItemPatch struct {
+	Index int  `json:"index"`
+	Item  Item `json:"item"`
+}
+
 // FileResult 是单个 Markdown 文件的处理结果。
 type FileResult struct {
 	ID       string `json:"id"`
@@ -158,19 +168,32 @@ type Summary struct {
 
 // Event 是推送给前端的事件（SSE）。
 type Event struct {
-	Type  string     `json:"type"`
-	RunID string     `json:"runId,omitempty"`
+	Type  string `json:"type"`
+	RunID string `json:"runId,omitempty"`
+	// Mode 只给 run.started：上传 / 检测 / 下载三页可以各跑一轮，前端要按它认领自己的那一轮。
+	Mode  string     `json:"mode,omitempty"`
 	ID    string     `json:"id,omitempty"`
 	Files []FileTask `json:"files,omitempty"`
 	// Uploaded 是「这一篇已经替换成功几处」，Done 是「这一篇已经处理了几张图」。
 	// 远程模式下不产生替换，进度写 Done；两个数混用会让界面在只检测时冒出「替换 13」。
-	Uploaded int         `json:"uploaded"`
-	Done     int         `json:"done"`
-	Total    int         `json:"total"`
-	Result   *FileResult `json:"result,omitempty"`
-	Summary  *Summary    `json:"summary,omitempty"`
-	Level    string      `json:"level,omitempty"`
-	Message  string      `json:"message,omitempty"`
+	Uploaded int `json:"uploaded"`
+	Done     int `json:"done"`
+	Total    int `json:"total"`
+	// Items 是 file.progress 的增量明细：这一批刚刚处理完的引用。
+	// 同一文件在一个攒批窗口里可能完成几十张，Batcher 会把它们的 Items 接起来，
+	// 界面按 Index 覆盖到预览阶段拿到的完整明细上。
+	Items   []ItemPatch `json:"items,omitempty"`
+	Result  *FileResult `json:"result,omitempty"`
+	Summary *Summary    `json:"summary,omitempty"`
+	Level   string      `json:"level,omitempty"`
+	Message string      `json:"message,omitempty"`
+
+	// 下面四个只用在扫描事件上（scan.file）。扫描是异步的、可以单文件取消：
+	// 前端要能按路径把「扫到了什么」贴回对应的那张卡片，也要能说清这次为什么没扫成。
+	Path      string       `json:"path,omitempty"`
+	Scanned   []FileResult `json:"scanned,omitempty"`
+	Cancelled bool         `json:"cancelled,omitempty"`
+	TimedOut  bool         `json:"timedOut,omitempty"`
 }
 
 // 事件类型。
@@ -182,4 +205,9 @@ const (
 	EventRunFinished  = "run.finished"
 	EventRunCancelled = "run.cancelled"
 	EventLog          = "log"
+
+	// 扫描（preview）用自己的两个事件：它不写文件、可以多份同时在跑，
+	// 也不能和「一轮转换」混在同一条 runId 上。RunID 位置放的是前端生成的 scanId。
+	EventScanFile = "scan.file"
+	EventScanDone = "scan.done"
 )

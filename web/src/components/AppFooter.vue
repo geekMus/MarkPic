@@ -7,30 +7,33 @@ import { useI18n, type MessageKey } from '../i18n'
 const props = defineProps<{
   stats: RunStats
   phase: RunPhase
-  /** 远程图模式：试运行 + 下载模式下，「没动的远程图」是这一轮没去下，不是按策略保留。 */
+  /** 远程图模式：调试构建 + 下载模式下，「没动的远程图」是这一轮没去下，不是按策略保留。 */
   remoteMode?: 'ignore' | 'check' | 'download'
   busy: boolean
   canStart: boolean
   canReveal: boolean
-  dryRun: boolean
-  /** 服务端报上来的版本串，例如 1.0.0 (b7fb0d2)。 */
-  version: string
-  /** 已经查到有新版本时，在版本号旁边点一个记号。 */
-  hasUpdate: boolean
+  /** 调试构建：整轮只扫描、不写文件，所以「打开输出目录」必然打空。 */
+  debug: boolean
   /**
    * 另一页正在跑时的一句说明（「转换 正在运行」）。
    *
-   * 作业视图各有各的队列，跑着的那一轮留在它自己那一页：站在别的页面上，
-   * 开始按钮灰着却没有任何解释，用户会以为坏了。
+   * 三页可以同时跑，这一页自己的按钮不受别页影响；但站在这一页仍该知道别处
+   * 也有活在干——侧栏已经点了记号，底栏再用一句话说清楚。
    */
   busyElsewhere?: string
+  /**
+   * 主按钮为什么点不了（「正在扫描 2 个文件…」「1 个文件还没扫描通过」）。
+   *
+   * 扫描是每张卡片自己进行的，等的时候按钮本来就该灰着 —— 但灰着不说话，
+   * 站在那儿的人只会以为程序卡了。
+   */
+  blockedHint?: string
 }>()
 
 const emit = defineEmits<{
   run: []
   cancel: []
   reveal: []
-  about: []
 }>()
 
 const { t } = useI18n()
@@ -40,13 +43,6 @@ const runKey = computed<MessageKey>(() => {
   if (props.remoteMode === 'check') return 'footer.run.check'
   if (props.remoteMode === 'download') return 'footer.run.download'
   return 'footer.run'
-})
-
-/** 底栏只放 v1.0.0 这样的短号，提交号留给关于对话框。 */
-const versionShort = computed(() => {
-  const raw = props.version.trim()
-  if (raw === '') return '—'
-  return `v${raw.split(/[\s(]/)[0]}`
 })
 
 type Part = { text: string; tone: 'plain' | 'warn' | 'bad' }
@@ -153,7 +149,9 @@ const parts = computed<Part[]>(() => {
         list.push({ text: t('footer.localized', { count: unique }), tone: 'plain' })
       }
     }
-    if (stats.remoteChecked > 0 && stats.localized === 0) {
+    // 「检测 N 个远程地址 · 其中失效 N」只属于检测页：下载页在「一张都没下来」
+    // 的时候 remoteChecked 也是非零，拿这条念会变成「下载没完成 · 检测 2 个地址」。
+    if (props.remoteMode === 'check' && stats.remoteChecked > 0 && stats.localized === 0) {
       // 检测模式：remoteChecked 就是处理过的远程引用总数（含失效的）。
       // 下载模式不能这么念 —— 那边只把「没下来的」记进 remoteChecked，
       // 说「检测 15 个远程地址 · 其中失效 15」会让人以为一张都没下来。
@@ -199,9 +197,12 @@ const parts = computed<Part[]>(() => {
     }
     if (stats.remoteKept > 0) {
       // 默认模式不碰远程图，可「没有可处理的图片」那句单看像是一张图都没有。
+      // 调试构建不会真的去下载：这时「没动的远程图」是没写文件，不是按策略保留。
       const keptKey =
-      props.dryRun && props.remoteMode === 'download' ? 'footer.remoteKeptDryRun' : 'footer.remoteKept'
-    list.push({ text: t(keptKey, { count: stats.remoteKept }), tone: 'plain' })
+        props.debug && props.remoteMode === 'download'
+          ? 'footer.remoteKeptDebug'
+          : 'footer.remoteKept'
+      list.push({ text: t(keptKey, { count: stats.remoteKept }), tone: 'plain' })
     }
     if (stats.remoteUnsupported > 0) {
       // ftp://、data: 这类地址既不算检测过、也不算失效，不单列就没人知道它们存在。
@@ -219,10 +220,10 @@ const parts = computed<Part[]>(() => {
   return list
 })
 
-// 试运行没有真正写出文件，别给一个必然失败的「打开输出目录」
+// 调试构建没有真正写出文件，别给一个必然失败的「打开输出目录」
 const showReveal = computed(
   () =>
-    props.canReveal && !props.dryRun && (props.phase === 'done' || props.phase === 'cancelled'),
+    props.canReveal && !props.debug && (props.phase === 'done' || props.phase === 'cancelled'),
 )
 
 const showShortcut = computed(() => props.canStart && !props.busy)
@@ -235,20 +236,10 @@ const showShortcut = computed(() => props.canStart && !props.busy)
         <span v-if="index > 0" class="foot__sep" aria-hidden="true">·</span>
         <span class="foot__part" :data-tone="part.tone">{{ part.text }}</span>
       </template>
-      <span v-if="dryRun" class="tag tag--warn">{{ t('footer.dryRun') }}</span>
     </div>
 
     <div class="foot__actions">
-      <!-- 版本号放在页面底部的状态栏里，点开是「关于 / 更新」 -->
-      <button
-        type="button"
-        class="foot__ver"
-        :title="t('footer.version', { version })"
-        @click="emit('about')"
-      >
-        <span class="mono">{{ versionShort }}</span>
-        <span v-if="hasUpdate" class="foot__ver-dot" :aria-label="t('footer.updateAvailable')" />
-      </button>
+      <span v-if="!busy && blockedHint" class="foot__hint">{{ blockedHint }}</span>
 
       <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
         <kbd class="kbd">Ctrl</kbd>
@@ -364,32 +355,11 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   flex: none;
 }
 
-.foot__ver {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
-  border: 0;
-  border-radius: var(--r-1);
-  background: transparent;
+/* 灰按钮旁边的一句话：说清是谁在扫、还差几个 */
+.foot__hint {
   color: var(--ink-3);
   font-size: var(--fs-1);
-  cursor: pointer;
-  transition:
-    color var(--t-fast) var(--ease),
-    background var(--t-fast) var(--ease);
-}
-
-.foot__ver:hover {
-  background: var(--panel-2);
-  color: var(--ink);
-}
-
-.foot__ver-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--accent);
+  white-space: nowrap;
 }
 
 .foot__kbd {

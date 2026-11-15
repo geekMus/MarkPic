@@ -5,8 +5,9 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"unsafe"
@@ -38,18 +39,20 @@ func IsBusy(err error) bool {
 }
 
 var (
-	user32           = syscall.NewLazyDLL("user32.dll")
-	comdlg32         = syscall.NewLazyDLL("comdlg32.dll")
-	shell32          = syscall.NewLazyDLL("shell32.dll")
-	ole32            = syscall.NewLazyDLL("ole32.dll")
-	procGetOpenFile  = comdlg32.NewProc("GetOpenFileNameW")
-	procBrowseFolder = shell32.NewProc("SHBrowseForFolderW")
-	procSHGetPath    = shell32.NewProc("SHGetPathFromIDListW")
-	procShellExecute = shell32.NewProc("ShellExecuteW")
-	procCoInit       = ole32.NewProc("CoInitializeEx")
-	procCoUninit     = ole32.NewProc("CoUninitialize")
-	procCoTaskFree   = ole32.NewProc("CoTaskMemFree")
-	procMessageBox   = user32.NewProc("MessageBoxW")
+	user32                         = syscall.NewLazyDLL("user32.dll")
+	comdlg32                       = syscall.NewLazyDLL("comdlg32.dll")
+	shell32                        = syscall.NewLazyDLL("shell32.dll")
+	ole32                          = syscall.NewLazyDLL("ole32.dll")
+	procGetOpenFile                = comdlg32.NewProc("GetOpenFileNameW")
+	procBrowseFolder               = shell32.NewProc("SHBrowseForFolderW")
+	procSHGetPath                  = shell32.NewProc("SHGetPathFromIDListW")
+	procShellExecute               = shell32.NewProc("ShellExecuteW")
+	procSHParseDisplayName         = shell32.NewProc("SHParseDisplayName")
+	procSHOpenFolderAndSelectItems = shell32.NewProc("SHOpenFolderAndSelectItems")
+	procCoInit                     = ole32.NewProc("CoInitializeEx")
+	procCoUninit                   = ole32.NewProc("CoUninitialize")
+	procCoTaskFree                 = ole32.NewProc("CoTaskMemFree")
+	procMessageBox                 = user32.NewProc("MessageBoxW")
 )
 
 const (
@@ -183,12 +186,48 @@ func Open(target string, lang i18n.Lang) error {
 }
 
 // Reveal 在资源管理器中选中指定文件或目录。
+//
+// 不用 explorer.exe /select,：那个开关靠命令行字符串解析，路径里带空格、
+// 逗号、中文时经常被 explorer 当成「打开默认目录」，选不中目标。
+// SHOpenFolderAndSelectItems 直接吃 PIDL，没有命令行歧义，选中目标可靠得多。
 func Reveal(path string, lang i18n.Lang) error {
-	cmd := exec.Command("explorer.exe", "/select,"+path)
-	if err := cmd.Start(); err != nil {
+	abs, err := filepath.Abs(path)
+	if err != nil {
 		return err
 	}
-	return cmd.Process.Release()
+	// 目录也走「打开父目录、选中它自己」：点和文件一样的语义（定位到它）。
+	folder, err := parseDisplayName(filepath.Dir(abs))
+	if err != nil {
+		return err
+	}
+	defer procCoTaskFree.Call(folder)
+	item, err := parseDisplayName(abs)
+	if err != nil {
+		return err
+	}
+	defer procCoTaskFree.Call(item)
+
+	// apidl 是「要被选中的那一个子项」的数组，传一个。
+	apidl := item
+	ret, _, _ := procSHOpenFolderAndSelectItems.Call(folder, 1, uintptr(unsafe.Pointer(&apidl)), 0)
+	if ret != 0 {
+		return fmt.Errorf("SHOpenFolderAndSelectItems(%s) 失败：0x%x", abs, ret)
+	}
+	return nil
+}
+
+// parseDisplayName 把一个绝对路径转成 PIDL（SHParseDisplayName 的薄封装）。
+func parseDisplayName(path string) (uintptr, error) {
+	p, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, err
+	}
+	var pidl uintptr
+	ret, _, _ := procSHParseDisplayName.Call(uintptr(unsafe.Pointer(p)), 0, uintptr(unsafe.Pointer(&pidl)), 0, 0)
+	if ret != 0 {
+		return 0, fmt.Errorf("SHParseDisplayName(%s) 失败：0x%x", path, ret)
+	}
+	return pidl, nil
 }
 
 // MessageBox 弹出系统消息框（GUI 启动失败时兜底）。

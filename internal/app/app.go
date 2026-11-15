@@ -63,9 +63,13 @@ func internal(msg string) *fail { return &fail{code: "internal", msg: msg} }
 type App struct {
 	store *settings.Store
 
-	mu      sync.Mutex
-	runs    map[string]context.CancelFunc
-	current *runSnapshot
+	mu   sync.Mutex
+	runs map[string]context.CancelFunc
+	// current 按 runID 记着每一轮的快照。上传 / 检测 / 下载各能跑一轮，
+	// 所以这里不是「唯一的那一轮」，按 runID 分开存。
+	current map[string]*runSnapshot
+	// scans 是在跑的扫描批次。扫描是异步的，界面靠 scanId 取消其中一批（或其中某个文件）。
+	scans map[string]*scanSession
 	// lang 是界面当前的语言：命令行的 Accept-Language 没了，改成前端启动时告诉 我们一次。
 	lang i18n.Lang
 
@@ -76,7 +80,9 @@ type App struct {
 }
 
 type runSnapshot struct {
-	runID   string
+	runID string
+	// mode 是这一轮属于哪一页：ignore（上传）/ check / download。
+	mode    string
 	files   []conv.FileTask
 	results map[string]*conv.FileResult
 	summary *conv.Summary
@@ -86,9 +92,11 @@ type runSnapshot struct {
 // New 建一个 App。exePath 是正在运行的程序，自动更新要替换的就是它。
 func New(store *settings.Store, exePath string) *App {
 	return &App{
-		store: store,
-		runs:  make(map[string]context.CancelFunc),
-		lang:  i18n.ZH,
+		store:   store,
+		runs:    make(map[string]context.CancelFunc),
+		current: make(map[string]*runSnapshot),
+		scans:   make(map[string]*scanSession),
+		lang:    i18n.ZH,
 		upd: updateTracker{status: updateStatus{
 			State:   "idle",
 			Current: version.Version,
@@ -149,16 +157,22 @@ func (a *App) Dispatch(method string, params json.RawMessage) Reply {
 		return a.ok(a.store.Load())
 	case "settings.put":
 		return a.result(a.putSettings(params))
+	case "settings.closeAction":
+		return a.result(a.setCloseAction(params))
 	case "dialog.files":
 		return a.result(a.pickFiles())
 	case "dialog.folder":
 		return a.result(a.pickFolder())
 	case "preview":
 		return a.result(a.preview(params))
+	case "scan.start":
+		return a.result(a.startScan(params))
+	case "scan.cancel":
+		return a.result(a.cancelScan(params))
 	case "run.start":
 		return a.result(a.startRun(params))
 	case "run.current":
-		return a.ok(a.currentRun())
+		return a.ok(a.currentRun(params))
 	case "run.cancel":
 		return a.result(a.cancelRun(params))
 	case "reveal":
@@ -208,6 +222,8 @@ type healthResponse struct {
 	DataNote string `json:"dataNote,omitempty"`
 	// SettingsNote 在设置文件读不出来时说明「现在跑的是默认值」。
 	SettingsNote string `json:"settingsNote,omitempty"`
+	// Debug 说明当前是不是调试构建（scripts/dev.mjs）：界面据它在标题栏挂标记。
+	Debug bool `json:"debug"`
 }
 
 // needsPicGo 与转换流程同一套判断：只碰远程图的两种模式不需要图床。
@@ -240,6 +256,7 @@ func (a *App) health() healthResponse {
 		// Load 已经把「设置文件读不出来」这件事咽下去了（回退默认值继续跑），
 		// 这里把它说给用户听，免得他改过的地址、并发数凭空变回默认值。
 		SettingsNote: a.store.Problem(lang),
+		Debug:        version.DebugMode(),
 	}
 }
 
@@ -255,10 +272,10 @@ type settingsPatch struct {
 	Suffix      *string `json:"suffix"`
 	OutDir      *string `json:"outDir"`
 	Backup      *bool   `json:"backup"`
-	DryRun      *bool   `json:"dryRun"`
 	Reuse       *bool   `json:"reuseUploads"`
 	Remote      *string `json:"remote"`
 	RemoteDir   *string `json:"remoteDir"`
+	CloseAction *string `json:"closeAction"`
 }
 
 func (p *settingsPatch) apply(cfg *settings.Settings) {
@@ -286,9 +303,6 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	if p.Backup != nil {
 		cfg.Backup = *p.Backup
 	}
-	if p.DryRun != nil {
-		cfg.DryRun = *p.DryRun
-	}
 	if p.Reuse != nil {
 		cfg.ReuseUploads = *p.Reuse
 	}
@@ -298,6 +312,31 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	if p.RemoteDir != nil {
 		cfg.RemoteDir = *p.RemoteDir
 	}
+	if p.CloseAction != nil {
+		cfg.CloseAction = *p.CloseAction
+	}
+}
+
+// setCloseAction 只改关闭行为。首次关窗时前端把「不再提示」勾选的结果存下来，
+// 走这里而不是整份 settings.put，免得把设置页里没保存的草稿一起写进去。
+func (a *App) setCloseAction(params json.RawMessage) (any, error) {
+	var req struct {
+		Action string `json:"action"`
+	}
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &req); err != nil {
+			return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerBadJSON))
+		}
+	}
+	cfg := a.store.Load()
+	cfg.CloseAction = req.Action
+	if err := cfg.NormalizeLang(a.Lang()); err != nil {
+		return nil, badRequest(err.Error())
+	}
+	if err := a.store.Save(cfg); err != nil {
+		return nil, internal(i18n.T(a.Lang(), i18n.KeyServerSaveFailed, err))
+	}
+	return map[string]string{"closeAction": cfg.CloseAction}, nil
 }
 
 func (a *App) putSettings(params json.RawMessage) (any, error) {
@@ -320,6 +359,9 @@ func (a *App) putSettings(params json.RawMessage) (any, error) {
 func (a *App) configOf(patch *settingsPatch) (settings.Settings, error) {
 	cfg := a.store.Load()
 	patch.apply(&cfg)
+	// 调试构建整轮只扫描、不写文件；发布构建里这一位恒为 false。
+	// 它不是用户设置：界面没有开关，也不会从 settings.put 传上来。
+	cfg.DryRun = version.DebugMode()
 	if cfg.Endpoint == "" {
 		cfg.Endpoint = settings.Default().Endpoint
 	}
@@ -389,7 +431,7 @@ func (a *App) preview(params json.RawMessage) (any, error) {
 	}
 	cfg.DryRun = true
 
-	runner := conv.NewRunner(cfg, a.Lang(), "preview", nil)
+	runner := conv.NewRunner(cfg, a.Lang(), "preview", nil).UsePreview()
 	files, sum := runner.RunCollect(context.Background(), req.Paths)
 	if files == nil {
 		files = []conv.FileResult{}
@@ -412,16 +454,25 @@ func (a *App) startRun(params json.RawMessage) (any, error) {
 
 	runID := newRunID()
 
-	// 同一时刻只允许跑一次：两次启动会各建一个 Runner，同一批文件被两边同时处理
-	// （重复上传、输出互相覆盖），界面也只有一套进度可显示。
+	// 上传 / 检测 / 下载三页可以各跑一轮，同一页只允许一轮：同一页连点两次开始会各建
+	// 一个 Runner，同一批文件被两边同时处理（重复上传、输出互相覆盖），界面也分不清
+	// 哪份进度是哪一轮的。别的页不受影响。
+	mode := cfg.Remote
 	a.mu.Lock()
-	if len(a.runs) > 0 {
-		a.mu.Unlock()
-		return nil, conflict(i18n.T(a.Lang(), i18n.KeyServerBusy))
+	for id, snap := range a.current {
+		if snap.mode != mode {
+			continue
+		}
+		if !snap.done {
+			a.mu.Unlock()
+			return nil, conflict(i18n.T(a.Lang(), i18n.KeyServerBusy))
+		}
+		// 这一页上一轮已经收工：让位给新的一轮，run.current 只保留最新一份。
+		delete(a.current, id)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a.runs[runID] = cancel
-	a.current = &runSnapshot{runID: runID, results: make(map[string]*conv.FileResult)}
+	a.current[runID] = &runSnapshot{runID: runID, mode: mode, results: make(map[string]*conv.FileResult)}
 	lang := a.lang
 	a.mu.Unlock()
 
@@ -449,8 +500,8 @@ func (a *App) startRun(params json.RawMessage) (any, error) {
 func (a *App) track(runID string) func(conv.Event) {
 	return func(ev conv.Event) {
 		a.mu.Lock()
-		snap := a.current
-		if snap != nil && snap.runID == runID {
+		snap := a.current[runID]
+		if snap != nil {
 			switch ev.Type {
 			case conv.EventRunStarted:
 				snap.files = ev.Files
@@ -474,20 +525,43 @@ func (a *App) track(runID string) func(conv.Event) {
 type currentRun struct {
 	Running bool               `json:"running"`
 	Done    bool               `json:"done"`
+	Mode    string             `json:"mode,omitempty"`
 	RunID   string             `json:"runId,omitempty"`
 	Files   []conv.FileTask    `json:"files,omitempty"`
 	Results []*conv.FileResult `json:"results,omitempty"`
 	Summary *conv.Summary      `json:"summary,omitempty"`
 }
 
-func (a *App) currentRun() currentRun {
+// currentRun 返回某一页最近的一轮（mode 为空时返回任意一轮，优先在跑的）。
+// 快照不在这里清：三页各有一份，切换页面时还要靠它把结果接回来；
+// 同一页开新的一轮时 startRun 会把上一份扔掉。
+func (a *App) currentRun(params json.RawMessage) currentRun {
+	var req struct {
+		Mode string `json:"mode"`
+	}
+	_ = json.Unmarshal(params, &req)
+
 	a.mu.Lock()
-	snap := a.current
+	var snap *runSnapshot
+	for _, candidate := range a.current {
+		if req.Mode != "" {
+			if candidate.mode == req.Mode {
+				snap = candidate
+			}
+			continue
+		}
+		// 没指定页时优先在跑的那一轮；都在跑的场合按 runID 取最新。
+		if snap == nil || (!candidate.done && snap.done) ||
+			(candidate.done == snap.done && candidate.runID > snap.runID) {
+			snap = candidate
+		}
+	}
 	var out currentRun
 	if snap != nil {
 		out = currentRun{
 			Running: !snap.done,
 			Done:    snap.done,
+			Mode:    snap.mode,
 			RunID:   snap.runID,
 			Files:   snap.files,
 			Summary: snap.summary,
@@ -499,17 +573,29 @@ func (a *App) currentRun() currentRun {
 		}
 	}
 	a.mu.Unlock()
-
-	// 已经结束的这一轮只留给「刚打开界面、想看看上一轮结果」的那一次调用；
-	// 再下一次就清掉，免得几天后打开界面还看到一轮陈年结果。
-	if out.Done {
-		a.mu.Lock()
-		if a.current == snap {
-			a.current = nil
-		}
-		a.mu.Unlock()
-	}
 	return out
+}
+
+// RunningCount 是还在跑的任务数。关窗时用它决定要不要二次确认。
+func (a *App) RunningCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.runs)
+}
+
+// CancelAll 取消所有在跑的任务。用户确认退出时由窗口层调用。
+func (a *App) CancelAll() {
+	a.mu.Lock()
+	for _, cancel := range a.runs {
+		cancel()
+	}
+	a.mu.Unlock()
+}
+
+// CloseAction 读当前的关闭行为（每次现读，用户改完设置不用重启）。
+// 值只会是 settings.CloseActionAsk / Tray / Exit（旧值已在 Store.Normalize 迁走）。
+func (a *App) CloseAction() string {
+	return a.store.Load().CloseAction
 }
 
 func (a *App) cancelRun(params json.RawMessage) (any, error) {
@@ -571,21 +657,30 @@ func (a *App) open(params json.RawMessage) (any, error) {
 
 // ---------- 自动更新 ----------
 
+// checkUpdate 只把状态切到「正在检查」就返回，真正的网络请求交给后台。
+//
+// bridge 的每个调用都跑在窗口线程上（go-webview2 的 MessageReceived 是同步的），
+// 一次 GitHub 请求最长要等 16 秒，期间所有 RPC 都排在它后面 —— 用户看到的是
+// 扫描按钮点了没反应。状态由前端轮询 update.status 取。
 func (a *App) checkUpdate() (any, error) {
-	if st := a.upd.snapshot().State; st == "downloading" || st == "installing" {
+	if st := a.upd.snapshot().State; st == "downloading" || st == "installing" || st == "checking" {
 		return a.upd.snapshot(), nil
 	}
 	a.upd.setState("checking")
+	lang := a.Lang()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 16*time.Second)
-	defer cancel()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 16*time.Second)
+		defer cancel()
 
-	rel, err := update.Check(ctx, version.Version, runtime.GOARCH, a.Lang())
-	if err != nil {
-		a.upd.fail(err.Error())
-		return a.upd.snapshot(), nil
-	}
-	a.upd.applyRelease(rel)
+		rel, err := update.Check(ctx, version.Version, runtime.GOARCH, lang)
+		if err != nil {
+			a.upd.fail(err.Error())
+			return
+		}
+		a.upd.applyRelease(rel)
+	}()
+
 	return a.upd.snapshot(), nil
 }
 

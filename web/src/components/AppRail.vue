@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { IconName } from './AppIcon.vue'
 import { useI18n, type MessageKey } from '../i18n'
@@ -9,8 +10,12 @@ const props = defineProps<{
   view: View
   /** 输出 / 设置里有没有还没保存的改动：有就让那颗按钮带个小点。 */
   dirty?: boolean
-  /** 哪个作业页正在跑：在它的图标上点一颗呼吸的小点，切走也看得见。 */
-  running?: View | null
+  /** 哪些作业页正在跑：各自的图标上都点一颗呼吸的小点，切走也看得见。 */
+  running?: readonly View[]
+  /** 服务端报上来的版本串，例如 2026.11.14+dev (91eca40)。 */
+  version: string
+  /** 已经查到有新版本时，在版本号旁边点一个记号。 */
+  hasUpdate?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -19,6 +24,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+/** 侧边栏只放 v2026.11.14 这样的短号；+dev 与提交号留给关于对话框。 */
+const versionShort = computed(() => {
+  const raw = props.version.trim()
+  if (raw === '') return '—'
+  // 版本号是日期（CalVer）：开发构建可能带 +dev，git describe 还可能带 -3-gabc1234。
+  return 'v' + raw.split(/[\s(]/)[0].replace(/[+-].*$/, '')
+})
 
 // 导航项写在一起，后面加功能只要往这里加一条、再到 App 里给一个视图就行；
 // 宽度、间距、选中态都不用重新想。
@@ -42,7 +55,7 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
         type="button"
         class="rail__btn"
         :data-nav="item.id"
-        :class="{ 'rail__btn--on': view === item.id, 'rail__btn--run': running === item.id }"
+        :class="{ 'rail__btn--on': view === item.id, 'rail__btn--run': running?.includes(item.id) }"
         :aria-pressed="view === item.id"
         :title="t(item.desc ?? item.key)"
         :aria-label="t(item.desc ?? item.key)"
@@ -58,17 +71,18 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
       </button>
     </div>
 
-    <!-- 关于不是功能，是入口：贴着「设置」往下放，别让它一个人飘在侧边栏最底。 -->
-    <div class="rail__about">
+    <!-- 版本不是功能：钉在左下角，点开才是关于 / 更新。
+         以前它单独占一个「关于」菜单项，和四个功能挤成一列，层级看着一样。 -->
+    <div class="rail__foot">
       <button
         type="button"
-        class="rail__btn"
-        :title="t('nav.about')"
-        :aria-label="t('nav.about')"
+        class="rail__ver"
+        :title="t('rail.version', { version })"
+        :aria-label="t('rail.version', { version })"
         @click="emit('about')"
       >
-        <AppIcon name="info" :size="17" />
-        <span class="rail__label">{{ t('nav.about') }}</span>
+        <span class="mono">{{ versionShort }}</span>
+        <span v-if="hasUpdate" class="rail__ver-dot" :aria-label="t('rail.updateAvailable')" />
       </button>
     </div>
   </nav>
@@ -122,6 +136,7 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
   align-items: stretch;
   gap: 16px;
   padding: 4px 2px;
+  height: 100%;
   min-height: 0;
 }
 
@@ -133,16 +148,47 @@ const FORM_VIEWS: readonly FormView[] = ['settings']
   width: 100%;
 }
 
-/* 一条极淡的分隔线：功能在上面，「关于」在下面 */
-.rail__about {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
+/* 版本是这条导航的脚注：不跟功能挤在一起，钉在左下角。
+   它比功能项低一档 —— 没有图标、没有选中态，只有一行短号和一颗更新记号。 */
+.rail__foot {
+  margin-top: auto;
+  padding: 8px 0 2px;
 }
 
-/* 「关于」是同一列里的最后一项：和上面的功能项一样占满整行，
-   只比它们多一条上方的分隔线，不能缩成一颗内容宽度的药丸。 */
-.rail__about .rail__btn {
-  width: 100%;
+.rail__ver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.rail__ver:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+.rail__ver:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rail__ver-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
 }
 
 .rail__btn {

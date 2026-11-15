@@ -24,6 +24,10 @@ interface WindowBridge {
   cmpWinToggleMaximize?: () => Promise<unknown>
   cmpWinMaximized?: () => Promise<boolean>
   cmpWinClose?: () => Promise<unknown>
+  /** 收进系统托盘（不退出）；返回 false 表示托盘图标没建起来。 */
+  cmpWinTray?: () => Promise<boolean>
+  /** 已经确认退出：先取消任务，再绕过关闭确认真正关窗。 */
+  cmpWinQuit?: () => Promise<unknown>
   cmpWinDrag?: (x: number, y: number) => Promise<unknown>
   cmpWinResize?: (edge: ResizeEdge) => Promise<unknown>
   cmpWinSetDark?: (dark: boolean) => Promise<unknown>
@@ -101,6 +105,19 @@ export function useWindowControls() {
     },
     close: (): void => {
       void bridge.cmpWinClose?.()
+    },
+    /** 收进系统托盘；没有托盘命令或挂图标失败时返回 false。 */
+    tray: async (): Promise<boolean> => {
+      if (typeof bridge.cmpWinTray !== 'function') return false
+      try {
+        return (await bridge.cmpWinTray()) === true
+      } catch {
+        return false
+      }
+    },
+    /** 关闭确认里点了退出：后端会先取消所有任务，再放行窗口关闭。 */
+    quit: (): void => {
+      void bridge.cmpWinQuit?.()
     },
     /**
      * 在标题栏空白处按下。真正的交接推迟到鼠标确实移动之后：
