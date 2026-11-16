@@ -266,6 +266,16 @@ function clampValue(event: Event, min: number, max: number, fallback: number): n
         </div>
         <span class="field__hint">{{ t('settings.closeAction.hint') }}</span>
       </div>
+      <!-- 启动形态和关窗去向是同一件事的两头：都决定「窗口什么时候在屏幕上」。 -->
+      <label class="check">
+        <input
+          type="checkbox"
+          :checked="settings.startInTray"
+          @change="emit('update', { startInTray: checkedValue($event) })"
+        />
+        <span>{{ t('settings.startInTray') }}</span>
+      </label>
+      <p class="check__hint">{{ t('settings.startInTray.hint') }}</p>
     </section>
 
     <section class="section">

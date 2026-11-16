@@ -54,6 +54,8 @@ export const en: Record<keyof typeof zh, string> = {
   'settings.closeAction.tray': 'Minimize to tray',
   'settings.closeAction.exit': 'Quit the app',
   'settings.closeAction.hint': 'Minimize to tray hides the window from the taskbar and leaves a notification-area icon. Ask every time lets you pick minimize or quit while idle; tick “Don’t ask again” to remember that choice. If a task is running, closing always asks first.',
+  'settings.startInTray': 'Start in the tray without showing the window',
+  'settings.startInTray.hint': 'With this on, launching only puts a MarkPic icon in the notification area; click it (or right-click and choose "Show window") to bring the window up. Handy when the app starts with Windows and you only convert a few files now and then. Off by default: double-clicking the icon should show you something.',
   'settings.section.picgo': 'PicGo service',
   'settings.endpoint': 'Server address',
   'settings.endpoint.hint': 'Default http://127.0.0.1:36677',

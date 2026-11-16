@@ -88,6 +88,12 @@ type Settings struct {
 	// 默认每次询问；老设置里的 "minimize" 在 Normalize 时迁成 "tray"。
 	CloseAction string `json:"closeAction"`
 
+	// StartInTray 决定启动时是直接把窗口亮出来，还是只留一个托盘图标待命。
+	// 默认 false：双击图标就该看见东西，第一次打开尤其不能是一片安静。
+	// 开机自启又只是「顺手传几张图」的用户会把它打开：进程在后台等，
+	// 托盘图标一放就能用，不必每次都弹一扇窗出来占着桌面。
+	StartInTray bool `json:"startInTray"`
+
 	// SchemaVersion 只在设置文件里出现，界面不显示。
 	SchemaVersion int `json:"schemaVersion,omitempty"`
 }
@@ -105,6 +111,7 @@ func Default() Settings {
 		Remote:        RemoteIgnore,
 		RemoteDir:     DefaultRemoteDir,
 		CloseAction:   CloseActionAsk,
+		StartInTray:   false,
 		SchemaVersion: CurrentSchemaVersion,
 	}
 }

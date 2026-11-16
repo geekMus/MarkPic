@@ -276,6 +276,7 @@ type settingsPatch struct {
 	Remote      *string `json:"remote"`
 	RemoteDir   *string `json:"remoteDir"`
 	CloseAction *string `json:"closeAction"`
+	StartInTray *bool   `json:"startInTray"`
 }
 
 func (p *settingsPatch) apply(cfg *settings.Settings) {
@@ -314,6 +315,9 @@ func (p *settingsPatch) apply(cfg *settings.Settings) {
 	}
 	if p.CloseAction != nil {
 		cfg.CloseAction = *p.CloseAction
+	}
+	if p.StartInTray != nil {
+		cfg.StartInTray = *p.StartInTray
 	}
 }
 
@@ -596,6 +600,11 @@ func (a *App) CancelAll() {
 // 值只会是 settings.CloseActionAsk / Tray / Exit（旧值已在 Store.Normalize 迁走）。
 func (a *App) CloseAction() string {
 	return a.store.Load().CloseAction
+}
+
+// StartInTray 是「启动时只进托盘」这一位，建窗口之前先问一次。
+func (a *App) StartInTray() bool {
+	return a.store.Load().StartInTray
 }
 
 func (a *App) cancelRun(params json.RawMessage) (any, error) {

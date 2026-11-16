@@ -21,6 +21,8 @@ export type Settings = {
   remoteDir: string
   /** 点窗口叉号时怎么办：每次询问、最小化到托盘，或者直接退出；有任务时总会先确认。 */
   closeAction: 'ask' | 'tray' | 'exit'
+  /** 启动时只留托盘图标、不亮出窗口。默认关闭：双击图标就该看见东西。 */
+  startInTray: boolean
 }
 
 export type RemoteMode = 'ignore' | 'check' | 'download'

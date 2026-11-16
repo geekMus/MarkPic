@@ -72,6 +72,13 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 	installWindowChrome(w)
 	bindWindowCommands(w, desktop)
 
+	// 「启动时只放进托盘」：窗口刚建出来就藏起来，别让它亮一下再消失。
+	// hideToTray 自己保证「先挂上托盘图标再藏窗口」，挂不上就不藏 ——
+	// 否则用户既看不见窗口，也找不到托盘入口。
+	if desktop.StartInTray() {
+		hideToTray()
+	}
+
 	if err := bindBridge(w, desktop); err != nil {
 		return err
 	}

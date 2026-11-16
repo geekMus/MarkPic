@@ -37,6 +37,7 @@ const SETTINGS_KEYS: readonly (keyof Settings)[] = [
   'remote',
   'remoteDir',
   'closeAction',
+  'startInTray',
 ]
 
 function defaultSettings(): Settings {
@@ -56,6 +57,7 @@ function defaultSettings(): Settings {
     remote: 'ignore',
     remoteDir: 'images',
     closeAction: 'ask',
+    startInTray: false,
   }
 }
 
@@ -111,6 +113,8 @@ function normalize(value: Partial<Settings> | null | undefined): Settings {
         : (value.closeAction as string | undefined) === 'minimize'
           ? 'tray'
           : base.closeAction,
+    startInTray:
+      typeof value.startInTray === 'boolean' ? value.startInTray : base.startInTray,
   }
 }
 

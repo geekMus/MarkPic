@@ -53,6 +53,8 @@ export const zh = {
   'settings.closeAction.tray': '最小化到托盘',
   'settings.closeAction.exit': '退出程序',
   'settings.closeAction.hint': '选「最小化到托盘」时窗口从任务栏消失，只在通知区留一个图标；选「每次询问」时，没有任务就让你选最小化还是退出，勾「不再询问」并确认后按这次的选择记住；只要还有任务在跑，关窗都会先确认是否退出。',
+  'settings.startInTray': '启动时只放进托盘，不打开窗口',
+  'settings.startInTray.hint': '打开后双击图标只会在通知区出现一个 MarkPic 图标，点它（或右键选「显示界面」）才亮出窗口。适合开机自启、平时只是顺手传几张图的情况。默认关闭：双击图标就该看见东西。',
   'settings.section.picgo': 'PicGo 服务',
   'settings.endpoint': '服务地址',
   'settings.endpoint.hint': '默认 http://127.0.0.1:36677',
