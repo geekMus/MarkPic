@@ -494,8 +494,16 @@ func frameThickness() (int32, int32) {
 	return int32(sx + pad), int32(sy + pad)
 }
 
+// currentThemeDark 是最近一次落到窗口上的主题。托盘菜单是原生窗口，读不到
+// CSS，只能从这里知道该画深色还是浅色。
+var currentThemeDark atomic.Bool
+
+// themeDarkNow 给原生菜单用：此刻界面到底是深色还是浅色。
+func themeDarkNow() bool { return currentThemeDark.Load() }
+
 // applyChromeTheme 让窗口边框 / 标题栏 / 任务栏图标跟随前端主题。
 func applyChromeTheme(dark bool) {
+	currentThemeDark.Store(dark)
 	hwnd := hwndValue()
 	if hwnd == 0 {
 		return

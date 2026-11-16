@@ -2,9 +2,10 @@
 
 package main
 
-// 系统托盘。没有任务时选择「最小化到托盘」，窗口只是藏起来，进程还活着；
-// 托盘图标双击 / 菜单回到窗口。右键菜单只有「显示界面」和「退出程序」两项；
-// 退出程序有任务时先把窗口恢复出来，再走界面里的「退出程序」确认框。
+// 系统托盘。托盘图标在进程启动时就挂上，一直留到真正退出为止 —— 窗口开着
+// 也在，收进托盘也在（和 Mac 版的常驻菜单栏图标一个意思）。双击图标回窗口。
+// 右键菜单只有「显示界面」和「退出程序」两项，由 traymenu_windows.go 按主题
+// 自绘；退出程序有任务时先把窗口恢复出来，再走界面里的「退出程序」确认框。
 //
 // 这里只做 Win32 那一层，不碰业务：窗口什么时候该藏、该不该问，都在 chrome_windows.go 的
 // WM_CLOSE 里决定；托盘菜单只是把「回来」和「退出」两个动作交回去。
@@ -178,14 +179,13 @@ func hideToTray() bool {
 	return true
 }
 
-// showFromTray 从托盘或最小化状态回到屏幕。托盘图标只在窗口藏着的时候存在：
-// 窗口已经回来了，就把图标摘掉，免得任务栏和通知区各留一个入口。
+// showFromTray 从托盘或最小化状态回到屏幕。托盘图标从启动一直挂到退出，
+// 不在这里摘：窗口回来了，通知区那个入口仍然在（用户要求与 Mac 版一致）。
 func showFromTray() {
 	hwnd := hwndValue()
 	if hwnd == 0 {
 		return
 	}
-	removeTrayIcon()
 	iconic, _, _ := procIsIconic.Call(hwnd)
 	if iconic != 0 {
 		procShowWindow.Call(hwnd, swRestore)
@@ -207,9 +207,18 @@ func trayMenuLabels() (string, string) {
 	return open, quit
 }
 
-// showTrayMenu 在光标处弹右键菜单。TrackPopupMenu 会阻塞窗口线程直到菜单关闭，
-// 这是 Win32 菜单的正常用法；它只发生在用户点托盘时，不会卡住转换任务。
+// showTrayMenu 弹右键菜单：优先用自己画的那套（跟随主题、圆角、悬停高亮，
+// 见 traymenu_windows.go）；万一窗口建不出来，才退回系统菜单，至少还能点。
 func showTrayMenu() {
+	if showCustomTrayMenu() {
+		return
+	}
+	showSystemTrayMenu()
+}
+
+// showSystemTrayMenu 是兜底路径：系统 TrackPopupMenu 会阻塞窗口线程直到菜单
+// 关闭，这是 Win32 菜单的正常用法；它只发生在用户点托盘时，不会卡住转换任务。
+func showSystemTrayMenu() {
 	hwnd := hwndValue()
 	if hwnd == 0 {
 		return
