@@ -99,7 +99,7 @@ func New(store *settings.Store, exePath string) *App {
 		lang:    i18n.ZH,
 		upd: updateTracker{status: updateStatus{
 			State:   "idle",
-			Current: version.Version,
+			Current: version.String(),
 		}},
 		exeDir: exePath,
 	}
@@ -663,6 +663,12 @@ func (a *App) open(params json.RawMessage) (any, error) {
 // 一次 GitHub 请求最长要等 16 秒，期间所有 RPC 都排在它后面 —— 用户看到的是
 // 扫描按钮点了没反应。状态由前端轮询 update.status 取。
 func (a *App) checkUpdate() (any, error) {
+	// 没注入版本号的构建（直接 go build）压根不去问 GitHub：拿 dev 去和发布日期比，
+	// 结论永远是「有新版本」，那颗提示会一直亮着，还诱导人拿发布版盖掉开发版。
+	if version.Unversioned() {
+		a.upd.setState("unversioned")
+		return a.upd.snapshot(), nil
+	}
 	if st := a.upd.snapshot().State; st == "downloading" || st == "installing" || st == "checking" {
 		return a.upd.snapshot(), nil
 	}

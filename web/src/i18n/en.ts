@@ -288,6 +288,7 @@ export const en: Record<keyof typeof zh, string> = {
   'about.state.downloading': 'Downloading {percent}%',
   'about.state.installing': 'Verifying and replacing files…',
   'about.state.restarting': 'Restarting — the page refreshes once the new version is up',
+  'about.state.unversioned': 'Development build — updates are not checked',
   'about.state.error': 'Check failed',
   'about.state.idle': 'Not checked yet',
 

@@ -179,9 +179,12 @@ async function waitForRestart(wasVersion: string): Promise<void> {
  * 取版本号里的数字部分再比。界面上的 current 写作 "v2026.11.14"，
  * 而 health 报的是 "2026.11.14+dev (91eca40)" —— 直接比字符串会立刻判成「变了」，
  * 于是页面在旧进程还占着端口时就刷新了，刷完还是旧界面。
+ *
+ * 数字必须从开头取：开发构建报的是 "dev (91eca40)"，从头到尾扫数字会把提交号
+ * 里的 91 当成版本号，于是重启等到超时也不刷新。
  */
 function versionCore(text: string): string {
-  const match = /(\d+(?:\.\d+)*)/.exec(text ?? '')
+  const match = /^\s*v?(\d+(?:\.\d+)*)/.exec(text ?? '')
   return match ? match[1] : (text ?? '')
 }
 

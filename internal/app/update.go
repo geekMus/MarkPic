@@ -8,7 +8,7 @@ import (
 
 // updateStatus 会被原样发给前端，字段名与 web/src/types.ts 保持一致。
 type updateStatus struct {
-	State       string       `json:"state"` // idle/checking/latest/available/downloading/installing/restarting/error
+	State       string       `json:"state"` // idle/checking/latest/available/downloading/installing/restarting/unversioned/error
 	Current     string       `json:"current"`
 	Latest      string       `json:"latest"`
 	Tag         string       `json:"tag"`

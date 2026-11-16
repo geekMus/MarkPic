@@ -298,6 +298,8 @@ export type UpdateState =
   | 'downloading'
   | 'installing'
   | 'restarting'
+  /** 这个构建没有版本号（直接 go build），不去和发布版比，也不提示更新。 */
+  | 'unversioned'
   | 'error'
 
 /** /api/update/status 与 /api/update/check 共用的形状。 */

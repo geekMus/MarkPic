@@ -285,6 +285,7 @@ export const zh = {
   'about.state.downloading': '正在下载 {percent}%',
   'about.state.installing': '正在校验并替换程序…',
   'about.state.restarting': '正在重启，新版本起来后界面会自动刷新',
+  'about.state.unversioned': '开发构建，不检查更新',
   'about.state.error': '检查失败',
   'about.state.idle': '还没有检查过',
 

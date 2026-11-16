@@ -30,7 +30,9 @@ const versionShort = computed(() => {
   const raw = props.version.trim()
   if (raw === '') return '—'
   // 版本号是日期（CalVer）：开发构建可能带 +dev，git describe 还可能带 -3-gabc1234。
-  return 'v' + raw.split(/[\s(]/)[0].replace(/[+-].*$/, '')
+  const core = raw.split(/[\s(]/)[0].replace(/[+-].*$/, '')
+  // 只有日期版才加 v：直接 go build 的产物报的是 dev，写成 vdev 只会让人看不懂。
+  return /^\d/.test(core) ? 'v' + core : core
 })
 
 // 导航项写在一起，后面加功能只要往这里加一条、再到 App 里给一个视图就行；

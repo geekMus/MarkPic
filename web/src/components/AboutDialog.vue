@@ -62,6 +62,9 @@ const statusLine = computed(() => {
       return t('about.state.installing')
     case 'restarting':
       return t('about.state.restarting')
+    case 'unversioned':
+      // 这个构建没有版本号，压根没去问服务器 —— 说「已是最新」会是假话。
+      return t('about.state.unversioned')
     case 'error':
       return error.value || now.error || t('about.state.error')
     default:

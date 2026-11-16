@@ -38,6 +38,17 @@ func withDebug(t *testing.T) {
 	t.Cleanup(func() { version.Debug = old })
 }
 
+// withVersion 换掉版本串，测完恢复。
+//
+// go test 出来的二进制没有 -ldflags 注入，版本号本来就是 dev（= 不检查更新的
+// 开发构建）；要测检查更新的流程，得先把它装成一个有版本号的构建。
+func withVersion(t *testing.T, v string) {
+	t.Helper()
+	old := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = old })
+}
+
 // dispatch 调一次方法并把 data 解回 T；失败时用 Go 侧给的文案直接报错。
 func dispatch[T any](t *testing.T, a *App, method string, params any) T {
 	t.Helper()
@@ -446,6 +457,7 @@ func TestBadParamsAreRejected(t *testing.T) {
 // 期间扫描、开始这些按钮全都排后面（用户看到的是点了没反应）。这里用慢服务器
 // 把「立刻返回 checking」和「后台落到 available」两段都钉住。
 func TestCheckUpdateDoesNotBlockTheBridge(t *testing.T) {
+	withVersion(t, "2026.11.10")
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(800 * time.Millisecond)
 		_, _ = io.WriteString(w, `{"version":"2026.11.14","windows":{"amd64":{"url":"https://example.com/markpic.exe","sha256":"0000000000000000000000000000000000000000000000000000000000000000","size":1}}}`)
@@ -474,4 +486,41 @@ func TestCheckUpdateDoesNotBlockTheBridge(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("后台检查没有在 3 秒内落地")
+}
+
+// 没注入版本号的构建（直接 go build）不该去问 GitHub：dev 比任何发布日期都小，
+// 一旦去查就永远「有新版本」，那颗提示会一直亮着、还诱导人换成发布版。
+func TestCheckUpdateSkipsUnversionedBuild(t *testing.T) {
+	var hits int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		hits++
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"version":"2026.11.14"}`)
+	}))
+	defer srv.Close()
+	t.Setenv(update.ManifestEnv, srv.URL)
+
+	withVersion(t, version.DefaultVersion)
+
+	a := newTestApp(t)
+	got := dispatch[updateStatus](t, a, "update.check", map[string]any{})
+	if got.State != "unversioned" {
+		t.Fatalf("开发构建应该直接报 unversioned，实际 %q", got.State)
+	}
+	if got.Current != version.DefaultVersion {
+		t.Fatalf("当前版本应该是 %q，实际 %q", version.DefaultVersion, got.Current)
+	}
+
+	// 给后台留出「万一起了请求」的时间：这段里发过请求就说明短路没生效。
+	time.Sleep(200 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if hits != 0 {
+		t.Fatalf("开发构建不该去查清单，实际发了 %d 次请求", hits)
+	}
+	if st := a.upd.snapshot().State; st != "unversioned" {
+		t.Fatalf("状态不该被后台改掉，实际 %q", st)
+	}
 }

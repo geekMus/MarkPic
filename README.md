@@ -269,9 +269,15 @@ set MARKPIC_UPDATE_MANIFEST=http://127.0.0.1:8080/version.json
 | `2026.11.14` | 2026 年 11 月 14 日的发布 |
 | `2026.11.14.1` | 同一天的第二版（再往后是 `.2`、`.3`……） |
 | `2026.11.14+dev` | 本地构建、没打过 tag；`+` 之后只用于显示，比较时忽略 |
+| `dev` | 绕开构建脚本直接 `go build`：没有版本号，界面显示 `dev (提交号)` 且不检查更新 |
 
 日期补零，字符串序就是时间序；三段式的日期本身也是合法的 SemVer，npm、git tag、
 `git describe` 都不别扭。老版本（`1.0.0`）比任何日期版都小，升级到日期版之后不会回退。
+
+只有走 `node scripts/build.mjs`（或 dev / release 脚本）的构建才拿得到版本号 ——
+它们会给 `internal/version.Version` 注入日期。直接 `go build ./cmd/markpic` 出来的
+exe 没有这个注入值，版本号就是 `dev`，侧边栏与关于对话框照实显示，也不会去查更新
+（`dev` 比任何发布日期都小，查出来的结论永远是「有新版本」）。
 
 发布号由 CI 按 `Asia/Shanghai` 的当日期自动算，不需要手工改任何文件；同一天已经有
 `v<日期>` 的 tag 时自动顺延序号。`package.json` 的 `version` 只是「最后发的是哪一版」
