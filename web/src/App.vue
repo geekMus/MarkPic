@@ -254,18 +254,6 @@ const settingsNote = computed(() => health.value?.settingsNote ?? '')
  */
 const debug = computed(() => health.value?.debug === true)
 
-// 队列面板标题右边那枚小标签：这一刻这件事的结果落在哪儿。
-// 三个作业视图共用一份队列，只有这一行和底栏按钮能说明「我切到哪了」。
-const jobTag = computed(() => {
-  if (mode.value === 'check') return t('view.tag.readonly')
-  if (mode.value === 'download') {
-    const dir = settings.remoteDir.trim() === '' ? 'images' : settings.remoteDir.trim()
-    return t('view.tag.into', { dir })
-  }
-  // 标题旁边只说「结果去哪」，不摆 PicGo 地址：上传页和检测 / 下载页读起来要一致。
-  return t('view.tag.upload')
-})
-
 /**
  * 扫描没通过的行：正在扫、超时、被取消、找不到文件。
  *
@@ -647,7 +635,6 @@ onBeforeUnmount(() => {
             :completed="completedCount"
             :total="totalCount"
             :remote-mode="mode"
-            :mode-tag="jobTag"
             :busy="jobBusy"
             :progress="jobProgress"
             :aborted="stats.abortReason !== ''"
@@ -667,7 +654,6 @@ onBeforeUnmount(() => {
             v-else-if="view === 'check'"
             key="check"
             :rows="rowViews"
-            :tag="jobTag"
             :busy="jobBusy"
             :progress="jobProgress"
             :recent="recentPaths"
@@ -684,7 +670,6 @@ onBeforeUnmount(() => {
             v-else-if="view === 'download'"
             key="download"
             :rows="rowViews"
-            :tag="jobTag"
             :busy="jobBusy"
             :progress="jobProgress"
             :recent="recentPaths"

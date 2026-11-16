@@ -20,8 +20,6 @@ const props = withDefaults(defineProps<{
   leadKey: MessageKey
   /** 给 h2 一个锚点 id：外层 role="region" 的 aria-labelledby 指向它。 */
   id?: string
-  /** 标题后面那个目标信息，例如「只读」「存到 images/」。 */
-  tag?: string
   /** 这一页正在跑：页头下面那条进度线才出现。 */
   busy?: boolean
   /**
@@ -49,7 +47,6 @@ const percent = computed(() => Math.round(fill.value * 100))
         </span>
         <h2 :id="id" class="pagehead__title">{{ t(titleKey) }}</h2>
         <slot name="badge" />
-        <span v-if="tag" class="pagehead__tag num">{{ tag }}</span>
         <span v-if="busy" class="pagehead__pct num" aria-hidden="true">{{ percent }}%</span>
       </div>
       <p class="pagehead__lead">{{ t(leadKey) }}</p>
@@ -124,16 +121,6 @@ const percent = computed(() => Math.round(fill.value * 100))
   font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.2;
-}
-
-.pagehead__tag {
-  padding: 2px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--panel-2);
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-  white-space: nowrap;
 }
 
 /* 总进度百分比：和页头的细线一起出现，跑完就一起消失。 */

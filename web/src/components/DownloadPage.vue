@@ -21,7 +21,6 @@ import { describeError, openTarget } from '../api'
  */
 const props = defineProps<{
   rows: RunRowView[]
-  tag?: string
   recent?: string[]
   busy?: boolean
   progress?: number
@@ -222,7 +221,6 @@ const band = computed(() => {
     tone="ok"
     title-key="page.download"
     hint-key="view.download.sub"
-    :tag="tag"
     :verdicts="band"
     :has-rows="rows.length > 0"
     :recent="recent"

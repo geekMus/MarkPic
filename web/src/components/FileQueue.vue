@@ -24,8 +24,6 @@ const props = defineProps<{
   progress?: number
   /** 这一轮在做什么（上传 / 只检测 / 下载回本地），只用来给行内文案挑词。 */
   remoteMode?: 'ignore' | 'check' | 'download'
-  /** 标题右边那句目标信息：图床地址 / 「只读」/「存到 images/」。 */
-  modeTag?: string
   /** 这一轮是不是被提前掐断的（图床连不上）。 */
   aborted?: boolean
   /** 右栏正在看哪一行；只用来画选中态。 */
@@ -365,7 +363,6 @@ function onScroll(): void {
       tone="accent"
       title-key="page.convert"
       lead-key="view.convert.sub"
-      :tag="modeTag"
       :busy="busy"
       :progress="lineProgress"
     >

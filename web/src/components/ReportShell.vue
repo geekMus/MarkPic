@@ -20,8 +20,6 @@ const props = defineProps<{
   tone: 'accent' | 'warn' | 'ok'
   titleKey: MessageKey
   hintKey: MessageKey
-  /** 标题右边那句目标信息，例如「只读」「存到 images/」。 */
-  tag?: string
   hasRows: boolean
   recent?: string[]
   /** 一行结论的几段：4 个地址 · 2 能打开 · 1 打不开。 */
@@ -48,7 +46,6 @@ const { t } = useI18n()
       :tone="tone"
       :title-key="titleKey"
       :lead-key="hintKey"
-      :tag="tag"
       :busy="busy"
       :progress="progress"
     >
