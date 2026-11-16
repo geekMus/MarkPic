@@ -34,9 +34,10 @@ const (
 	// GetAncestor 的参数：GA_ROOT = 2（最顶层祖先窗口）。
 	gaRoot = 2
 
-	wmCaptionLButtonDown = 0x0201
-	wmCaptionMouseMove   = 0x0200
-	wmCaptionLButtonUp   = 0x0202
+	wmCaptionLButtonDown   = 0x0201
+	wmCaptionLButtonDblClk = 0x0203
+	wmCaptionMouseMove     = 0x0200
+	wmCaptionLButtonUp     = 0x0202
 
 	// 钩子配对成功之后发给顶层窗口的自定义消息（WM_APP + 0x51）。
 	wmCaptionToggle = 0x8000 + 0x51
@@ -52,7 +53,7 @@ const (
 	// 一次「点击」允许的抖动（物理像素）。超过它就算拖动，这一下不再参与
 	// 双击配对 —— 不然后面每次重新按下，都会和拖动前那一下凑成「双击」，
 	// 窗口就在连续拖标题栏时莫名其妙地最大化。
-	captionClickSlop = 6
+	captionClickSlop = 8
 
 	// 前端还没上报之前的兜底范围（CSS 像素）。
 	captionFallbackBar   = 40
@@ -299,13 +300,21 @@ func captionBandRect(width, height int32, scale float64) (top, bottom, right int
 	return gap, bar, right
 }
 
-// captionHookProc 是钩子过程：只看左键按下/移动/抬起，其余消息原样往下传。
+// captionHookProc 是钩子过程：只看左键按下/双击/移动/抬起，其余消息原样往下传。
 // 任何分支都必须走到 CallNextHookEx，否则整个系统的鼠标输入会被卡住。
 func captionHookProc(code, wp, lp uintptr) uintptr {
 	if int32(code) >= 0 {
 		switch wp {
 		case wmCaptionLButtonDown:
 			captionPress()
+		case wmCaptionLButtonDblClk:
+			// 低层钩子调用 CallNextHookEx 之后，双击的第二次按下会以
+			// WM_LBUTTONDBLCLK 送来，而不是再来一条 WM_LBUTTONDOWN。
+			// 不处理它，第二次按下就永远配不上，双击最大化也就没了。
+			// 某些系统/输入设备两种消息都发，按下态已在就不要再记一次。
+			if !captionGestureState.pressed {
+				captionPress()
+			}
 		case wmCaptionMouseMove:
 			captionMove()
 		case wmCaptionLButtonUp:
