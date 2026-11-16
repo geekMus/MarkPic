@@ -11,6 +11,10 @@ import vue from '@vitejs/plugin-vue'
 function classicScript(): Plugin {
   return {
     name: 'markpic-classic-script',
+    // 只在 build 里跑：dev 模式下 Vite 自己注入的 <script type="module">（@vite/client 和
+    // main.ts）同样会被上面的正则改成 defer，模块脚本退化成传统脚本就报
+    // "Cannot use import statement outside a module"，窗口里一片空白。
+    apply: 'build',
     enforce: 'post',
     transformIndexHtml(html) {
       return html

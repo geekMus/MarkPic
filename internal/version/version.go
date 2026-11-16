@@ -25,7 +25,7 @@ var Version = DefaultVersion
 // Commit 构建时的提交号（可选）。
 var Commit = "dev"
 
-// Debug 标记这是不是调试构建。发布构建里它永远是 false；scripts/dev.mjs 会用
+// Debug 标记这是不是调试构建。发布构建里它永远是 false；npm run start 编出来的开发版会用
 // -ldflags "-X .../internal/version.Debug=true" 打开它。
 //
 // 调试构建 = 标题栏挂一枚橙色「调试模式」标记，整轮只扫描、不写文件、不上传。

@@ -30,7 +30,7 @@ func newTestApp(t *testing.T) *App {
 }
 
 // withDebug 把这次测试当成调试构建跑：整轮只扫描、不写文件。
-// 调试模式是构建期开关（scripts/dev.mjs 注入），不是设置项。
+// 调试模式是构建期开关（scripts/start.mjs 编出来的那版会注入），不是设置项。
 func withDebug(t *testing.T) {
 	t.Helper()
 	old := version.Debug

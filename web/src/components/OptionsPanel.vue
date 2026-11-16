@@ -24,7 +24,7 @@ const props = defineProps<{
   /** 当前这一轮会不会上传图片：只有「上传本地图片」且不是调试模式才会。 */
   picgoNeeded: boolean
   /**
-   * 调试构建（scripts/dev.mjs）：整轮只扫描、不写文件。
+   * 调试构建（npm run start 编的那一版）：整轮只扫描、不写文件。
    *
    * 这不是一个开关 —— 发布版里连这个概念都不存在，所以只在 dev 构建里说一句。
    */

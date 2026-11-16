@@ -1,0 +1,186 @@
+/* 基础元素：盒模型、正文、选区、焦点环、滚动条。
+   —— 原 main.css 第 198-380 行，规则、顺序、注释原样保留。 */
+
+/* ------------------------------------------------------------------ 基础 */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-3);
+  line-height: 1.5;
+  /* 一块安静的画布：没有点阵、没有大团光。只在顶缘留一点极淡的受光，
+     让窗口看起来是「有方向的面」，而不是一张贴图。 */
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 纵向永远不滚（界面自己管滚动），横向只在窗口窄到放不下界面时才出来 */
+  overflow: auto hidden;
+}
+
+body::before {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 0;
+  height: 360px;
+  background: radial-gradient(72% 100% at 50% 0%, rgba(255, 255, 255, 0.7), transparent 72%);
+  content: '';
+  pointer-events: none;
+}
+
+:root[data-theme='dark'] body::before {
+  background: radial-gradient(72% 100% at 50% 0%, rgba(126, 168, 255, 0.06), transparent 74%);
+}
+
+/* 窗口边界的「收边」。
+ *
+ * 去掉系统边框之后，窗口就是一块画布直接压在桌面上：桌面浅一点、浏览器白一点，
+ * 边界就彻底看不见了 —— 用户找不到自己窗口到哪儿结束。描一条边能解决，但会显得便宜。
+ *
+ * 这里反过来做：在窗口内侧打一圈非常柔的光（浅色主题是一道极浅的压暗），像一块玻璃
+ * 边缘的反光，有厚度、没有线。盖在上层而不是画在 body 背景里 —— 面板是贴边的，画在
+ * 底下会被它整块盖住，一点也看不见。pointer-events: none，不挡操作。
+ */
+body::after {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  /* 只有压暗，没有任何亮色：上一版在这层叠了一条白色渐变当「受光」，
+     深色主题上就是一圈发白的边。收边靠明暗差就够，不需要发光。 */
+  box-shadow:
+    inset 0 0 30px -2px var(--edge-glow),
+    inset 0 0 90px -40px var(--edge-glow);
+  content: '';
+  pointer-events: none;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+figure {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* 没有写背景的按钮不该继承 UA 的那块「系统按钮色」。
+ *
+ * 浅色下 ButtonFace 是 #efefef，贴在白面板上几乎看不见，所以这个坑一直没暴露；
+ * 深色下 color-scheme: dark 会把它解析成 #6b6b6b —— 一块比画布亮得多的中灰，
+ * 侧边栏那几个只在悬停/选中时才有底色的图标按钮，平时就是三块灰砖。
+ * 这里统一兜底成透明，具体按钮各自再给底色（.btn--primary、.rail__btn--on 等）。 */
+button {
+  background-color: transparent;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-feature-settings: 'zero' 1;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 细滚动条
+   WebView2（Windows）用的是占位式滚动条：实测槽宽由这里的 width 决定，
+   ::‑webkit‑scrollbar 这几条真能改外观，所以按设计稿来写；别的引擎交给下面
+   那组标准属性。
+   形状：10px 槽里一枚 4px 的药丸 —— 只有「这儿能滚」这一条信息，别的一律不要。
+   粗细任何状态下都不变，只换颜色：手放上去亮一档，按住拖动时染成强调色。
+   会变粗的滚动条一靠近就跳一下，比颜色变化吵得多。
+   槽越窄，药丸越要留一点点实色，不然在深色面板边上就彻底看不见了。 */
+/* 标准属性只留给「不认 webkit 伪元素」的引擎：Chromium 只要看到
+   scrollbar-width / scrollbar-color，就会把下面的 ::-webkit-scrollbar 全部作废
+   （实测槽宽退回系统的 10px、画的药丸消失），所以必须隔开。 */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scroll) transparent;
+  }
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+/* 槽和角落都留空：滚动条浮在面板上，不要一条底色把面板边切开。 */
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Win11 那对上下箭头在这里没有位置。 */
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;  /* 10 − 3×2 = 4px 的药丸 */
+  border-radius: var(--r-pill);
+  background: var(--scroll);
+  background-clip: content-box;
+}
+
+/* 手放到列表上：只亮一档，粗细不动（改 border-width 会让药丸在指针进出时跳一下）。 */
+*:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-hover);
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scroll-active);
+}

@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, useId, watch } from 'vue'
+import { computed, ref, useId, useTemplateRef, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ScanBadge from './ScanBadge.vue'
 import StatusPill from './StatusPill.vue'
-import type { FileResult, FileStatus, ImageItem, ImageStatus } from '../types'
+import type { FileResult, ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n, type MessageKey } from '../i18n'
 import { redactUrl } from '../composables/useDeadLinks'
 import { describeError, openTarget } from '../api'
 import { useToasts } from '../composables/useToasts'
-
-type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
+import { FILE_STATUS_META, IMAGE_STATUS_META, type Tone } from './rowMeta'
+import { shortDir as lastSegment } from './shortDir'
+import { isLocalRef } from './target'
+import { ITEM_VIEWPORT, useItemWindow } from './useItemWindow'
 
 const props = defineProps<{
   row: RunRowView
@@ -77,31 +79,6 @@ const revealTarget = computed<string>(() => {
 
 const { t } = useI18n()
 
-const FILE_STATUS_META: Record<FileStatus, { tone: Tone; labelKey: MessageKey }> = {
-  ok: { tone: 'success', labelKey: 'row.status.done' },
-  partial: { tone: 'warning', labelKey: 'row.status.partial' },
-  'no-images': { tone: 'neutral', labelKey: 'row.status.noImages' },
-  failed: { tone: 'danger', labelKey: 'row.status.failed' },
-  cancelled: { tone: 'warning', labelKey: 'row.status.cancelled' },
-  preview: { tone: 'neutral', labelKey: 'row.status.preview' },
-  checked: { tone: 'neutral', labelKey: 'row.status.checked' },
-}
-
-const IMAGE_STATUS_META: Record<ImageStatus, { tone: Tone; labelKey: MessageKey }> = {
-  uploaded: { tone: 'success', labelKey: 'row.status.uploaded' },
-  reused: { tone: 'accent', labelKey: 'row.status.reused' },
-  cached: { tone: 'accent', labelKey: 'row.status.cached' },
-  remote: { tone: 'neutral', labelKey: 'row.status.remote' },
-  missing: { tone: 'warning', labelKey: 'row.status.missing' },
-  failed: { tone: 'danger', labelKey: 'row.status.uploadFailed' },
-  cancelled: { tone: 'neutral', labelKey: 'row.status.cancelled' },
-  pending: { tone: 'neutral', labelKey: 'row.status.pending' },
-  localized: { tone: 'success', labelKey: 'row.status.localized' },
-  'local-kept': { tone: 'neutral', labelKey: 'row.status.localKept' },
-  'remote-ok': { tone: 'success', labelKey: 'row.status.remoteOk' },
-  'remote-bad': { tone: 'danger', labelKey: 'row.status.remoteBad' },
-}
-
 const expanded = ref(false)
 
 const detailsId = `file-row-${useId()}`
@@ -159,11 +136,6 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const
   return { tone: 'neutral', labelKey: queuedLabelKey.value }
 })
 
-/** 本地引用：不是带 scheme 的网址，也不是「C:」这类盘符开头的写法。 */
-function isLocalRef(target: string): boolean {
-  return !/^[a-z][a-z0-9+.-]*:/i.test(target) || /^[a-z]:[\\/]/i.test(target)
-}
-
 /**
  * 一张图都没有的卡才画成「空卡」（斜纹底）。只有远程图的文档图是有的、
  * 只是不用上传，不该跟它长得一样 —— 它单独标「无本地图」。
@@ -194,10 +166,7 @@ const countLabel = computed(() => {
  * 卡面只写最后一级目录名：整条 `D:\Projects\convert-md-picture\.tmp-scroll`
  * 在每张卡上都重复一遍，十张卡就是十行一样的灰字。完整路径放在 title 里。
  */
-const shortDir = computed(() => {
-  const parts = props.row.dir.split(/[\\/]/).filter((part) => part !== '')
-  return parts.length > 0 ? parts[parts.length - 1] : props.row.dir
-})
+const shortDir = computed(() => lastSegment(props.row.dir))
 
 /**
  * 展开后的第一句：这一篇里的图到底怎么样。
@@ -522,58 +491,9 @@ function itemDetail(item: ImageItem): string {
   return item.url ?? ''
 }
 
-/* ------------------------------------------------------------------ *
- * 逐图明细的虚拟滚动
- *
- * 一篇两万张图的文档，展开就是两万行：实测 184164 个 DOM 节点、95 MB 堆、
- * 展开要 2.06 秒，而用户真正能看见的永远只有那十几行。超过阈值就只渲染
- * 可视区附近的行，用上下两个占位块撑出滚动高度。
- *
- * 明细行高度是固定的（单行 + 省略号，实测 30px），所以不需要像文件列表
- * 那样按行 id 记实测高度。
- * ------------------------------------------------------------------ */
-
-/** 超过这个条数就收进定高的小窗口：一百张图的文档不能让卡片撑成三千像素。 */
-const LIST_LIMIT = 12
-/** 超过这个条数才启用虚拟滚动：几十行全渲染反而更简单，也不会有滚动条。 */
-const VIRTUAL_THRESHOLD = 60
-/** 明细行高度（`.items__row` 的 min-height 30px，单行不换行）。 */
-const ITEM_HEIGHT = 30
-/** 可视区上下各多渲染几行，滚动时不至于露白。 */
-const ITEM_OVERSCAN = 8
-/** 虚拟滚动时明细区的最大高度：再高就把整页滚动条抢走了。 */
-const ITEM_VIEWPORT = 420
-
-const itemsEl = ref<HTMLElement | null>(null)
-const itemsScrollTop = ref(0)
-const itemsViewport = ref(ITEM_VIEWPORT)
-
-const bounded = computed(() => items.value.length > LIST_LIMIT)
-const virtualItems = computed(() => items.value.length > VIRTUAL_THRESHOLD)
-
-const itemWindow = computed(() => {
-  const total = items.value.length
-  if (!virtualItems.value) {
-    return { start: 0, end: total, padTop: 0, padBottom: 0 }
-  }
-  const height = itemsViewport.value > 0 ? itemsViewport.value : ITEM_VIEWPORT
-  const visible = Math.ceil(height / ITEM_HEIGHT) + ITEM_OVERSCAN * 2
-  let start = Math.floor(itemsScrollTop.value / ITEM_HEIGHT) - ITEM_OVERSCAN
-  if (start < 0) start = 0
-  let end = start + visible
-  if (end > total) end = total
-  return { start, end, padTop: start * ITEM_HEIGHT, padBottom: (total - end) * ITEM_HEIGHT }
-})
-
-const visibleItems = computed(() =>
-  items.value.slice(itemWindow.value.start, itemWindow.value.end),
-)
-
-function onItemsScroll(event: Event): void {
-  const el = event.target as HTMLElement
-  itemsScrollTop.value = el.scrollTop
-  if (el.clientHeight > 0) itemsViewport.value = el.clientHeight
-}
+/** 明细区的收口高度与可视窗口都在 useItemWindow 里，卡片只管把它接到模板上。 */
+const itemsEl = useTemplateRef<HTMLElement>('itemsEl')
+const { bounded, itemWindow, visibleItems, onScroll, resetScroll } = useItemWindow(items, itemsEl)
 
 /** 点行就是「选中它」：右栏跟着换内容；有明细的行顺带展开，保持原来的手感。 */
 function onRowClick(): void {
@@ -608,15 +528,7 @@ function onAccDone(el: Element): void {
 
 function toggleExpanded(): void {
   expanded.value = !expanded.value
-  if (expanded.value) {
-    itemsScrollTop.value = 0
-    void nextTick(() => {
-      const el = itemsEl.value
-      if (!el) return
-      el.scrollTop = 0
-      if (el.clientHeight > 0) itemsViewport.value = el.clientHeight
-    })
-  }
+  if (expanded.value) resetScroll()
 }
 
 </script>
@@ -746,7 +658,7 @@ function toggleExpanded(): void {
         class="items"
         :class="{ 'items--scroll': bounded }"
         :style="bounded ? { maxHeight: ITEM_VIEWPORT + 'px' } : undefined"
-        @scroll="onItemsScroll"
+        @scroll="onScroll"
       >
         <li v-if="itemWindow.padTop > 0" class="items__pad" :style="{ height: itemWindow.padTop + 'px' }" aria-hidden="true" />
         <li

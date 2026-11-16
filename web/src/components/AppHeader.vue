@@ -14,9 +14,9 @@ const props = defineProps<{
   // 这一轮到底用不用得着 PicGo，由面板里那份设置决定（可能还没保存）。
   picgoNeeded?: boolean
   /**
-   * 调试构建（scripts/dev.mjs）：标题栏挂一枚橙色标记。
+   * 调试构建（npm run start --debug 编的那一版）：标题栏挂一枚橙色标记。
    *
-   * 发布版里恒为 false —— 调试模式只存在于开发阶段，不该出现在用户面前。
+   * 默认开发构建和发布版一样，这里恒为 false —— 它不该出现在用户面前。
    */
   debug: boolean
   healthChecking: boolean
@@ -43,6 +43,19 @@ watch(
   ([el, chrome]) => setSnapTarget(chrome ? el : null),
   { immediate: true },
 )
+/**
+ * 浏览器判出来的双击。
+ *
+ * 这是第二条路径：useWindowControls 在 mousedown 上自己也判一次（容忍手抖和
+ * 慢一点的两下），这里接浏览器原生 dblclick 兜住它认的那种标准双击 ——
+ * 两条都触发也只会切一次，那边有防抖。按钮区归按钮自己，这里不掺和。
+ */
+function handleDoubleClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null
+  if (target?.closest('[data-no-drag]')) return
+  toggleMaximize()
+}
+
 const { t } = useI18n()
 const { choice: themeChoice } = useTheme()
 
@@ -96,16 +109,11 @@ const themeTitle = computed(() => {
   return t('theme.switch', { name: names[themeChoice.value] })
 })
 
-// 双击标题栏空白处 = 最大化 / 还原，和系统标题栏一致。
-function handleDoubleClick(event: MouseEvent): void {
-  if (!windowChrome.value) return
-  const target = event.target as HTMLElement | null
-  if (target?.closest('[data-no-drag]')) return
-  toggleMaximize()
-}
 </script>
 
 <template>
+  <!-- 双击有两条路：startDrag 在按下时就自己判（手抖、慢一点也算），
+       原生 dblclick 兜系统判出来的那种标准双击；两条一起命中只切一次。 -->
   <header class="tb" @mousedown="startDrag" @dblclick="handleDoubleClick">
     <div class="tb__brand">
       <span class="tb__mark">

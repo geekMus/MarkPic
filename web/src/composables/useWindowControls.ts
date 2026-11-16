@@ -63,6 +63,29 @@ type SnapEvent = 'enter' | 'leave' | 'down' | 'up' | 'click'
  */
 const DRAG_THRESHOLD = 4
 
+/**
+ * 双击 = 两次按下挨得足够近。
+ *
+ * 不直接等浏览器的 dblclick：它只认系统判定出来的那双击，手腕抖一下或者两次
+ * 点击慢一点就整段吞掉，表现成「双击标题栏毫无反应」。这里自己按时间 + 位移判，
+ * 容忍度按人手来（500ms / 6px），比浏览器的判定宽松一点。
+ */
+const DOUBLE_CLICK_MS = 500
+const DOUBLE_CLICK_SLOP = 6
+
+/**
+ * 两次切换之间的最小间隔。
+ *
+ * 双击会有两条路一起报上来（自己判的 mousedown、浏览器的 dblclick），
+ * 隔得太近的那一次直接丢掉，否则「最大化 + 还原」两下抵消，看起来像没反应。
+ */
+const TOGGLE_GUARD_MS = 180
+
+let lastDownAt = 0
+let lastDownX = 0
+let lastDownY = 0
+let lastToggleAt = 0
+
 const bridge = window as unknown as WindowBridge
 
 const available = ref(false)
@@ -113,6 +136,9 @@ function reportSnapZone(): void {
 }
 
 function toggleMaximize(): void {
+  const now = Date.now()
+  if (now - lastToggleAt < TOGGLE_GUARD_MS) return
+  lastToggleAt = now
   maximizeInFlight = true
   void Promise.resolve(bridge.cmpWinToggleMaximize?.())
     .then(() => new Promise(resolve => window.setTimeout(resolve, 60)))
@@ -228,7 +254,8 @@ export function useWindowControls() {
     },
     /**
      * 在标题栏空白处按下。真正的交接推迟到鼠标确实移动之后：
-     * 只是点一下的话，这次点击留给网页，双击才能被浏览器的 dblclick 认出来；
+     * 只是点一下的话，这次点击留给网页 —— 双击由下面自己判（不靠浏览器的
+     * dblclick，理由见 DOUBLE_CLICK_MS 的注释）；
      * 拖动的话，一到阈值就把「按下的那一点」交给系统的标题栏拖动循环，
      * 吸附、双击还原之类的原生手感都还在。
      */
@@ -237,6 +264,21 @@ export function useWindowControls() {
       const target = event.target as HTMLElement | null
       if (target?.closest('[data-no-drag]')) return
       event.preventDefault()
+
+      // 双击标题栏空白处 = 最大化 / 还原，和系统标题栏一致。判完就把配对清掉，
+      // 免得第三次点击又跟第二次配成一对。
+      const now = Date.now()
+      const repeat =
+        now - lastDownAt <= DOUBLE_CLICK_MS &&
+        Math.abs(event.clientX - lastDownX) <= DOUBLE_CLICK_SLOP &&
+        Math.abs(event.clientY - lastDownY) <= DOUBLE_CLICK_SLOP
+      lastDownAt = repeat ? 0 : now
+      lastDownX = event.clientX
+      lastDownY = event.clientY
+      if (repeat) {
+        toggleMaximize()
+        return
+      }
 
       const startX = event.screenX
       const startY = event.screenY
@@ -251,6 +293,8 @@ export function useWindowControls() {
           return
         }
         stop()
+        // 这次按下已经算拖动，别再留着当双击的第一次：松手后马上单击不该变成最大化。
+        lastDownAt = 0
         void bridge.cmpWinDrag?.(startX, startY)
       }
 

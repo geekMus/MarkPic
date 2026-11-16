@@ -1,0 +1,24 @@
+/* 收尾：缩放窗口期间的降级，以及系统的「减少动态效果」。这两条必须在最后。
+   —— 原 main.css 第 1236-1256 行，规则、顺序、注释原样保留。 */
+
+/* 缩放窗口期间（useResizing.ts 打标记）：阴影与毛玻璃要重新合成，过渡还会和
+   重排抢时间 —— 这两样在拖拽时停掉，松手 180ms 后自动恢复。
+   注意：顶部那层青色光晕（body::before）**不能**一起关掉。它是标题栏唯一的
+   底色（标题栏本身是透明的），关掉的话拖动时标题栏会突然变成一片死白。 */
+:root[data-resizing] *,
+:root[data-resizing] *::before,
+:root[data-resizing] *::after {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

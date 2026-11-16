@@ -1,0 +1,300 @@
+/* 页面骨架与文档卡（group-card）：顶部作业卡、脚注、卡片网格、折叠。
+   —— 原 main.css 第 938-1234 行，规则、顺序、注释原样保留。 */
+
+/* ------------------------------------------------------------------ 动效
+   页内的东西直接出现，不淡入也不上浮：一块文字从半透明慢慢浮上来，
+   读起来像在等它，不像已经在那儿。留着的动效只有「反馈」与「状态」——
+   行跑完闪一下、进度线在走、数字滚动、卡片展开。 */
+
+/* 卡片和它的脚注拼成一张：作业卡片去掉下圆角与下边框，脚注收尾。
+   脚注高度和设置页的 .panel__foot 一致（56px），切页时卡片下缘才不会跳。 */
+.pane > .panel.queue,
+.pane > .panel.report {
+  flex: 1 1 auto;
+  border-bottom: 0;
+  border-radius: var(--r-4) var(--r-4) 0 0;
+}
+
+.pane > .foot {
+  flex: none;
+}
+
+.pane > .settings-view {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 分组卡：检测页「一个站点」、下载页「一篇文档」各是一张卡，
+   外壳与上传页的卡片同一套（描边、渐变、圆角、阴影）。 */
+.group-card {
+  overflow: hidden;
+  border: 1px solid var(--card-edge);
+  border-radius: var(--r-4);
+  background: linear-gradient(180deg, var(--card-top), var(--card-bottom));
+  box-shadow: var(--shadow-card);
+}
+
+.group-card + .group-card {
+  margin-top: 14px;
+}
+
+.group-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* 跑动中整张卡的进度轨：卡头的徽标说逐图结论，这条说整篇走到哪 */
+.group-card__rail {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.group-card__rail span {
+  display: block;
+  height: 100%;
+  background: var(--accent-vivid);
+  transition: width var(--t-slow) var(--ease);
+}
+
+.group-card__rail--wait span {
+  width: 32%;
+  animation: group-rail-wait 1.4s var(--ease) infinite;
+}
+
+@keyframes group-rail-wait {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+/* 卡头照上传页的卡来：左边一个小图标块，中间名字 + 一行说明，右边徽标与开关 */
+.group-card__mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink-3);
+}
+
+.group-card__mark[data-tone='danger'] {
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.group-card__mark[data-tone='warning'] {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.group-card__mark[data-tone='success'] {
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.group-card__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.group-card__name {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card__sub {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card__badges {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge {
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.badge--bad {
+  border-color: var(--bad-line);
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.badge--warn {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.badge--ok {
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.group-card__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+  background: var(--panel-2);
+  color: var(--ink-3);
+}
+
+.group-card__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-card__meta {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
+.group-card__meta--bad {
+  color: var(--bad);
+}
+
+.group-card__meta--warn {
+  color: var(--warn);
+}
+
+.group-rows {
+  margin: 0;
+  padding: 4px 0 6px;
+  list-style: none;
+}
+
+.group-rows > li + li {
+  border-top: 1px solid var(--line);
+}
+
+/* 分组卡可折叠：卡头一行点开，内容靠 grid 轨道从 0fr 长到 1fr */
+.group-card__head--fold {
+  cursor: pointer;
+  user-select: none;
+}
+
+.group-card__head--fold:hover {
+  background: color-mix(in srgb, var(--panel-2) 45%, transparent);
+}
+
+.group-card__more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
+.group-card__more--on {
+  color: var(--ink-2);
+}
+
+/* 卡头右侧那组小按钮：三颗都指向同一份文件 —— 打开它、在资源管理器里找到它、
+   把这张卡从队列里拿掉。和上传页的卡一个规矩：手不放在卡上时不显示，
+   一列十张卡、张张挂三颗按钮，比什么都吵。 */
+.group-card__tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.group-card__tools .icon-btn {
+  opacity: 0;
+  transition: opacity 140ms var(--ease);
+}
+
+.group-card:hover .group-card__tools .icon-btn,
+.group-card__head:focus-within .group-card__tools .icon-btn {
+  opacity: 1;
+}
+
+.group-card__tools .icon-btn--drop:hover {
+  color: var(--bad);
+}
+
+/* 触屏没有悬停：这组按钮常显，否则永远按不到 */
+@media (hover: none) {
+  .group-card__tools .icon-btn {
+    opacity: 1;
+  }
+}
+
+.group-card__chev {
+  transition: transform 200ms var(--ease);
+}
+
+.group-card__more--on .group-card__chev {
+  transform: rotate(180deg);
+}
+
+.group-card__fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 260ms var(--ease-out);
+}
+
+.group-card__fold > .group-rows {
+  overflow: hidden;
+  min-height: 0;
+  /* 行自带内边距，这里再留 10px 就收不干净（收起后会留下一条缝） */
+  padding: 0;
+}
+
+.group-card__fold--open {
+  grid-template-rows: 1fr;
+}

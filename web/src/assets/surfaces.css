@@ -1,0 +1,294 @@
+/* 面板、对话框、表单分组、小件（tag / kbd）。
+   —— 原 main.css 第 646-936 行，规则、顺序、注释原样保留。 */
+
+/* ------------------------------------------------------------------ 面板 */
+
+.panel {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr) auto;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--r-4);
+  background: var(--panel);
+  box-shadow: var(--shadow-panel);
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel__title {
+  display: flex;
+  /* 标题（汉字）和后面那串说明（等宽拉丁）字号不同：按基线对齐，
+     否则两个盒子各自垂直居中，看起来会错开两三像素 */
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.panel__title h2 {
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.panel__count {
+  padding: 0 6px;
+  border-radius: var(--r-1);
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.panel__note {
+  /* 汉字没有下伸部、等宽拉丁也没有，基线对齐后中文看上去仍低一截：
+     把这段英文说明往下推 1.5px，两边的底边才在同一条线上 */
+  transform: translateY(1.5px);
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  line-height: 1.4;
+}
+
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.panel__divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 5px;
+  background: var(--line-2);
+}
+
+.panel__body {
+  min-height: 0;
+  padding-bottom: 6px;
+  /* 始终占住滚动条那 10px：有的页能滚、有的不能，来回切会整体左右跳一下。 */
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+.panel__foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  height: 56px;
+  padding: 0 18px;
+  border-top: 1px solid var(--line);
+}
+
+/* ------------------------------------------------------------------ 对话框
+   设置、关于都是弹窗：遮罩从标题栏下面开始铺，弹窗开着时窗口仍可拖动、仍可关闭。 */
+
+.dlg {
+  position: fixed;
+  inset: 44px 0 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px 24px;
+  background: rgba(8, 11, 15, 0.44);
+  backdrop-filter: blur(2px);
+}
+
+.dlg__panel {
+  display: grid;
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--r-4);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+  animation: dlg-in 160ms var(--ease);
+}
+
+.dlg__body {
+  min-height: 0;
+  padding: 0 22px 4px;
+  overflow-y: auto;
+}
+
+/* 关于对话框窄一些：内容只有两列读数与一段更新说明 */
+.dlg__panel:focus {
+  outline: none;
+}
+
+.dlg__panel--about {
+  width: min(440px, 100%);
+}
+
+/* 设置也可以不是一个弹窗：作为主视图铺满内容区，右侧的队列还能继续跑。
+   弹窗那一套（遮罩、居中、限宽）在这里全部让位给栅格。 */
+.settings-view {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dlg__panel--inline {
+  flex: 1;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  animation: none;
+  border-radius: var(--r-5);
+}
+
+@keyframes dlg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+}
+
+@media (max-width: 620px) {
+  .dlg {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dlg__panel {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ 表单分组 */
+
+.section {
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.section:first-child {
+  border-top: 0;
+}
+
+.section__title {
+  margin-bottom: 12px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  /* 标题里有中文和品牌名（PicGo），uppercase 会把品牌名写成 PICGO，很廉价。 */
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.field + .field {
+  margin-top: 12px;
+}
+
+.field__label {
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+  font-weight: 500;
+}
+
+.field__hint {
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+}
+
+.field__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field__row .input {
+  min-width: 0;
+}
+
+.segmented + .field,
+.notice {
+  margin-top: 12px;
+}
+
+.notice {
+  padding: 9px 11px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-2);
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--fs-2);
+  line-height: 1.5;
+}
+
+.placeholder {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 180px;
+  padding: 24px 18px;
+  color: var(--ink-3);
+  font-size: var(--fs-2);
+  text-align: center;
+}
+
+.placeholder__error {
+  color: var(--bad);
+}
+
+/* ------------------------------------------------------------------ 小件 */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}
+
+.tag--warn {
+  padding: 1px 6px 2px;
+  border-color: transparent;
+  border-radius: 4px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+.kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: var(--r-1);
+  background: var(--panel);
+  color: var(--ink-2);
+  font-family: var(--font);
+  font-size: var(--fs-1);
+  font-weight: 600;
+}

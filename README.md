@@ -306,56 +306,103 @@ exe 没有这个注入值，版本号就是 `dev`，侧边栏与关于对话框�
 
 前端是 Vue 3 + TypeScript + Vite（在 `web/`），后端是 Go，桌面窗口由 `jchv/go-webview2` 承载。
 两边只有一个通道：窗口自带的 bridge（`window.markpic(method, paramsJson)` 返回 Promise）。
-没有 HTTP 路由，也没有命令行解析器；`chi`、`cobra` 这些依赖已经删掉了。
+没有 HTTP 路由，也没有命令行解析器：命令行只认 `-dev`、`-data-dir` 两个开发开关和自动更新用的
+`--restart`；`chi`、`cobra` 这些依赖已经删掉了。
+
+### 日常开发：只用 Go
+
+前端产物 `internal/ui/dist` 提交在仓库里，所以改后端根本不需要 Node：
 
 ```bash
-npm run dev     # 开发：Vite 5173 带热更新，Go 侧用 MARKPIC_DEV_URL 指向它
-npm run start   # 运行已构建的 exe（不存在时才构建）
-npm run build   # 构建前端 + 构建 exe
+go run ./cmd/markpic                        # 改 Go 代码就这一条
+go run ./cmd/markpic -data-dir .tmp-data    # 数据目录换成 .tmp-data，不碰 bin/data
 ```
 
-这些名字只是根 `package.json` 的快捷方式，直接 `node scripts/dev.mjs` 也一样。
+要调界面时开两个终端，一个跑 Vite、一个跑程序——大多数 Go + 前端项目就是这么干的：
+
+```bash
+cd web && npm run dev                             # 终端 1：Vite 在 127.0.0.1:5173
+go run ./cmd/markpic -dev                         # 终端 2：窗口直接加载 5173，改前端即时热更新
+go run ./cmd/markpic -dev http://127.0.0.1:5199   # Vite 换了端口就显式给地址
+```
+
+`-dev` 等价于 `MARKPIC_DEV_URL=http://127.0.0.1:5173`，`-data-dir` 等价于 `MARKPIC_DATA_DIR=<目录>`
+（`internal/appdata` 认的就是这两个环境变量）；命令行优先于环境变量，都不给时加载内嵌产物。
+
+### 一键开发（不用开两个终端）
+
+根目录的 npm 脚本把上面两件事合成一条命令，代价是多一个 Node 依赖：
+
+```bash
+npm run start       # 开发：Vite 5173 带热更新 + 窗口，改 .go 自动重编
+npm run start:mock  # 同上，但图床换成本地假服务（真走一遍上传流程）
+npm run build       # 发布构建：前端 + exe
+```
+
+这些名字只是根 `package.json` 的快捷方式，直接 `node scripts/start.mjs` 也一样。
 
 ### 开发环境
 
-需要 Go 1.24 或更新版本；命令入口用 Node 20.19+ 写成，Windows / macOS / Linux 的命令一致。
+需要 Go 1.24 或更新版本。下面的 `npm run start` 系列是可选的一键入口，用 Node 20.19+ 写成，
+Windows / macOS / Linux 命令一致；只走 `go run` 的话不需要装 Node。
 前端依赖仍由 pnpm 管理：第一次构建前端时脚本会在 `web/` 下自动执行 `pnpm install`，
 没有 pnpm 时再试 corepack；两样都没有就先 `corepack enable`。
 
 ```bash
-npm run dev
+npm run start
 ```
 
 它会：在 `127.0.0.1:5173` 起 Vite（前端热更新）→ 编译并启动 `bin/MarkPic.exe`，
 通过环境变量 `MARKPIC_DEV_URL=http://127.0.0.1:5173` 让窗口直接加载开发服务器
 （不走 `file://`，所以前端改动会即时热更新）→ 按 Ctrl+C 时把窗口和 Vite 一起收掉。
 在 macOS / Linux 上只起 Vite（原生窗口只有 Windows 版），用浏览器调界面，bridge 不可用。
+窗口里跑的这一版和发布版一致：真写文件、真连 PicGo；要「只扫描」的调试版加 `--debug`。
 
-后端代码不监视：改完 `.go` 重新执行 `npm run dev` 即可（一个进程里两半直接说话，
-没有「后端服务」可以单独重启；这也是它比带 HTTP 服务时简单的地方）。
+`.go` 也监视：`cmd/`、`internal/` 下的源码和 `go.mod`、`go.sum` 一变就重编并重开窗口
+（一个进程里两半直接说话，没有「后端服务」可以单独重启）。编译没过时窗口不会打开，
+控制台留着报错，改好会自动再试一次；不想被打断就加 `--no-watch`。
 
-### 调试模式
+想连假图床一起跑——不真的传图，但上传、并发、重试都是真的：
 
-`npm run dev` 编出来的 exe 是**调试模式**：构建时注入 `-X .../internal/version.Debug=true`，
-界面据此在标题栏挂一枚橙色「调试模式」标记，整轮只扫描、不写文件、也不上传（相当于以前的
-「试运行」，但它不再是设置项，界面里也没有开关）。`health.debug` 只在这一种构建里为
-`true`；`npm run start` / `npm run build` 编的是正式版，没有这个概念，发布产物上也不会出现任何
-相关字样。需要手工编一个调试版时用 `node scripts/build.mjs --debug`。
+```bash
+npm run start:mock                     # 假图床在 127.0.0.1:36678
+npm run start:mock -- --mock-fail 1/13 # 每 13 张失败 1 张
+```
+
+它的数据目录默认是 `.tmp-mock-data`（不进 git），图床地址会被写进那里的
+`settings.json`。假服务只接管**上传**：下载和检测不经过 PicGo，照旧走真实网络。
+
+### 调试模式（可选）
+
+`npm run start` 编出来的 exe 和发布版一样：真写文件、真连 PicGo，标题栏不会挂「调试模式」。
+只在想「看看会改哪里、不动文件也不上传」时显式加这个开关：
+
+```bash
+npm run start -- --debug
+```
+
+调试版构建时注入 `-X .../internal/version.Debug=true`，界面据此在标题栏挂一枚橙色
+「调试模式」标记，整轮只扫描、不写文件、也不上传（相当于以前的「试运行」，但它不再是
+设置项，界面里也没有开关）。`health.debug` 只在这一种构建里为 `true`；
+`npm run build` 编的是正式版，没有这个概念。手工编一个调试版用
+`node scripts/build.mjs --debug`。
 
 ### 热更新
 
 | 改了什么 | 谁负责 | 大概多久生效 |
 | --- | --- | --- |
 | `.vue` / `.ts` / `.css` | Vite 热更新（HMR），页面不刷新，组件状态还在 | 一眨眼（< 300ms） |
-| `internal/**`、`cmd/**` 下的 `.go` | 重新执行 `npm run dev`（或 `npm run start` 看构建结果） | 一次编译的时间 |
+| `internal/**`、`cmd/**` 下的 `.go`、`go.mod`、`go.sum` | `npm run start` 的监视器：重编 → 重开窗口 | 一次编译的时间（几秒） |
 
 ### 其他命令
 
 | 命令 | 作用 |
 | --- | --- |
-| `npm run dev` | 开发：Vite + 窗口，前端热更新 |
-| `npm run start` | 运行已构建的 exe（不存在时才构建） |
-| `npm run build` | 构建前端 + 构建 exe |
+| `go run ./cmd/markpic` | 开发：只用 Go，加载仓库里已提交的前端产物 |
+| `go run ./cmd/markpic -dev` | 开发：窗口加载 `127.0.0.1:5173` 的 Vite（另开终端 `cd web && npm run dev`） |
+| `npm run start` | 开发：Vite + 调试窗口，前后端都热更新 |
+| `npm run start:mock` | 开发 + 本地假图床，真的会走一遍上传流程 |
+| `npm run build` | 发布构建：前端 + exe |
 | `npm run build:go` | 只构建 exe（前端产物已提交在仓库里） |
 | `npm run test` | `go test ./...` |
 | `npm run typecheck` | 前端类型检查（`vue-tsc --noEmit`） |
@@ -363,10 +410,8 @@ npm run dev
 ### 打包
 
 ```bash
-npm run build              # 构建前端 + 构建 exe
-npm run start              # 直接跑现有的 exe（不存在时才构建）
-npm run start -- --build   # 重新编译再跑
-npm run start -- --data-dir .tmp-data
+npm run build       # 构建前端 + 构建 exe
+npm run build:go    # 只重新编译 exe（前端没动时够用）
 ```
 
 等价的脚本调用与更多开关：
@@ -375,6 +420,15 @@ npm run start -- --data-dir .tmp-data
 node scripts/build.mjs              # 只构建 exe（前端产物已提交在仓库里）
 node scripts/build.mjs --web        # 先重建前端再构建 exe
 node scripts/build.mjs --web --test # 再顺手跑一遍测试
+node scripts/build.mjs --debug      # 编一个调试版（只扫描，不写文件）
+```
+
+`npm run start` 的其余开关：
+
+```bash
+npm run start -- --no-watch                   # 改 .go 不自动重编（前端热更新照旧）
+npm run start -- --data-dir .tmp-data         # 换个数据目录，别动 bin/data
+npm run start -- --port 5180                  # Vite 换个端口（默认 5173）
 ```
 
 产物是 `bin/MarkPic.exe`（约 9 MB），双击即可运行。
@@ -477,10 +531,10 @@ internal/uploadcache/     上传结果缓存（同一张图不重复上传）
 internal/update/          自动更新（下载、校验、替换、重启）
 web/                      Vue 3 + TypeScript 前端源码（Vite 工程）
 .github/workflows/        CI：推送到 main 自动构建并发布 Release
-scripts/                  开发与构建脚本（Node / ESM：start / dev / build / test / web / release + lib/）
+scripts/                  开发与构建脚本（Node / ESM：start / build / test / web / release + lib/）
 tools/bench/              性能与功能基准（造语料、假图床、逐篇校验；不参与打包）
 tools/mockpicgo/          开发用假图床（可控延迟/失败率，用来测界面表现；不参与打包）
-package.json              根目录的命令入口（npm run dev / start / build 等快捷方式，不是前端工程）
+package.json              根目录的命令入口（npm run start / start:mock / build 等快捷方式，不是前端工程）
 docs/API.md               bridge 方法契约（方法名、参数、返回值、事件）
 ```
 ## 常见问题
@@ -571,12 +625,12 @@ PicGo 没运行，或「设置 → 设置 Server」里的服务没开启。开�
 （备份照做）。程序会在该文件的提示里写明「输出目录就是文档所在的目录，因此这份文档会被原地覆盖」，
 预检阶段也会提示。想保留原件就把输出目录换成别的地方，或者改用默认的「旁挂副本」模式。
 
-**`npm run dev` 说找不到 go 或 pnpm**
-用 `--go` 指定 Go 可执行文件的完整路径，例如 `node scripts/dev.mjs --go D:/Env/Go/bin/go.exe`。
+**`npm run start` 说找不到 go 或 pnpm**
+用 `--go` 指定 Go 可执行文件的完整路径，例如 `node scripts/start.mjs --go D:/Env/Go/bin/go.exe`。
 pnpm 不在 PATH 时先 `corepack enable`，或者在 `web/` 下手动 `pnpm install`。
 
 **改 `web/vite.config.ts` 之后 Vite 报 `EBUSY: resource busy or locked`**
-Vite 重载配置时会在 `web/` 下写一个临时目录再 watch 它，Windows 上偶发占用冲突。停掉 `npm run dev` 重新执行即可；配置本身没有问题。
+Vite 重载配置时会在 `web/` 下写一个临时目录再 watch 它，Windows 上偶发占用冲突。停掉 `npm run start` 重新执行即可；配置本身没有问题。
 
 **界面打开了，但一直转圈 / 说「界面和数据没能对上话」**
-说明 bridge 没接上。先确认这是窗口里的界面（不是拿浏览器打开 `file://` 或 `127.0.0.1:5173` 单独看）；npm run dev 时窗口加载的是 `MARKPIC_DEV_URL` 指向的地址，Vite 没起来就会这样。关掉重开 `npm run dev` 一般就好。
+说明 bridge 没接上。先确认这是窗口里的界面（不是拿浏览器打开 `file://` 或 `127.0.0.1:5173` 单独看）；`npm run start` 时窗口加载的是 `MARKPIC_DEV_URL` 指向的地址，Vite 没起来就会这样。关掉重开 `npm run start` 一般就好。

@@ -1,0 +1,199 @@
+/* 设计令牌：颜色、字号、间距、圆角、时长的唯一定义处。浅色与深色两套。
+   —— 原 main.css 第 1-196 行，规则、顺序、注释原样保留。 */
+
+/* ------------------------------------------------------------------
+   设计令牌
+   方向：安静的桌面工作台。画布带一点冷色底纹，两块面板浮在上面，
+   层级靠阴影和字号建立，不靠一圈圈边框。主按钮用墨黑（和图标里的
+   深色方块同色），青色只留给「现在正在发生」与强调读数。
+   ------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Microsoft YaHei', sans-serif;
+  --mono: 'Cascadia Code', 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace;
+
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 15px;
+  --fs-5: 19px;
+  --fs-6: 24px;
+
+  --lh-tight: 1.25;
+  --lh-ui: 1.45;
+
+  /* 页面左右留白。标题栏用负外边距抵消它，好让窗口按钮贴到窗口边缘，
+     所以这个值只能从这里改。 */
+  --gutter: 20px;
+
+  /* 浅色不是「白纸上摆白卡片」：画布是冷淡的灰蓝，面板纯白，
+     靠一层 8% 的细线和一个很薄的投影分层。纯白只留给面板。 */
+  --canvas: #eef1f6;
+  --canvas-2: #f5f7fa;
+  --panel: #ffffff;
+  --panel-2: #f5f7fb;
+  --panel-3: #edf1f7;
+  --border-panel: rgba(17, 26, 43, 0.09);
+
+  /* 卡片：一点自下而上的提亮 + 一层极浅的落影，比纯色块「有厚度」。 */
+  --card-edge: rgba(17, 26, 43, 0.1);
+  --card-top: #fdfeff;
+  --card-bottom: #f4f7fb;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-card-hover:
+    0 10px 26px -16px rgba(16, 24, 40, 0.32),
+    0 2px 6px rgba(16, 24, 40, 0.06);
+
+  /* 窗口四边：往里压暗一圈，不是画线。以前这里是「冷白光」，
+     在深色主题上就是一圈发白的边 —— 现在两种主题都只压暗。 */
+  --edge-glow: rgba(21, 35, 58, 0.22);
+
+  --ink: #12161f;
+  --ink-2: #4b5464;
+  --ink-3: #66707f;
+
+  --line: rgba(17, 26, 43, 0.08);
+  --line-2: rgba(17, 26, 43, 0.14);
+  --line-3: rgba(17, 26, 43, 0.22);
+
+  /* 滚动条：比 --line-3 再实一点，因为药丸只有 4px 宽，太淡就等于没有。 */
+  --scroll: rgba(17, 26, 43, 0.2);
+  --scroll-hover: rgba(17, 26, 43, 0.32);
+  --scroll-active: rgba(14, 116, 144, 0.55);
+
+  --accent: #0e7490;
+  --accent-vivid: #0b8ba6;
+  --accent-soft: #e3f2f6;
+  --accent-line: #b4dae4;
+  --accent-ink: #0a5d70;
+
+  --ok: #0f7b4f;
+  --ok-soft: #e6f6ee;
+  --ok-line: #b9e2cd;
+
+  --warn: #a15c07;
+  --warn-soft: #fbf2e0;
+  --warn-line: #ebd7ac;
+
+  --bad: #b32318;
+  --bad-soft: #fbe9e7;
+  --bad-line: #f0c3bf;
+
+  /* 凹槽：进度条、滑块这一类「嵌进面板里」的轨道，比面板暗一档。 */
+  --track: #e7ecf3;
+
+  --ink-solid: #12161f;
+  --ink-solid-hover: #1d2430;
+  --on-solid: #ffffff;
+  /* 实心状态色（红点计数、徽标）上面的字。深色里那些状态色本身变成了浅粉/浅绿，
+     白字压上去就成了一张模糊的纸片 —— 所以「压在上面」的那一档也要跟着翻面。 */
+  --on-bad: #ffffff;
+
+  --focus: #0e7490;
+  --ring: rgba(14, 116, 144, 0.22);
+  --raised: #ffffff;
+
+  /* 只有浮层才配一层像样的阴影；面板靠底色和细线。 */
+  --shadow-panel:
+    0 1px 2px rgba(16, 24, 40, 0.05),
+    0 10px 30px -22px rgba(16, 24, 40, 0.4);
+  --shadow-pop: 0 12px 34px -14px rgba(16, 24, 40, 0.26), 0 2px 8px rgba(16, 24, 40, 0.07);
+
+
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --r-4: 12px;
+  --foot-h: 56px;
+  --r-5: 16px;
+  --r-pill: 999px;
+
+  --t-fast: 100ms;
+  --t-base: 150ms;
+  --t-slow: 220ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* 出场、退场用两条不同的曲线：出来是「被轻轻放下」，回去是「被抽走」。 */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* 深色不是纯黑也不是靛蓝夜色：近黑的冷灰蓝底，面板用「亮度叠层」
+     分出高低（越往上越亮，不靠投影）。中文小字在纯黑上会「发毛」，
+     在 #12161f 这档上反而稳。 */
+  --canvas: #0b0e14;
+  --canvas-2: #0e1219;
+  --panel: #12161f;
+  --panel-2: #171c26;
+  --panel-3: #1c2230;
+  --border-panel: rgba(255, 255, 255, 0.075);
+
+  /* 深色下的「厚度」靠顶缘一道 3% 的白和一层落影，卡片才不是一块纯色板。 */
+  --card-edge: rgba(255, 255, 255, 0.09);
+  --card-top: #1a202b;
+  --card-bottom: #161b24;
+  --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  --shadow-card-hover:
+    0 16px 34px -20px rgba(0, 0, 0, 0.9),
+    0 3px 10px rgba(0, 0, 0, 0.42);
+
+  /* 深色只压暗不发光 —— 一圈冷白光是上一版最刺眼的地方。 */
+  --edge-glow: rgba(0, 0, 0, 0.55);
+
+  --ink: #e8ecf4;
+  --ink-2: #a7b1c2;
+  --ink-3: #7f8a99;
+
+  --line: rgba(255, 255, 255, 0.06);
+  --line-2: rgba(255, 255, 255, 0.1);
+  --line-3: rgba(255, 255, 255, 0.16);
+
+  /* 深色下同样的药丸：白的一层淡，拖起来时换成强调色的。 */
+  --scroll: rgba(255, 255, 255, 0.16);
+  --scroll-hover: rgba(255, 255, 255, 0.28);
+  --scroll-active: rgba(95, 217, 201, 0.5);
+
+  /* 强调色往青里挪一点：原来的 #5fd9c9 和成功色 #59dcab 几乎分不开，
+     两种绿摆在一起，「强调」和「成功」就都说不清了。 */
+  --accent: #58d6e2;
+  --accent-vivid: #83eaf3;
+  --accent-soft: rgba(88, 214, 226, 0.12);
+  --accent-line: rgba(88, 214, 226, 0.3);
+  --accent-ink: #9df1f8;
+
+  --ok: #59dcab;
+  --ok-soft: rgba(89, 220, 171, 0.12);
+  --ok-line: rgba(89, 220, 171, 0.26);
+
+  --warn: #eec47d;
+  --warn-soft: rgba(238, 196, 125, 0.12);
+  --warn-line: rgba(238, 196, 125, 0.26);
+
+  --bad: #f79b92;
+  --bad-soft: rgba(247, 155, 146, 0.12);
+  --bad-line: rgba(247, 155, 146, 0.26);
+
+  /* 深色的「暗一档」是往画布那侧走，不是往亮处走。 */
+  --track: #0d1118;
+
+  /* 深色下主按钮反过来：一块近白的「键帽」，像 Raycast 的实体按键。 */
+  --ink-solid: #e8ecf4;
+  --ink-solid-hover: #ffffff;
+  --on-solid: #10141b;
+  --on-bad: #1b0f0d;
+
+  --focus: #8ef2e4;
+  --ring: rgba(142, 242, 228, 0.26);
+  --raised: #232c3c;
+
+  --shadow-panel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 14px 40px -30px rgba(0, 0, 0, 0.9);
+  --shadow-pop: 0 18px 44px -16px rgba(0, 0, 0, 0.85), 0 2px 10px rgba(0, 0, 0, 0.5);
+
+}

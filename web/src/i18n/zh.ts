@@ -80,7 +80,7 @@ export const zh = {
   'settings.inPlace.warning': '原地替换会直接改写原始文件，请确认已开启备份或已纳入版本控制。',
   'settings.backup': '覆盖前备份原文件',
   'debug.badge': '调试模式',
-  'debug.title': '调试构建：只扫描、不写文件、不上传（npm run dev 启动时才有）',
+  'debug.title': '调试构建：只扫描、不写文件、不上传（npm run start --debug 才有）',
   'settings.debugNote': '调试模式：这一轮只扫描与预览，不写文件、也不上传。',
   'settings.loading': '正在读取设置…',
   'settings.loadFailed': '设置读取失败',

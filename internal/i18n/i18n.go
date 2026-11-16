@@ -91,7 +91,6 @@ const (
 	KeyConvRemoteEmpty        Key = "conv.remoteEmpty"
 	KeyConvRemoteDownloadFail Key = "conv.remoteDownloadFailed"
 	KeyConvRemoteClosed       Key = "conv.remoteClosed"
-	KeyConvRemoteNamingFailed Key = "conv.remoteNamingFailed"
 	KeyConvRemoteRedirectLoop Key = "conv.remoteRedirectLoop"
 	KeyConvRemotePartial      Key = "conv.remotePartial"
 
@@ -134,7 +133,6 @@ const (
 	KeyTrayOpen Key = "tray.open"
 	KeyTrayQuit Key = "tray.quit"
 
-	KeyPlatformNoDialog     Key = "platform.noDialog"
 	KeyPlatformNoFolderPath Key = "platform.noFolderPath"
 	KeyPlatformCannotOpen   Key = "platform.cannotOpen"
 	KeyPlatformPickFiles    Key = "platform.pickFiles"
@@ -142,11 +140,7 @@ const (
 	KeyPlatformFilterMd     Key = "platform.filterMarkdown"
 	KeyPlatformFilterAll    Key = "platform.filterAll"
 
-	KeyServerNotFound          Key = "server.notFound"
 	KeyServerPicgoOK           Key = "server.picgoOK"
-	KeyServerMethodNotAllowed  Key = "server.methodNotAllowed"
-	KeyServerLocalOnly         Key = "server.localOnly"
-	KeyServerCrossOrigin       Key = "server.crossOrigin"
 	KeyServerSaveFailed        Key = "server.saveFailed"
 	KeyServerNoDialog          Key = "server.noDialog"
 	KeyServerNeedPaths         Key = "server.needPaths"
@@ -154,9 +148,6 @@ const (
 	KeyServerMissingFilePath   Key = "server.missingFilePath"
 	KeyServerMissingPath       Key = "server.missingPath"
 	KeyServerBadJSON           Key = "server.badJSON"
-	KeyServerEmptyBody         Key = "server.emptyBody"
-	KeyServerBodyTooLarge      Key = "server.bodyTooLarge"
-	KeyServerNoEventStream     Key = "server.noEventStream"
 	KeyServerUpdateUnsupported Key = "server.updateUnsupported"
 	KeyServerCheckFirst        Key = "server.checkFirst"
 	KeyServerUpdateBusy        Key = "server.updateBusy"
@@ -391,10 +382,6 @@ var catalog = map[Key]entry{
 		"对方只给了一段内容（HTTP 206），不是整张图——多半是图床或中间代理把它截断了",
 		"The server returned only a fragment (HTTP 206) instead of the whole image — the image host or a proxy is truncating it",
 	},
-	KeyConvRemoteNamingFailed: {
-		"没能给这张远程图片起个本地文件名：%v",
-		"Could not work out a local file name for this remote image: %v",
-	},
 	KeyConvEndpointDead: {
 		"连续 %d 张图片上传失败（期间没有一张成功），已停止本次运行——图床多半连不上：%s",
 		"%d images in a row failed to upload without a single success, so the run was stopped early — the host is probably unreachable: %s",
@@ -543,10 +530,6 @@ var catalog = map[Key]entry{
 		"The original was kept as %s — fix it to get your settings back.",
 	},
 
-	KeyPlatformNoDialog: {
-		"当前平台不支持原生对话框，请手动输入路径",
-		"Native file dialogs are not available on this platform — type the path instead",
-	},
 	KeyPlatformNoFolderPath: {
 		"无法获取所选目录路径",
 		"Could not read the selected folder path",
@@ -576,22 +559,6 @@ var catalog = map[Key]entry{
 		"PicGo 服务正常",
 		"PicGo is running",
 	},
-	KeyServerNotFound: {
-		"接口不存在",
-		"Unknown endpoint",
-	},
-	KeyServerMethodNotAllowed: {
-		"不支持的请求方法",
-		"Method not allowed",
-	},
-	KeyServerLocalOnly: {
-		"仅允许本机访问",
-		"Local access only",
-	},
-	KeyServerCrossOrigin: {
-		"拒绝跨站请求",
-		"Cross-site request rejected",
-	},
 	KeyServerSaveFailed: {
 		"保存设置失败: %v",
 		"Could not save the settings: %v",
@@ -619,18 +586,6 @@ var catalog = map[Key]entry{
 	KeyServerBadJSON: {
 		"请求内容不是合法的 JSON",
 		"The request body is not valid JSON",
-	},
-	KeyServerEmptyBody: {
-		"请求内容为空",
-		"The request body is empty",
-	},
-	KeyServerBodyTooLarge: {
-		"请求内容太大（超过 %d MB），请分成几次提交",
-		"The request body is too large (over %d MB); split it into several requests",
-	},
-	KeyServerNoEventStream: {
-		"当前连接不支持事件流",
-		"This connection does not support event streams",
 	},
 	KeyServerUpdateUnsupported: {
 		"当前构建不支持自动更新",

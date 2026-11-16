@@ -82,7 +82,7 @@ export const en: Record<keyof typeof zh, string> = {
     'Writing in place rewrites the original files. Make sure backups are enabled or the files are under version control.',
   'settings.backup': 'Back up the original before overwriting',
   'debug.badge': 'Debug mode',
-  'debug.title': 'Debug build: scans only, writes nothing, uploads nothing (only when started via npm run dev)',
+  'debug.title': 'Debug build: scans only, writes nothing, uploads nothing (only with npm run start --debug)',
   'settings.debugNote': 'Debug mode: this run only scans and previews — it writes nothing and uploads nothing.',
   'settings.loading': 'Loading settings…',
   'settings.loadFailed': 'Could not load settings',

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AboutDialog from './components/AboutDialog.vue'
 import AppFooter from './components/AppFooter.vue'
 import AppHeader from './components/AppHeader.vue'
+import AppIcon from './components/AppIcon.vue'
 import AppRail from './components/AppRail.vue'
 import CheckPage from './components/CheckPage.vue'
 import CloseConfirmDialog from './components/CloseConfirmDialog.vue'
@@ -247,10 +248,10 @@ const dataDir = computed(() => health.value?.dataDir ?? '')
 const dataNote = computed(() => health.value?.dataNote ?? '')
 const settingsNote = computed(() => health.value?.settingsNote ?? '')
 /**
- * 调试构建（scripts/dev.mjs）：整轮只扫描、不写文件、不上传。
+ * 调试构建（npm run start --debug 编的那一版）：整轮只扫描、不写文件、不上传。
  *
- * 发布版里 health.debug 恒为 false，界面据此不渲染任何「调试模式」字样 ——
- * 这个概念只存在于开发阶段，不是用户设置。
+ * 默认开发构建与发布版一致：health.debug 恒为 false，界面据此不渲染任何
+ * 「调试模式」字样 —— 它不是一个用户设置。
  */
 const debug = computed(() => health.value?.debug === true)
 

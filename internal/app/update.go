@@ -1,9 +1,15 @@
 package app
 
 import (
+	"context"
+	"os"
+	"runtime"
 	"sync"
+	"time"
 
+	"github.com/geekMus/markpic/internal/i18n"
 	"github.com/geekMus/markpic/internal/update"
+	"github.com/geekMus/markpic/internal/version"
 )
 
 // updateStatus 会被原样发给前端，字段名与 web/src/types.ts 保持一致。
@@ -93,4 +99,81 @@ func (t *updateTracker) progress(received, total int64) {
 	if total > 0 {
 		t.status.Total = total
 	}
+}
+
+// ---------- 自动更新的三个调用 ----------
+
+func (a *App) checkUpdate() (any, error) {
+	// 没注入版本号的构建（直接 go build）压根不去问 GitHub：拿 dev 去和发布日期比，
+	// 结论永远是「有新版本」，那颗提示会一直亮着，还诱导人拿发布版盖掉开发版。
+	if version.Unversioned() {
+		a.upd.setState("unversioned")
+		return a.upd.snapshot(), nil
+	}
+	if st := a.upd.snapshot().State; st == "downloading" || st == "installing" || st == "checking" {
+		return a.upd.snapshot(), nil
+	}
+	a.upd.setState("checking")
+	lang := a.Lang()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 16*time.Second)
+		defer cancel()
+
+		rel, err := update.Check(ctx, version.Version, runtime.GOARCH, lang)
+		if err != nil {
+			a.upd.fail(err.Error())
+			return
+		}
+		a.upd.applyRelease(rel)
+	}()
+
+	return a.upd.snapshot(), nil
+}
+
+func (a *App) installUpdate() (any, error) {
+	if a.exeDir == "" {
+		return nil, unsupported(i18n.T(a.Lang(), i18n.KeyServerUpdateUnsupported))
+	}
+	asset := a.upd.snapshot().Asset
+	if asset.URL == "" {
+		return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerCheckFirst))
+	}
+	if !a.upd.beginInstall(asset) {
+		return nil, conflict(i18n.T(a.Lang(), i18n.KeyServerUpdateBusy))
+	}
+	go a.doInstall(asset, a.Lang())
+	return a.upd.snapshot(), nil
+}
+
+// doInstall 下载、校验、替换、重启。全程只更新状态，不往前端抛错。
+func (a *App) doInstall(asset update.Asset, lang i18n.Lang) {
+	exe := a.exeDir
+	staged := exe + ".new"
+
+	// 用独立上下文：调用早就返回了，下载不能跟着它一起取消。
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	if err := update.Download(ctx, asset.URL, asset.SHA256, staged, a.upd.progress, lang); err != nil {
+		a.upd.fail(err.Error())
+		return
+	}
+
+	a.upd.setState("installing")
+	if _, err := update.Replace(exe, staged, lang); err != nil {
+		_ = os.Remove(staged)
+		a.upd.fail(err.Error())
+		return
+	}
+
+	a.upd.setState("restarting")
+	if err := update.Restart(exe, []string{"--restart"}, lang); err != nil {
+		a.upd.fail(err.Error())
+		return
+	}
+
+	// 留一点时间让界面把这句「正在重启」显示出来，然后这次就退场。
+	time.Sleep(700 * time.Millisecond)
+	os.Exit(0)
 }

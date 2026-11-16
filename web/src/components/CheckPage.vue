@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import AppIcon from './AppIcon.vue'
 import ReportShell from './ReportShell.vue'
-import ScanBadge from './ScanBadge.vue'
+import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView, ScanState } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
-import { copyText, shortReason } from '../composables/useDeadLinks'
+import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 import { describeError, openTarget } from '../api'
+import type { Tone } from './rowMeta'
+import { isRemoteRef } from './target'
+import { useCopyAddress } from './useCopyAddress'
 
 /**
  * 检测页：和「上传」一样按文档分卡片 —— 一篇文档一张卡，卡里是这篇文档的
@@ -37,19 +39,14 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { success, danger } = useToasts()
-
-/** 一行地址点一下就进剪贴板：贴到别处查比手动选中省事。 */
-async function copyAddress(url: string): Promise<void> {
-  if (await copyText(url)) success(t('toast.copied'))
-  else danger(t('toast.copyFailed'))
-}
+const { danger } = useToasts()
+const { copyAddress } = useCopyAddress()
 
 /** 进场错开最多 8 行：再多就一起出现，别让「慢慢浮上来」变成等待。 */
 
 type Kind = 'bad' | 'unsupported' | 'pending' | 'ok'
 
-const KIND_META: Record<Kind, { labelKey: MessageKey; tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' }> = {
+const KIND_META: Record<Kind, { labelKey: MessageKey; tone: Tone }> = {
   bad: { labelKey: 'row.status.remoteBad', tone: 'danger' },
   unsupported: { labelKey: 'row.status.remoteUnsupported', tone: 'warning' },
   pending: { labelKey: 'check.row.pending', tone: 'neutral' },
@@ -64,11 +61,6 @@ interface AddrRow {
   label: string
   kind: Kind
   error: string
-}
-
-/** 远程引用（http、ftp、data: 都算），但要排除 Windows 盘符 `D:\…`。 */
-function isRemoteRef(target: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)
 }
 
 /**
@@ -201,26 +193,6 @@ const groups = computed<DocGroup[]>(() => {
   )
 })
 
-/** 卡头只写最后一级目录，和上传页的卡片一个规矩。 */
-function shortDir(dir: string): string {
-  const parts = dir.split(/[\\/]/).filter((part) => part !== '')
-  return parts.length > 0 ? parts[parts.length - 1] : dir
-}
-
-/** 折叠状态：和上传页的卡一样，默认收起，点卡头展开。 */
-const openIds = ref<Set<string>>(new Set())
-
-function isOpen(id: string): boolean {
-  return openIds.value.has(id)
-}
-
-function toggle(id: string): void {
-  const next = new Set(openIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  openIds.value = next
-}
-
 /**
  * 卡头上的「打开文件」：检测只读，一份文件都没改写，所以打开的就是原文档 ——
  * 打不开的地址在哪一行已经写在卡里，点开就能去改。打开失败要说原因，
@@ -324,98 +296,37 @@ const emptyHint = computed<MessageKey>(() => {
 
       <p v-if="shownGroups.length === 0" class="chk__none">{{ t(emptyHint, { count: scanCount }) }}</p>
 
-      <section
+      <ResultGroup
         v-for="group in shownGroups"
         :key="group.id"
-        class="group-card"
+        :name="group.name"
+        :dir="group.dir"
+        :scan="group.scan"
+        :scan-error="group.scanError"
+        :busy="busy"
+        :tone="group.bad > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
+        :expandable="group.list.length > 0"
+        @open="openFile(group.path)"
+        @reveal="emit('reveal', group.path)"
+        @remove="emit('remove', group.id)"
+        @cancel-scan="emit('cancel-scan', group.id)"
+        @retry-scan="emit('retry-scan', group.id)"
       >
-        <header
-          class="group-card__head group-card__head--fold"
-          role="button"
-          tabindex="0"
-          :aria-expanded="isOpen(group.id)"
-          @click="toggle(group.id)"
-          @keydown.enter.prevent="toggle(group.id)"
-          @keydown.space.prevent="toggle(group.id)"
-        >
-          <span
-            class="group-card__mark"
-            :data-tone="group.bad > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
-            aria-hidden="true"
-          >
-            <AppIcon name="doc" :size="15" />
+        <template #badges>
+          <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
+          <span v-if="group.ok > 0" class="badge badge--ok">
+            {{ t('check.group.ok', { count: group.ok }) }}
           </span>
-          <span class="group-card__text">
-            <span class="group-card__name" :title="group.name">{{ group.name }}</span>
-            <span class="group-card__sub mono" :title="group.dir">{{ shortDir(group.dir) }}</span>
+          <span v-if="group.pending > 0" class="badge">
+            {{ t('check.group.pending', { count: group.pending }) }}
           </span>
-          <span class="group-card__badges">
-            <!-- 还没扫通：卡上说的是扫描本身，不是「0 个地址」 -->
-            <ScanBadge
-              v-if="group.scan !== 'ok'"
-              :state="group.scan"
-              :error="group.scanError"
-              :busy="busy"
-              @cancel="emit('cancel-scan', group.id)"
-              @retry="emit('retry-scan', group.id)"
-            />
-            <template v-else>
-              <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
-              <span v-if="group.ok > 0" class="badge badge--ok">
-                {{ t('check.group.ok', { count: group.ok }) }}
-              </span>
-              <span v-if="group.pending > 0" class="badge">
-                {{ t('check.group.pending', { count: group.pending }) }}
-              </span>
-              <span v-if="group.bad > 0" class="badge badge--bad">
-                {{ t('check.group.bad', { count: group.bad }) }}
-              </span>
-              <span v-if="group.unsupported > 0" class="badge badge--warn">
-                {{ t('check.group.unsupported', { count: group.unsupported }) }}
-              </span>
-            </template>
+          <span v-if="group.bad > 0" class="badge badge--bad">
+            {{ t('check.group.bad', { count: group.bad }) }}
           </span>
-          <span
-            v-if="group.list.length > 0"
-            class="group-card__more"
-            :class="{ 'group-card__more--on': isOpen(group.id) }"
-          >
-            {{ t(isOpen(group.id) ? 'row.details.collapse' : 'row.details.expand') }}
-            <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
+          <span v-if="group.unsupported > 0" class="badge badge--warn">
+            {{ t('check.group.unsupported', { count: group.unsupported }) }}
           </span>
-          <!-- 打开、定位、移除：和上传页的卡头同一组，不必先展开才够得着 -->
-          <span class="group-card__tools" @keydown.stop>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              :title="t('row.open')"
-              :aria-label="t('row.open')"
-              @click.stop="openFile(group.path)"
-            >
-              <AppIcon name="external" :size="13" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              :title="t('row.reveal')"
-              :aria-label="t('row.reveal')"
-              @click.stop="emit('reveal', group.path)"
-            >
-              <AppIcon name="folder-open" :size="13" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm icon-btn--drop"
-              :title="t('row.remove')"
-              :aria-label="t('row.remove')"
-              :disabled="busy"
-              @click.stop="emit('remove', group.id)"
-            >
-              <AppIcon name="x" :size="13" />
-            </button>
-          </span>
-        </header>
-        <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.id) }">
+        </template>
         <ul class="chk__list group-rows">
           <li
             v-for="addr in group.list"
@@ -445,8 +356,7 @@ const emptyHint = computed<MessageKey>(() => {
             >{{ shortReason(addr.error) }}</span>
           </li>
         </ul>
-        </div>
-      </section>
+      </ResultGroup>
     </div>
     <template #footer>
       <slot name="footer" />

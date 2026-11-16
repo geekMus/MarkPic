@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import AppIcon from './AppIcon.vue'
+import { computed } from 'vue'
 import ReportShell from './ReportShell.vue'
-import ScanBadge from './ScanBadge.vue'
+import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
 import { useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
-import { copyText, shortReason } from '../composables/useDeadLinks'
+import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
 import { describeError, openTarget } from '../api'
+import type { Tone } from './rowMeta'
+import { isRemoteRef } from './target'
+import { useCopyAddress } from './useCopyAddress'
 
 /**
  * 下载页：这一页要回答的是「哪张远程图落到本地哪个文件了」。
@@ -39,12 +41,8 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
-const { success, danger } = useToasts()
-
-async function copyAddress(url: string): Promise<void> {
-  if (await copyText(url)) success(t('toast.copied'))
-  else danger(t('toast.copyFailed'))
-}
+const { danger } = useToasts()
+const { copyAddress } = useCopyAddress()
 
 /** 卡头那几颗按钮指向的文件：这一轮写过副本就指副本，没跑过就指原文。 */
 function fileOf(row: RunRowView): string {
@@ -70,16 +68,12 @@ const scanCount = computed(() => props.rows.filter((row) => (row.scan ?? 'idle')
 
 type Kind = 'saved' | 'reused' | 'failed' | 'unsupported' | 'pending'
 
-const KIND_META: Record<Kind, { labelKey: MessageKey; tone: 'neutral' | 'accent' | 'success' | 'warning' | 'danger' }> = {
+const KIND_META: Record<Kind, { labelKey: MessageKey; tone: Tone }> = {
   saved: { labelKey: 'row.status.localized', tone: 'success' },
   reused: { labelKey: 'row.status.localReused', tone: 'accent' },
   failed: { labelKey: 'row.status.downloadFailed', tone: 'danger' },
   unsupported: { labelKey: 'row.status.remoteUnsupported', tone: 'warning' },
   pending: { labelKey: 'download.row.pending', tone: 'neutral' },
-}
-
-function isRemoteRef(target: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:/i.test(target) && !/^[a-z]:[\\/]/i.test(target)
 }
 
 /**
@@ -105,26 +99,6 @@ function kindOf(item: ImageItem): Kind {
 }
 
 /** 落盘位置在结果里是绝对路径；页面上只写相对文档的那一段（images\a.webp）。 */
-  /** 折叠状态：和上传页的卡一样，默认收起，点卡头展开。 */
-const openIds = ref<Set<string>>(new Set())
-
-function isOpen(id: string): boolean {
-  return openIds.value.has(id)
-}
-
-function toggle(id: string): void {
-  const next = new Set(openIds.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  openIds.value = next
-}
-
-/** 卡头只写最后一级目录：完整路径在悬停的 title 里。 */
-function shortDir(dir: string): string {
-  const parts = dir.split(/[\\/]/).filter((part) => part !== '')
-  return parts.length > 0 ? parts[parts.length - 1] : dir
-}
-
 function localOf(dir: string, item: ImageItem): string {
   const abs = (item.url ?? '').replace(/^file:\/\//i, '')
   if (abs === '') return ''
@@ -236,109 +210,49 @@ const band = computed(() => {
         {{ t(scanning ? 'download.scanning' : 'download.empty.noRemote', { count: scanCount }) }}
       </p>
 
-      <section
+      <ResultGroup
         v-for="group in groups"
         :key="group.row.id"
-        class="group-card"
+        :name="group.row.name"
+        :dir="group.row.dir"
+        :scan="group.row.scan ?? 'idle'"
+        :scan-error="group.row.scanError"
+        :busy="busy"
+        :tone="group.failed > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
+        :expandable="group.items.length > 0"
+        @open="openFile(group.row)"
+        @reveal="emit('reveal', fileOf(group.row))"
+        @remove="emit('remove', group.row.id)"
+        @cancel-scan="emit('cancel-scan', group.row.id)"
+        @retry-scan="emit('retry-scan', group.row.id)"
       >
-        <header
-          class="group-card__head group-card__head--fold"
-          role="button"
-          tabindex="0"
-          :aria-expanded="isOpen(group.row.id)"
-          @click="toggle(group.row.id)"
-          @keydown.enter.prevent="toggle(group.row.id)"
-          @keydown.space.prevent="toggle(group.row.id)"
-        >
-          <span
-            class="group-card__mark"
-            :data-tone="group.failed > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
-            aria-hidden="true"
+        <template #badges>
+          <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span v-if="group.saved > 0" class="badge badge--ok">
+            {{ t('download.group.saved', { count: group.saved }) }}
+          </span>
+          <span v-if="group.reused > 0" class="badge">
+            {{ t('download.group.reused', { count: group.reused }) }}
+          </span>
+          <span v-if="group.pending > 0" class="badge">
+            {{ t('download.group.pending', { count: group.pending }) }}
+          </span>
+          <span v-if="group.failed > 0" class="badge badge--bad">
+            {{ t('download.group.bad', { count: group.failed }) }}
+          </span>
+          <span v-if="group.unsupported > 0" class="badge badge--warn">
+            {{ t('download.group.unsupported', { count: group.unsupported }) }}
+          </span>
+        </template>
+        <template #rail>
+          <div
+            v-if="group.row.phase === 'running'"
+            class="group-card__rail"
+            :class="{ 'group-card__rail--wait': group.row.total === 0 }"
           >
-            <AppIcon name="doc" :size="15" />
-          </span>
-          <span class="group-card__text">
-            <span class="group-card__name" :title="group.row.path">{{ group.row.name }}</span>
-            <span class="group-card__sub mono" :title="group.row.dir">{{ shortDir(group.row.dir) }}</span>
-          </span>
-          <span class="group-card__badges">
-            <!-- 还没扫通：卡上说的是扫描本身，不是「0 张图」 -->
-            <ScanBadge
-              v-if="(group.row.scan ?? 'idle') !== 'ok'"
-              :state="group.row.scan ?? 'idle'"
-              :error="group.row.scanError"
-              :busy="busy"
-              @cancel="emit('cancel-scan', group.row.id)"
-              @retry="emit('retry-scan', group.row.id)"
-            />
-            <template v-else>
-              <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
-              <span v-if="group.saved > 0" class="badge badge--ok">
-                {{ t('download.group.saved', { count: group.saved }) }}
-              </span>
-              <span v-if="group.reused > 0" class="badge">
-                {{ t('download.group.reused', { count: group.reused }) }}
-              </span>
-              <span v-if="group.pending > 0" class="badge">
-                {{ t('download.group.pending', { count: group.pending }) }}
-              </span>
-              <span v-if="group.failed > 0" class="badge badge--bad">
-                {{ t('download.group.bad', { count: group.failed }) }}
-              </span>
-              <span v-if="group.unsupported > 0" class="badge badge--warn">
-                {{ t('download.group.unsupported', { count: group.unsupported }) }}
-              </span>
-            </template>
-          </span>
-          <span
-            v-if="group.items.length > 0"
-            class="group-card__more"
-            :class="{ 'group-card__more--on': isOpen(group.row.id) }"
-          >
-            {{ t(isOpen(group.row.id) ? 'row.details.collapse' : 'row.details.expand') }}
-            <AppIcon class="group-card__chev" name="chevron-down" :size="13" />
-          </span>
-          <!-- 打开、定位、移除：和上传页、检测页的卡头同一组 -->
-          <span class="group-card__tools" @keydown.stop>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              :title="t('row.open')"
-              :aria-label="t('row.open')"
-              @click.stop="openFile(group.row)"
-            >
-              <AppIcon name="external" :size="13" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm"
-              :title="t('row.reveal')"
-              :aria-label="t('row.reveal')"
-              @click.stop="emit('reveal', fileOf(group.row))"
-            >
-              <AppIcon name="folder-open" :size="13" />
-            </button>
-            <button
-              type="button"
-              class="icon-btn icon-btn--sm icon-btn--drop"
-              :title="t('row.remove')"
-              :aria-label="t('row.remove')"
-              :disabled="busy"
-              @click.stop="emit('remove', group.row.id)"
-            >
-              <AppIcon name="x" :size="13" />
-            </button>
-          </span>
-        </header>
-        <!-- 跑动中整张卡也有一条进度轨：卡头数字说逐图结论，这条说整篇走到哪了 -->
-        <div
-          v-if="group.row.phase === 'running'"
-          class="group-card__rail"
-          :class="{ 'group-card__rail--wait': group.row.total === 0 }"
-        >
-          <span :style="group.row.total > 0 ? { width: progressOf(group.row) + '%' } : undefined" />
-        </div>
-        <div class="group-card__fold" :class="{ 'group-card__fold--open': isOpen(group.row.id) }">
+            <span :style="group.row.total > 0 ? { width: progressOf(group.row) + '%' } : undefined" />
+          </div>
+        </template>
         <ul class="dl__list group-rows">
           <li
             v-for="entry in group.items"
@@ -365,8 +279,7 @@ const band = computed(() => {
             <span v-if="entry.item.error" class="dl__err">{{ shortReason(entry.item.error) }}</span>
           </li>
         </ul>
-        </div>
-      </section>
+      </ResultGroup>
     </div>
     <template #footer>
       <slot name="footer" />
