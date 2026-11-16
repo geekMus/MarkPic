@@ -130,6 +130,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.finished': 'Finished',
   'row.status.notFound': 'Not found',
   'row.status.queued': 'to upload',
+  'row.status.waiting': 'Queued',
   'row.status.uploaded': 'Uploaded',
   'row.status.reused': 'Reused',
   'row.status.cached': 'Cached',

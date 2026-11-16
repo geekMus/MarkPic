@@ -25,6 +25,8 @@ import (
 	"syscall"
 	"unsafe"
 
+	"golang.org/x/sys/windows/registry"
+
 	"github.com/geekMus/markpic/internal/brand"
 	"github.com/geekMus/markpic/internal/settings"
 )
@@ -115,6 +117,7 @@ var (
 	dwmapiChrome   = syscall.NewLazyDLL("dwmapi.dll")
 	kernel32Chrome = syscall.NewLazyDLL("kernel32.dll")
 	shell32Chrome  = syscall.NewLazyDLL("shell32.dll")
+	gdi32Chrome    = syscall.NewLazyDLL("gdi32.dll")
 
 	procSetWindowLongPtr = user32Chrome.NewProc("SetWindowLongPtrW")
 	procGetWindowLongPtr = user32Chrome.NewProc("GetWindowLongPtrW")
@@ -130,6 +133,10 @@ var (
 	procFlashWindowEx    = user32Chrome.NewProc("FlashWindowEx")
 	procLoadImage        = user32Chrome.NewProc("LoadImageW")
 	procDwmSetAttribute  = dwmapiChrome.NewProc("DwmSetWindowAttribute")
+	procFillRect         = user32Chrome.NewProc("FillRect")
+
+	procCreateSolidBrush = gdi32Chrome.NewProc("CreateSolidBrush")
+	procDeleteObject     = gdi32Chrome.NewProc("DeleteObject")
 
 	procGetModuleHandle   = kernel32Chrome.NewProc("GetModuleHandleW")
 	procEnumResourceNames = kernel32Chrome.NewProc("EnumResourceNamesW")
@@ -164,6 +171,10 @@ type windowChrome struct {
 	oldProc uintptr
 	proc    uintptr // syscall.NewCallback 的结果，必须持有引用防止被回收
 
+	// brush 是擦背景用的画刷，颜色跟着主题走：WebView2 环境起来之前，这里
+	// 露出来的就是窗口自己的底，白板色会在启动时闪一下。
+	brush uintptr
+
 	// 关闭策略：有任务且选了「退出」时，先让前端弹二次确认；
 	// forceClose 是前端确认之后放行真正关闭的开关。
 	forceClose     atomic.Bool
@@ -196,8 +207,10 @@ func installWindowChrome(target any) {
 		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged,
 	)
 
-	// 先按浅色画；前端挂载后会立刻同步真实主题。
-	applyChromeTheme(false)
+	// 先按系统主题画：WebView2 环境起来之前窗口已经在屏幕上了，这段时间的
+	// 底色只能由这里决定。跟着系统走，深色用户启动时才不会先看见一道白。
+	// 前端挂载后会再按它自己的设置同步一次。
+	applyChromeTheme(systemPrefersDark())
 
 	// 贴靠布局浮层要压在 WebView2 上面，所以得等 WebView 建完再挂；
 	// 位置由前端量出最大化按钮的矩形后上报。
@@ -358,6 +371,15 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		// 没有非客户区可画，直接声称已处理，避免系统重绘边框。
 		return 1
 	case wmEraseBkgnd:
+		// 什么都不画的话，WebView2 起来之前这里就是一块白板 —— 启动白闪的
+		// 主要来源。用当前主题的画布色填一遍，再交回「已处理」。
+		c := chromeWindow
+		if c == nil || c.brush == 0 {
+			return 1
+		}
+		r := rect32{}
+		procGetClientRect.Call(uintptr(c.hwnd), uintptr(unsafe.Pointer(&r)))
+		procFillRect.Call(wp, uintptr(unsafe.Pointer(&r)), c.brush)
 		return 1
 	case wmClose:
 		// 关窗是唯一拿得到「用户最终喜欢多大」的时刻，先记下来。
@@ -497,6 +519,49 @@ func applyChromeTheme(dark bool) {
 	// 任务栏和 Alt-Tab 上的图标也跟着明暗换：亮色界面用浅底那版（方块退成
 	// 一层薄荷白的纸，靠深青笔画认人），暗色界面用深底那版。
 	setWindowIcon(hwnd, dark)
+
+	// 擦背景的画刷跟着一起换：底色和边框必须是同一套主题，否则会先看见
+	// 浅色底、再跳成深色，还是闪。
+	if c := chromeWindow; c != nil {
+		c.setBackground(dark)
+	}
+}
+
+// setBackground 换掉擦背景用的画刷（旧的必须删，否则每换一次主题漏一个 GDI 对象）。
+func (c *windowChrome) setBackground(dark bool) {
+	// COLORREF 是 0x00BBGGRR，和 CSS 的 #RRGGBB 反过来排。
+	color := uint32(0x00f6f1ee) // #eef1f6：浅色画布
+	if dark {
+		color = 0x00140e0b // #0b0e14：深色画布
+	}
+	brush, _, _ := procCreateSolidBrush.Call(uintptr(color))
+	if brush == 0 {
+		return
+	}
+	if c.brush != 0 {
+		procDeleteObject.Call(c.brush)
+	}
+	c.brush = brush
+}
+
+// systemPrefersDark 读系统的「应用使用浅色主题」开关。窗口在 WebView2 起来
+// 之前就得先画出底色，那时候前端还没机会告诉我们它选的是哪套主题；读不到
+// 就按 Windows 的出厂默认（浅色）处理。
+func systemPrefersDark() bool {
+	key, err := registry.OpenKey(
+		registry.CURRENT_USER,
+		`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`,
+		registry.QUERY_VALUE,
+	)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+	light, _, err := key.GetIntegerValue("AppsUseLightTheme")
+	if err != nil {
+		return false
+	}
+	return light == 0
 }
 
 // cursorPos 打包成 WM_NCLBUTTONDOWN 需要的 lParam（屏幕坐标）。

@@ -107,7 +107,20 @@ const queuedLabelKey = computed<MessageKey>(() => {
   }
 })
 
-const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const result = props.row.result
+/**
+ * 这一轮是不是正在这张卡上干活（排队也算）：卡面上要有加载态，
+ * 而且这时候不能再说上一轮的结论。
+ */
+const loading = computed(
+  () => props.busy && (props.row.phase === 'running' || props.row.phase === 'queued'),
+)
+
+const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
+  // 先看这一轮走到哪了：开跑时上一轮的 result 故意留着（免得整张卡抖一下），
+  // 但那是过去的事 —— 「运行中 0/1」的卡上挂着「失败 7」就是这么来的。
+  if (props.row.phase === 'running') return { tone: 'accent', labelKey: runningLabelKey.value }
+  if (loading.value) return { tone: 'accent', labelKey: 'row.status.waiting' }
+  const result = props.row.result
   if (result) {
     const meta = FILE_STATUS_META[result.status]
     // 检测模式下整篇「已检测」读起来是成功，但有死链的行必须一眼认出来 ——
@@ -129,7 +142,6 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {  const
     }
     return meta
   }
-  if (props.row.phase === 'running') return { tone: 'accent', labelKey: runningLabelKey.value }
   if (props.row.phase === 'cancelled') return { tone: 'warning', labelKey: 'row.status.cancelled' }
   if (props.row.phase === 'settled') return { tone: 'neutral', labelKey: 'row.status.finished' }
   if (props.row.missing) return { tone: 'neutral', labelKey: 'row.status.notFound' }
@@ -149,13 +161,18 @@ const scanOk = computed(() => (props.row.scan ?? 'idle') === 'ok')
 
 const countLabel = computed(() => {
   const mode = props.remoteMode ?? 'ignore'
-  const local = counts.value.local
+  // 跑动中报的是这一轮的张数：上一轮留下的「7 张图」挂在「运行中 0/1」
+  // 旁边，只会让人以为已经在处理那 7 张。
+  const local = loading.value && props.row.total > 0 ? props.row.total : counts.value.local
   if (mode === 'ignore' && local !== null) {
     if (items.value.length === 0) return t('row.status.noImages')
     if (local === 0) return t('row.status.noLocal')
     return t('row.count', { count: local })
   }
-  const images = props.row.result?.images ?? props.row.images
+  const images =
+    loading.value && props.row.total > 0
+      ? props.row.total
+      : (props.row.result?.images ?? props.row.images)
   if (images === null || images === undefined) {
     return props.row.missing ? '—' : t('row.count.pending')
   }
@@ -178,10 +195,12 @@ const shortDir = computed(() => lastSegment(props.row.dir))
 const lede = computed(() => {
   const result = props.row.result
   const mode = props.remoteMode ?? 'ignore'
+  // 这一轮在干活就先说这一轮：上一轮的结论（尤其「失败 7」）留着只会误导。
+  if (props.row.phase === 'running') return t('row.lede.running')
+  if (loading.value) return t('row.lede.waiting')
   if (!result) {
     if (props.row.phase === 'cancelled') return t('row.reason.cancelled')
     if (props.row.missing) return t('row.reason.noFiles')
-    if (props.row.phase === 'running') return t('row.lede.running')
     return t('row.lede.waiting')
   }
   // 整篇失败时，原因比数目要紧：「连不上 PicGo」比「3 张没成功」有用。
@@ -539,6 +558,7 @@ function toggleExpanded(): void {
     :class="{ 'item--settled': settled }"
     :data-tone="statusMeta.tone"
     :data-selected="props.selected ? 'yes' : null"
+    :data-busy="loading ? 'yes' : null"
   >
     <div class="card" :data-empty="emptyCard ? 'yes' : undefined">
       <div class="card__top">
@@ -567,8 +587,14 @@ function toggleExpanded(): void {
           <span class="num">{{ countLabel }}</span>
         </span>
 
+        <!-- 跑动中先说「这一轮在干活」：右下角只有一个「取消」、卡片自己
+              一动不动，是用户报的最直接的「没有加载态」。这时把「查看详情」
+              让位给它（点头部照样能展开）。 -->
+        <span v-if="loading && scanOk" class="item__status">
+          <StatusPill :label="t(statusMeta.labelKey)" :tone="statusMeta.tone" pulse compact />
+        </span>
         <!-- 有明细就收起这一行字，让「查看详情」当唯一的入口 -->
-        <span v-if="canExpand" class="item__more">
+        <span v-else-if="canExpand" class="item__more">
           {{ t(expanded ? 'row.details.collapse' : 'row.details.expand') }}
           <span class="item__chev" :class="{ 'item__chev--on': expanded }" aria-hidden="true">
             <AppIcon name="chevron-down" :size="13" />

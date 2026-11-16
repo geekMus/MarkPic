@@ -130,6 +130,7 @@ export const zh = {
   'row.status.finished': '已结束',
   'row.status.notFound': '未找到文件',
   'row.status.queued': '待上传',
+  'row.status.waiting': '排队中',
   'row.status.uploaded': '已上传',
   'row.status.reused': '已复用',
   'row.status.cached': '缓存复用',

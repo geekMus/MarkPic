@@ -32,9 +32,160 @@
         }
       })()
     </script>
-    <script defer src="./assets/index-CAOcqfau.js"></script>
+    <!-- 首屏防闪：Vue 还没挂载、甚至 CSS 还没到的时候，窗口里至少要有底色
+         和一块版心骨架。否则用户先看见 WebView2 的白板，再看见深色背景，最后
+         才看见内容 —— 三道闪。这段样式故意写在这里，不进 main.css：它必须
+         比打包出来的样式表更早生效。 -->
+    <style>
+      html {
+        background: #eef1f6;
+      }
+      html[data-theme='dark'] {
+        background: #0b0e14;
+      }
+      body {
+        margin: 0;
+        background: inherit;
+      }
+      #app {
+        height: 100%;
+      }
+      .boot {
+        --boot-line: rgba(17, 26, 43, 0.1);
+        --boot-panel: #ffffff;
+        --boot-ink: rgba(17, 26, 43, 0.12);
+        display: grid;
+        grid-template-rows: 40px minmax(0, 1fr);
+        height: 100%;
+        padding: 0 20px;
+        box-sizing: border-box;
+      }
+      html[data-theme='dark'] .boot {
+        --boot-line: rgba(255, 255, 255, 0.08);
+        --boot-panel: #12161f;
+        --boot-ink: rgba(255, 255, 255, 0.1);
+      }
+      .boot__bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 40px;
+      }
+      .boot__mark {
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        background: var(--boot-ink);
+      }
+      .boot__word {
+        width: 74px;
+        height: 13px;
+        border-radius: 4px;
+        background: var(--boot-ink);
+      }
+      .boot__spacer {
+        flex: 1;
+      }
+      .boot__pill {
+        width: 104px;
+        height: 24px;
+        border: 1px solid var(--boot-line);
+        border-radius: 999px;
+      }
+      .boot__btn {
+        width: 40px;
+        height: 26px;
+        border-radius: 7px;
+        background: var(--boot-ink);
+        opacity: 0.5;
+      }
+      .boot__body {
+        display: grid;
+        grid-template-columns: 168px minmax(0, 1fr);
+        gap: 12px;
+        min-height: 0;
+        padding-bottom: 14px;
+      }
+      .boot__rail {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-top: 6px;
+      }
+      .boot__nav {
+        height: 36px;
+        border-radius: 9px;
+        background: var(--boot-ink);
+        opacity: 0.55;
+      }
+      .boot__nav--on {
+        background: rgba(15, 127, 120, 0.22);
+        opacity: 1;
+      }
+      .boot__stage {
+        display: flex;
+        min-height: 0;
+      }
+      .boot__card {
+        flex: 1;
+        padding: 18px 20px;
+        border: 1px solid var(--boot-line);
+        border-radius: 14px;
+        background: var(--boot-panel);
+      }
+      .boot__line {
+        display: block;
+        height: 14px;
+        border-radius: 4px;
+        background: var(--boot-ink);
+      }
+      .boot__line--title {
+        width: 190px;
+        height: 20px;
+      }
+      .boot__line--sub {
+        width: 130px;
+        margin-top: 10px;
+        opacity: 0.6;
+      }
+      .boot__row {
+        height: 64px;
+        margin-top: 18px;
+        border: 1px solid var(--boot-line);
+        border-radius: 12px;
+      }
+    </style>
+    <script defer src="./assets/index-8v4VRlTH.js"></script>
   </head>
   <body>
-    <div id="app"></div>
+    <!-- Vue 挂载后整块骨架会被替换掉，它只活到第一帧。 -->
+    <div id="app">
+      <div class="boot" aria-hidden="true">
+        <div class="boot__bar">
+          <span class="boot__mark"></span>
+          <span class="boot__word"></span>
+          <span class="boot__spacer"></span>
+          <span class="boot__pill"></span>
+          <span class="boot__btn"></span>
+          <span class="boot__btn"></span>
+        </div>
+        <div class="boot__body">
+          <div class="boot__rail">
+            <span class="boot__nav boot__nav--on"></span>
+            <span class="boot__nav"></span>
+            <span class="boot__nav"></span>
+            <span class="boot__nav"></span>
+          </div>
+          <div class="boot__stage">
+            <div class="boot__card">
+              <span class="boot__line boot__line--title"></span>
+              <span class="boot__line boot__line--sub"></span>
+              <div class="boot__row"></div>
+              <div class="boot__row"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
