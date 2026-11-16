@@ -31,6 +31,8 @@ interface WindowBridge {
   cmpWinDrag?: (x: number, y: number) => Promise<unknown>
   cmpWinResize?: (edge: ResizeEdge) => Promise<unknown>
   cmpWinSetDark?: (dark: boolean) => Promise<unknown>
+  /** 把用户选的主题（system / light / dark）交给后端存下来，下次启动先用对底色。 */
+  cmpWinTheme?: (choice: string) => Promise<unknown>
   cmpWinFlash?: () => Promise<unknown>
   /**
    * 把最大化按钮的位置交给后端，在它上面盖一块原生热区。
@@ -227,12 +229,21 @@ function start(): void {
   available.value = typeof bridge.cmpWinDrag === 'function'
   if (!available.value) return
 
-  const { resolved } = useTheme()
+  const { choice, resolved } = useTheme()
   // 窗口边框、标题栏明暗跟着主题走，否则深色界面配一圈亮边框。
   watch(
     resolved,
     value => {
       void bridge.cmpWinSetDark?.(value === 'dark')
+    },
+    { immediate: true },
+  )
+  // 用户选的是「跟随系统」，这个选择本身也要让后端记住：下次启动窗口刚出现、
+  // 界面还没挂上的那几十毫秒，原生底色得按同一个选择来填，不能只记明暗。
+  watch(
+    choice,
+    value => {
+      void bridge.cmpWinTheme?.(value)
     },
     { immediate: true },
   )

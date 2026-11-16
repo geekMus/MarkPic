@@ -163,7 +163,12 @@ func bindWindowCommands(w webview2.WebView, desktop *app.App) {
 		}},
 		{"cmpWinDrag", func(x, y int) { beginCaptionDrag(x, y) }},
 		{"cmpWinResize", func(edge string) { beginResize(edge) }},
-		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
+		{"cmpWinSetDark", func(dark bool) {
+			applyChromeTheme(dark)
+			// WebView2 的默认背景色也得跟上，否则改主题后重载页面会白一下。
+			applyWebView2Background(w, dark)
+		}},
+		{"cmpWinTheme", func(choice string) { applyThemeChoice(w, choice) }},
 		{"cmpWinFlash", func() { flashTaskbar() }},
 		{"cmpWinSnapZone", func(x, y, w, h int) { placeSnapOverlay(x, y, w, h) }},
 		// 标题栏里「双击可最大化」的范围（CSS 像素）：高度、顶部缩放热区厚度、

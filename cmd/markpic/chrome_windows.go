@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	webview2 "github.com/jchv/go-webview2"
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/geekMus/markpic/internal/brand"
@@ -207,10 +208,12 @@ func installWindowChrome(target any) {
 		swpNoMove|swpNoSize|swpNoZOrder|swpNoActivate|swpFrameChanged,
 	)
 
-	// 先按系统主题画：WebView2 环境起来之前窗口已经在屏幕上了，这段时间的
-	// 底色只能由这里决定。跟着系统走，深色用户启动时才不会先看见一道白。
+	// 先按用户上次选的主题画：WebView2 环境起来之前窗口已经在屏幕上了，这段
+	// 时间的底色只能由这里决定。选择存在数据目录里（见 theme_windows.go），
+	// 没记录就跟随系统 —— 深色用户启动时才不会先看见一道白。
 	// 前端挂载后会再按它自己的设置同步一次。
-	applyChromeTheme(systemPrefersDark())
+	view, _ := target.(webview2.WebView)
+	applyThemeChoice(view, startupThemeChoice())
 
 	// 贴靠布局浮层要压在 WebView2 上面，所以得等 WebView 建完再挂；
 	// 位置由前端量出最大化按钮的矩形后上报。
