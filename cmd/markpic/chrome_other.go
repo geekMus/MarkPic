@@ -22,3 +22,11 @@ func windowMaximized() bool { return false }
 func beginCaptionDrag(int, int) {}
 
 func beginResize(string) {}
+
+func installSnapOverlay(uintptr) {}
+
+func setSnapOverlayEvents(func(string)) {}
+
+func placeSnapOverlay(int, int, int, int) {}
+
+func refreshSnapOverlay() {}

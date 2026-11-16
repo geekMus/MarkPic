@@ -85,6 +85,14 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 		return err
 	}
 
+	// 贴靠浮层盖住了最大化按钮那块像素，鼠标进 / 出 / 点击都由原生窗口
+	// 先收到，这里转回给界面：悬停高亮和「点了要不要最大化」还是前端说了算。
+	setSnapOverlayEvents(func(kind string) {
+		w.Dispatch(func() {
+			w.Eval(fmt.Sprintf("window.__markpicSnap && window.__markpicSnap(%q)", kind))
+		})
+	})
+
 	setClosePolicy(desktop.RunningCount, desktop.CloseAction)
 	setCloseRequestHandler(func(count int, ask bool) {
 		w.Dispatch(func() {
@@ -157,6 +165,7 @@ func bindWindowCommands(w webview2.WebView, desktop *app.App) {
 		{"cmpWinResize", func(edge string) { beginResize(edge) }},
 		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
 		{"cmpWinFlash", func() { flashTaskbar() }},
+		{"cmpWinSnapZone", func(x, y, w, h int) { placeSnapOverlay(x, y, w, h) }},
 	}
 	for _, b := range binds {
 		if err := w.Bind(b.name, b.fn); err != nil {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BrandMark from './BrandMark.vue'
 import StatusPill from './StatusPill.vue'
@@ -32,7 +32,17 @@ const emit = defineEmits<{
   'open-palette': []
 }>()
 
-const { available: windowChrome, maximized, minimize, toggleMaximize, close, startDrag } = useWindowControls()
+const { available: windowChrome, maximized, snapHover, snapDown, setSnapTarget, minimize, toggleMaximize, close, startDrag } =
+  useWindowControls()
+
+// 最大化键的 DOM：交给 useWindowControls，后端会在这块像素上盖一块原生热区，
+// 让 Win11 的贴靠布局浮层照常弹出来（那块像素的鼠标事件再由后端推回来）。
+const maxButton = ref<HTMLElement | null>(null)
+watch(
+  [maxButton, windowChrome],
+  ([el, chrome]) => setSnapTarget(chrome ? el : null),
+  { immediate: true },
+)
 const { t } = useI18n()
 const { choice: themeChoice } = useTheme()
 
@@ -149,15 +159,16 @@ function handleDoubleClick(event: MouseEvent): void {
 
     <!-- 窗口按钮只在桌面窗口里出现；浏览器里没有系统标题栏可替代，直接隐藏 -->
     <div v-if="windowChrome" class="tb__win" data-no-drag>
-      <button type="button" class="wbtn" :title="t('header.window.minimize')" :aria-label="t('header.window.minimize')" @click="minimize">
+      <button type="button" class="wbtn" :aria-label="t('header.window.minimize')" @click="minimize">
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 5.5h9" />
         </svg>
       </button>
       <button
+        ref="maxButton"
         type="button"
-        class="wbtn"
-        :title="maximized ? t('header.window.restore') : t('header.window.maximize')"
+        class="wbtn wbtn--max"
+        :class="{ 'is-hover': snapHover, 'is-active': snapDown }"
         :aria-label="maximized ? t('header.window.restore') : t('header.window.maximize')"
         @click="toggleMaximize"
       >
@@ -169,7 +180,7 @@ function handleDoubleClick(event: MouseEvent): void {
           <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
         </svg>
       </button>
-      <button type="button" class="wbtn wbtn--close" :title="t('common.close')" :aria-label="t('common.close')" @click="close">
+      <button type="button" class="wbtn wbtn--close" :aria-label="t('common.close')" @click="close">
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
         </svg>
@@ -370,7 +381,10 @@ function handleDoubleClick(event: MouseEvent): void {
   color: var(--bad);
 }
 
-/* 自绘的窗口按钮：46×44 的整块热区，只有悬停才浮起来，关闭键悬停变红 */
+/* 自绘的窗口按钮：46 宽、和标题栏等高的一块热区。
+   观感照 Windows 自己的标题栏来：默认完全透明，只有悬停才浮起一层极淡的底色，
+   按下再深一档，关闭键悬停变红。悬停淡到 5% 是有意的 —— 系统那三个按钮就这么淡，
+   做重了立刻不像窗口的一部分，像网页上的按钮。 */
 .tb__win {
   display: flex;
   align-self: stretch;
@@ -387,9 +401,8 @@ function handleDoubleClick(event: MouseEvent): void {
   background: transparent;
   color: var(--ink-2);
   cursor: default;
-  transition:
-    background var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease);
+  /* 不做过场：系统的标题栏按钮是瞬时变色，带渐变的悬停一眼就看得出是网页做的。 */
+  transition: none;
 }
 
 .wbtn svg {
@@ -406,6 +419,18 @@ function handleDoubleClick(event: MouseEvent): void {
 }
 
 .wbtn:active {
+  background: color-mix(in srgb, var(--ink) 15%, transparent);
+}
+
+/* 最大化键的悬停态由原生热区回报（后端推 __markpicSnap 过来）：
+   那块像素被一个原生子窗口盖着，鼠标不再经过网页，:hover / :active 都收不到，
+   只能照着同样的观感补一份。 */
+.wbtn--max.is-hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.wbtn--max.is-active {
   background: color-mix(in srgb, var(--ink) 15%, transparent);
 }
 

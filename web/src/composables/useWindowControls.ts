@@ -32,7 +32,29 @@ interface WindowBridge {
   cmpWinResize?: (edge: ResizeEdge) => Promise<unknown>
   cmpWinSetDark?: (dark: boolean) => Promise<unknown>
   cmpWinFlash?: () => Promise<unknown>
+  /**
+   * 把最大化按钮的位置交给后端，在它上面盖一块原生热区。
+   *
+   * Win11 的贴靠布局浮层只认系统自己的「最大化按钮」——客户区被 WebView2
+   * 铺满之后系统根本看不到我们画的那个 <button>，得靠一块真的原生窗口顶上去
+   * （见 cmd/markpic/snap_windows.go）。参数是 (右边缘离客户区右边多远, 上边,
+   * 宽, 高)，单位 CSS 像素；宽或高传 0 表示把热区撤掉。
+   */
+  cmpWinSnapZone?: (right: number, top: number, width: number, height: number) => Promise<unknown>
+  /**
+   * 热区上的鼠标进出 / 按下 / 抬起由后端推回来。那块像素被原生窗口盖住，
+   * 网页自己收不到 hover 和 click，只能这样接回来。
+   */
+  __markpicSnap?: (kind: SnapEvent) => void
 }
+
+/**
+ * 原生热区回报的事件。
+ *
+ * click 由后端判定：光标抬起时还压在热区上才算一次点击。前端看不到那块
+ * 原生窗口，光靠 up 判断不了「按住拖出去再松手」这种该作废的情况。
+ */
+type SnapEvent = 'enter' | 'leave' | 'down' | 'up' | 'click'
 
 /**
  * 拖动标题栏时，鼠标移动超过这个距离（CSS 像素）才把这次按下交给系统。
@@ -45,9 +67,18 @@ const bridge = window as unknown as WindowBridge
 
 const available = ref(false)
 const maximized = ref(false)
+/** 鼠标正停在最大化键的原生热区上（那块像素归原生窗口，CSS :hover 收不到）。 */
+const snapHover = ref(false)
+const snapDown = ref(false)
 
 let started = false
 let maximizeInFlight = false
+let maxButton: HTMLElement | null = null
+
+/** 等到浏览器画完这一帧：量元素矩形之前先让布局落定。 */
+function nextFrame(): Promise<void> {
+  return new Promise(resolve => window.requestAnimationFrame(() => resolve()))
+}
 
 async function syncMaximized(): Promise<void> {
   if (typeof bridge.cmpWinMaximized !== 'function') return
@@ -56,6 +87,68 @@ async function syncMaximized(): Promise<void> {
     maximized.value = value === true
   } catch {
     // 窗口可能正在关闭，读不到就保持上一次的状态
+  }
+}
+
+/**
+ * 把最大化按钮的矩形报给后端，让那块原生热区盖在它上面。
+ *
+ * 坐标用 getBoundingClientRect 那一套（相对客户区左上角、CSS 像素），后端
+ * 再按窗口 DPI 折算成物理像素 —— 前端不用关心缩放。
+ * 右侧用「右边缘离右边多远」而不是 left：按钮贴右排，窗口变宽时这个值不变。
+ */
+function reportSnapZone(): void {
+  if (typeof bridge.cmpWinSnapZone !== 'function') return
+  const el = maxButton
+  if (!available.value || !el) {
+    void bridge.cmpWinSnapZone(0, 0, 0, 0)
+    return
+  }
+  const rect = el.getBoundingClientRect()
+  const right = Math.round(window.innerWidth - rect.right)
+  const top = Math.round(rect.top)
+  const width = Math.round(rect.width)
+  const height = Math.round(rect.height)
+  void bridge.cmpWinSnapZone(right, top, width, height)
+}
+
+function toggleMaximize(): void {
+  maximizeInFlight = true
+  void Promise.resolve(bridge.cmpWinToggleMaximize?.())
+    .then(() => new Promise(resolve => window.setTimeout(resolve, 60)))
+    .then(() => syncMaximized())
+    .finally(() => {
+      maximizeInFlight = false
+      // 最大化之后标题栏的可拖拽区没了、按钮换了图标，但位置其实不变；
+      // 顺手再报一次，缩放比例变了的显示器上也能跟着对齐。
+      reportSnapZone()
+    })
+}
+
+/**
+ * 原生热区上的鼠标事件。那块像素被原生窗口占着，网页收不到 :hover 和 click，
+ * 悬停高亮和「点了最大化」都得从这里补回来。
+ */
+function handleSnapEvent(kind: SnapEvent): void {
+  switch (kind) {
+    case 'enter':
+      snapHover.value = true
+      break
+    case 'leave':
+      snapHover.value = false
+      snapDown.value = false
+      break
+    case 'down':
+      snapDown.value = true
+      break
+    case 'up':
+      // 只清按下态；要不要最大化由后面的 click 说了算。
+      snapDown.value = false
+      break
+    case 'click':
+      snapDown.value = false
+      toggleMaximize()
+      break
   }
 }
 
@@ -77,8 +170,13 @@ function start(): void {
     { immediate: true },
   )
 
+  // 热区上的事件由后端推回来（window_windows.go 里的 setSnapOverlayEvents）。
+  bridge.__markpicSnap = handleSnapEvent
+
   window.addEventListener('resize', () => {
     if (!maximizeInFlight) void syncMaximized()
+    // 窗口大小变了，最大化按钮在屏幕上的位置也跟着变。
+    reportSnapZone()
   })
 
   void syncMaximized()
@@ -91,18 +189,27 @@ export function useWindowControls() {
     /** 当前是不是在桌面窗口里跑（浏览器里为 false）。 */
     available: computed(() => available.value),
     maximized: computed(() => maximized.value),
+    /** 鼠标停在那块原生热区上（最大化键的悬停态靠它，CSS :hover 收不到）。 */
+    snapHover: computed(() => snapHover.value),
+    /** 正在热区上按着不放（用来画按下态，和 :active 一致）。 */
+    snapDown: computed(() => snapDown.value),
+    /**
+     * 注册最大化按钮的 DOM 元素：随后的 resize 与挂载都会按它的矩形摆热区。
+     * 传 null 表示按钮不在了（例如窄版把它藏了起来），热区一并撤掉。
+     */
+    setSnapTarget: (el: HTMLElement | null): void => {
+      maxButton = el
+      if (el) {
+        // 布局刚变过，等这一帧画完再量，拿到的才是最终矩形。
+        void nextFrame().then(() => reportSnapZone())
+      } else {
+        reportSnapZone()
+      }
+    },
     minimize: (): void => {
       void bridge.cmpWinMinimize?.()
     },
-    toggleMaximize: (): void => {
-      maximizeInFlight = true
-      void Promise.resolve(bridge.cmpWinToggleMaximize?.())
-        .then(() => new Promise(resolve => window.setTimeout(resolve, 60)))
-        .then(() => syncMaximized())
-        .finally(() => {
-          maximizeInFlight = false
-        })
-    },
+    toggleMaximize,
     close: (): void => {
       void bridge.cmpWinClose?.()
     },

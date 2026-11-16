@@ -196,6 +196,10 @@ func installWindowChrome(target any) {
 	// 先按浅色画；前端挂载后会立刻同步真实主题。
 	applyChromeTheme(false)
 
+	// 贴靠布局浮层要压在 WebView2 上面，所以得等 WebView 建完再挂；
+	// 位置由前端量出最大化按钮的矩形后上报。
+	installSnapOverlay(uintptr(hwnd))
+
 	// 图标由 applyChromeTheme 一起挂上：主题和图标是同一件事（见那里的注释）。
 }
 
@@ -387,6 +391,13 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 			}
 		}
 		removeTrayIcon()
+	case wmSize:
+		// 客户区变了：热区是相对右边缘定位的，跟着重新摆一遍，
+		// 免得等前端下一次 resize 上报之前错位几帧。
+		// 最小化时客户区是 0×0，摆了也没意义（窗口反正看不见）。
+		if wp != sizeMinimized {
+			refreshSnapOverlay()
+		}
 	case wmGetMinMaxInfo:
 		// 没有系统边框，最小尺寸得自己定，不然窗口能被拖成一条缝。
 		if lp != nil {
@@ -410,6 +421,8 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 			return 0
 		}
 	case wmDpiChanged:
+		// 缩放比例变了：热区尺寸是靠 scaleFor 现算的，得按新 DPI 重摆。
+		refreshSnapOverlay()
 		// 窗口换到另一个缩放比例的显示器时，系统会给出建议矩形，照着它调整，
 		// 界面在两种缩放的屏幕之间移动时才不会忽然变大或变小。
 		if lp != nil {
