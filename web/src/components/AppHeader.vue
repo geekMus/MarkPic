@@ -216,6 +216,11 @@ const themeTitle = computed(() => {
   width: 22px;
   height: 22px;
   border-radius: 6px;
+  /* 方片是 22px、字标墨迹只有 16px 左右，两边 flex 居中只保证「盒子」对齐：
+     实测方片中心 19.6px、字标墨迹中心 20.55px（标题栏 40px，正中间是 20），
+     于是方片看着比字标高一截。这里把方片压下去 0.5px、字标提上来 0.5px，
+     两个墨迹中心都落回 20px —— 数字改了就一起改 .brand 的 translateY。 */
+  transform: translateY(0.5px);
 }
 
 .tb__mark svg {
@@ -240,8 +245,9 @@ const themeTitle = computed(() => {
   white-space: nowrap;
   /* 墨迹居中而不是行盒居中：Gabriola 的 ascent/descent 是 18/9，「MarkPic」又没有下伸部，
      行盒居中之后墨迹整体偏高，跟左边的小方块并排时看起来像「底边对齐」。
-     0.185em 让墨迹中心落回方块中心（跟着字号缩放）。 */
-  transform: translateY(0.185em);
+     0.164em 让墨迹中心落回方块中心（跟着字号缩放）；比原来的 0.185em 少 0.5px，
+     因为方块也往下压了 0.5px，两边一起把中心对到标题栏正中。 */
+  transform: translateY(0.164em);
 }
 
 .brand__mark {
