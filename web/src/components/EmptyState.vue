@@ -133,7 +133,8 @@ const textKey = computed<MessageKey>(() => {
 }
 
 .lead__text {
-  max-width: 40ch;
+  /* 默认窗口下尽量一行；窄窗口由 .empty__lead 的宽度自然折行。 */
+  max-width: none;
   margin: 12px 0 0;
   color: var(--ink-2);
   font-size: var(--fs-3);

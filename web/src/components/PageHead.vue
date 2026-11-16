@@ -135,7 +135,8 @@ const percent = computed(() => Math.round(fill.value * 100))
 /* 说明单独一行，跟标题之间留 8px：读起来是「标题 + 一句话」，不是一条工具条 */
 .pagehead__lead {
   margin: 8px 0 0;
-  max-width: 62ch;
+  /* 默认窗口下尽量一行读完；窄到放不下时由容器宽度自然折行。 */
+  max-width: none;
   color: var(--ink-3);
   font-size: var(--fs-3);
   line-height: 1.5;
@@ -173,9 +174,7 @@ const percent = computed(() => Math.round(fill.value * 100))
     white-space: nowrap;
   }
 
-  .pagehead__lead {
-    display: none;
-  }
+  /* 说明文字保持可见：默认一行，窄窗口按可用宽度自然折行。 */
 }
 
 .pagehead__rule {
