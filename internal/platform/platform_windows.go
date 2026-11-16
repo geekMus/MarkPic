@@ -109,6 +109,16 @@ type browseInfoW struct {
 // PickFiles 弹出系统原生「打开文件」对话框，支持多选。
 // 用户取消时返回空切片。
 func PickFiles(title string, lang i18n.Lang) ([]string, error) {
+	return PickFilesIn(0, title, lang)
+}
+
+// PickFilesIn 与 PickFiles 相同，但把对话框挂到 owner 这个窗口下面。
+//
+// owner 必须给：没有 owner 的对话框不归任何一个窗口，系统只按 Z 序给它找个位置，
+// 于是它经常开在主窗口背后，用户以为点了没反应（主窗口是顶层窗口，直接盖住它）。
+// 有了 owner，对话框才跟着主窗口一起升降、一起最小化，也才能在任务栏上归到同一组。
+// owner 为 0 时退回无主对话框（给没有窗口的调用方，例如命令行）。
+func PickFilesIn(owner uintptr, title string, lang i18n.Lang) ([]string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -118,6 +128,7 @@ func PickFiles(title string, lang i18n.Lang) ([]string, error) {
 
 	ofn := openFileNameW{
 		lStructSize:  uint32(unsafe.Sizeof(openFileNameW{})),
+		hwndOwner:    owner,
 		lpstrFilter:  filter,
 		lpstrFile:    &buf[0],
 		nMaxFile:     uint32(len(buf)),
@@ -135,6 +146,13 @@ func PickFiles(title string, lang i18n.Lang) ([]string, error) {
 
 // PickFolder 弹出系统原生「选择文件夹」对话框。用户取消时返回空字符串。
 func PickFolder(title string, lang i18n.Lang) (string, error) {
+	return PickFolderIn(0, title, lang)
+}
+
+// PickFolderIn 与 PickFolder 相同，但把对话框挂到 owner 窗口下面（理由同 PickFilesIn）。
+// SHBrowseForFolder 在这一点上比 GetOpenFileName 更依赖 owner：没有 owner 时它
+// 连焦点都拿不到，窗口会开在下面而且像死了一样不动。
+func PickFolderIn(owner uintptr, title string, lang i18n.Lang) (string, error) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -147,6 +165,7 @@ func PickFolder(title string, lang i18n.Lang) (string, error) {
 
 	display := make([]uint16, 260)
 	bi := browseInfoW{
+		hwndOwner:      owner,
 		pszDisplayName: &display[0],
 		lpszTitle:      utf16Ptr(title),
 		ulFlags:        bifReturnOnlyFSDirs | bifEditBox | bifNewDialogStyle,

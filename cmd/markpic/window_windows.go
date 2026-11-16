@@ -70,6 +70,8 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 
 	// 去掉系统标题栏，标题栏交给前端画（Magpie 风格）。
 	installWindowChrome(w)
+	// 原生文件对话框要挂在主窗口下面，否则会开到窗口背后去。
+	desktop.SetOwnerWindow(hwndValue())
 	bindWindowCommands(w, desktop)
 
 	// 「启动时只放进托盘」：窗口刚建出来就藏起来，别让它亮一下再消失。

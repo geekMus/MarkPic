@@ -20,8 +20,19 @@ func IsBusy(err error) bool { return errors.Is(err, fs.ErrPermission) }
 // PickFiles 在非 Windows 平台返回 ErrUnsupported。
 func PickFiles(title string, lang i18n.Lang) ([]string, error) { return nil, ErrUnsupported }
 
+// PickFilesIn 在非 Windows 平台返回 ErrUnsupported。
+// 保留 owner 参数只为让调用方的代码在两个平台上形状一致（这里没有窗口句柄可言）。
+func PickFilesIn(owner uintptr, title string, lang i18n.Lang) ([]string, error) {
+	return nil, ErrUnsupported
+}
+
 // PickFolder 在非 Windows 平台返回 ErrUnsupported。
 func PickFolder(title string, lang i18n.Lang) (string, error) { return "", ErrUnsupported }
+
+// PickFolderIn 在非 Windows 平台返回 ErrUnsupported。
+func PickFolderIn(owner uintptr, title string, lang i18n.Lang) (string, error) {
+	return "", ErrUnsupported
+}
 
 // Open 用系统默认程序打开目标。
 func Open(target string, lang i18n.Lang) error {

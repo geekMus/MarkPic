@@ -75,6 +75,11 @@ type App struct {
 
 	sink func(conv.Event)
 
+	// ownerWindow 是主窗口的句柄（Windows 上是 HWND，别的平台恒为 0）。
+	// 它只用来给原生对话框当 owner —— 没有 owner 的对话框不归任何一个窗口，
+	// 系统按 Z 序随手放，于是经常开在主窗口背后，用户以为点了没反应。
+	ownerWindow uintptr
+
 	upd    updateTracker
 	exeDir string
 }
@@ -110,6 +115,21 @@ func (a *App) SetSink(sink func(conv.Event)) {
 	a.mu.Lock()
 	a.sink = sink
 	a.mu.Unlock()
+}
+
+// SetOwnerWindow 记下主窗口句柄，供原生对话框当 owner。窗口建好之后调一次即可。
+func (a *App) SetOwnerWindow(hwnd uintptr) {
+	a.mu.Lock()
+	a.ownerWindow = hwnd
+	a.mu.Unlock()
+}
+
+// ownerWindowValue 取主窗口句柄；窗口还没建好（或非 Windows 平台）时返回 0，
+// 此时对话框退回无主，行为和以前一样。
+func (a *App) ownerWindowValue() uintptr {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ownerWindow
 }
 
 // Lang 返回界面当前语言（启动横幅、错误文案用）。
@@ -379,7 +399,7 @@ func (a *App) configOf(patch *settingsPatch) (settings.Settings, error) {
 
 func (a *App) pickFiles() (any, error) {
 	lang := a.Lang()
-	paths, err := platform.PickFiles(i18n.T(lang, i18n.KeyPlatformPickFiles), lang)
+	paths, err := platform.PickFilesIn(a.ownerWindowValue(), i18n.T(lang, i18n.KeyPlatformPickFiles), lang)
 	if errors.Is(err, platform.ErrUnsupported) {
 		return nil, unsupported(i18n.T(lang, i18n.KeyServerNoDialog))
 	}
@@ -395,7 +415,7 @@ func (a *App) pickFiles() (any, error) {
 
 func (a *App) pickFolder() (any, error) {
 	lang := a.Lang()
-	dir, err := platform.PickFolder(i18n.T(lang, i18n.KeyPlatformPickFolder), lang)
+	dir, err := platform.PickFolderIn(a.ownerWindowValue(), i18n.T(lang, i18n.KeyPlatformPickFolder), lang)
 	if errors.Is(err, platform.ErrUnsupported) {
 		return nil, unsupported(i18n.T(lang, i18n.KeyServerNoDialog))
 	}
