@@ -4484,3 +4484,243 @@ node tools/cdp/key.mjs "k" "ctrl" 9333     # 真按 Ctrl+K，不是 dispatchEven
 
 截图尺寸是 CSS 像素 × 缩放，不是窗口像素——所以判断「按钮有多高」要用
 `getBoundingClientRect().height`，不要用图里的像素数。
+
+## 标题栏自己画了，系统给的四样东西就得自己补
+
+没有系统标题栏（`installWindowChrome` 把整条非客户区收掉）换来的是界面自己说了算，
+代价是系统顺手给的四件事一起没了：最大化键上的贴靠布局浮层、文件对话框的归属窗口、
+启动时进托盘的时机、以及窗口能被吸到屏幕边缘的资格。这一轮把这四样补回来，
+其中第一样踩了两个看起来都对的坑。
+
+### 贴靠布局：一块「看不见但摸得到」的窗口
+
+Windows 11 的贴靠布局不是应用自己弹的：鼠标停在最大化键上时，由 Explorer 先对那个像素
+做命中测试，拿到 `HTMAXBUTTON`（`0x0084` 的返回值 `9`）才把浮层亮出来。我们整块客户区
+都是网页，这个值永远不会出现，所以贴靠布局一直不弹。
+
+做法是照 tauri-plugin-frame、tauri-snap-layout 几个插件收敛出来的同一招：在最大化按钮
+那块像素上盖一个子窗口，它的窗口过程对 `WM_NCHITTEST` 无条件回 `HTMAXBUTTON`，别的
+什么都不做（`WM_ERASEBKGND` 直接返回 1，一个像素都不画）。
+
+**第一个坑：不画，不等于透明。** 先试了 `WS_EX_NOREDIRECTIONBITMAP`——这是「这个窗口没有
+重定向表面」的现代写法，理论上最干净。实测 DWM 拿到的就是白色：最大化按钮上稳定糊着一块
+与按钮等大的白斑。
+
+**第二个坑：分层窗口的 alpha 参与命中测试。** 改用 `WS_EX_LAYERED` 之后 alpha 传了 0，
+以为「完全透明 = 看不见但还在」。结果命中测试跟着透明走：整块成了一个洞，调试日志里
+一条 `0x0084` 都收不到，鼠标直接落到下面的网页按钮上——反而让 WebView2 弹出了原生
+title 提示框，就是那块白斑的另一个来源。
+
+最后取 `alpha = 1`：肉眼完全看不出来，但足以让它参与命中测试。
+
+```go
+// cmd/markpic/snap_windows.go
+wsExLayered     = 0x00080000
+lwaAlpha        = 0x00000002
+snapOverlayAlpha = 1    // 0 会连命中测试一起透明掉
+
+// 参数顺序是 (hwnd, crKey, bAlpha, dwFlags)。把 alpha 写到 dwFlags 位上
+// 等于开了 LWA_COLORKEY（透明色 = crKey = 黑），整块窗口就成了一个洞。
+procLayeredAttrs.Call(hwnd, 0, snapOverlayAlpha, lwaAlpha)
+```
+
+位置由前端量、后端摆，但**存的是「右边缘离客户区右边缘多远」，不是 left**：按钮贴右排，
+窗口变宽时这个值不变，缩放窗口的那几帧不用等前端重新上报。
+
+```go
+scale  := scaleFor(o.parent)                       // DPI 折算
+x      := client.right - right - width             // 子窗口坐标 = 客户区坐标
+procSetWindowPos.Call(o.hwnd, 0, x, top, width, height, swpNoActivate|swpShowWindow)
+```
+
+鼠标事件得由窗口过程转回前端：`WM_NCLBUTTONDOWN` 发 `down`，`WM_NCLBUTTONUP` 里先判断
+光标还在不在热区内——松手前拖出去了就只发 `up` 不发 `click`，**这个判断前端做不了**，
+因为那块像素的消息前端根本收不到。悬停态同理：`WM_NCMOUSEMOVE` 发 `enter` 并每次续一次
+`TrackMouseEvent(TME_LEAVE|TME_NONCLIENT)`，`WM_NCMOUSELEAVE` 发 `leave`。
+
+### 文件对话框：owner 不是可选参数
+
+原生「打开文件」「选文件夹」如果 `hwndOwner` 给 0，系统只按 Z 序随便找个位置：对话框
+会开到主窗口背后，最小化主窗口时它留在屏幕上，任务栏上也归不到同一组。
+`SHBrowseForFolder` 比 `GetOpenFileName` 更依赖这一位。现在建窗口时就
+`desktop.SetOwnerWindow(hwndValue())`，两个对话框一路把 owner 传下去；
+命令行这种没有窗口的调用方仍然传 0，退回无主对话框。
+
+### 启动进托盘：先挂图标，再藏窗口
+
+「设置 → 启动时只放进托盘」勾上时，窗口在建出来之后立刻藏起来——不能先亮一下再消失。
+顺序有讲究：`hideToTray` 保证**先挂上托盘图标再藏窗口**，图标挂不上就不藏，否则用户既
+看不见窗口、也找不到托盘入口。第二个实例被点开时，它发一条 `wmWake` 让这边
+`showFromTray()` 把窗口叫回来。
+
+### 最小宽度 500：这是 Windows 的硬指标（已被 560 取代，取舍与复验见文末「最小宽度从 500 抬到 560」一节）
+
+原来是 760。改成 500 不是为了更好看，是因为**贴靠布局要求应用的最小宽度至多 500 epx**
+——门槛再高，窗口能被吸到屏幕边缘，却不会弹出贴靠布局浮层，也就是「能吸不能弹」，
+上面那块热区白做。界面自己扛得住：820px 以下进窄版（标题栏丢版本号、台账丢「图片」列、
+底栏丢快捷键提示），620px 以下才丢字标，480 宽度实测仍不出现横向滚动，500 还留了余量。
+
+```go
+minWindowWidth  = 500   // snap layouts 的「至多 500 epx」（后改为 560，见文末）
+minWindowHeight = 560
+```
+
+### 验收：CDP 看不到原生那一层
+
+`tools/cdp/*` 只能读页面。热区是不是真的在那儿、命中测试是不是真的到手，得用原生探针：
+`EnumWindows` 按 pid 找主窗口、`EnumChildWindows` 按类名 `markpicSnapOverlay` 找热区，
+再用 `GetWindowRect` 和 `SetCursorPos` 把光标挪过去、`mouse_event` 真按一下。跑通的证据是
+三行对得上的事实：
+
+- 热区矩形 `1525,208,1571,247`（46×39），正好等于页面里
+  `getBoundingClientRect()` 量出来的按钮；
+- `MARKPIC_SNAP_DEBUG` 的日志里出现 3 次 `0x0084`，以及
+  `emit enter / down / up / click / leave` 五条；
+- 点完之后 `window.innerWidth` 从 1188 变成 2048、`innerHeight` 从 736 变成 1104，
+  按钮的 `aria-label` 从「最大化」变成「向下还原」。
+
+两个测量上的坑，写下来省下一次重踩：
+
+1. **`GetWindowRect` 和 `SetCursorPos` 用的是同一套 DPI 虚拟坐标**，不要乘 `devicePixelRatio`
+   ——乘了之后光标落在热区外面，日志一条消息都没有，看起来像「热区没生效」。
+2. **窗口不可见时 `requestAnimationFrame` 不跑**（`document.visibilityState === 'hidden'`）。
+   带着 `windowsHide` 起的进程，页面永远等不到那一帧，`reportSnapZone()` 也就永远不执行，
+   热区停在 0×0。要量就得让窗口真的可见——这一条同样适用于平时调试：窗口在后台被遮住时
+   量出来的布局可能是上一次的。
+
+## 空态在最小宽度下两头被截，大标题挤成三行
+
+窗口最小 500×560（见上面「最小宽度 500」那节）。空态（`.empty`）是四块东西：大标题、一句说明、拖放区、「选择文件夹 / 看它怎么改」两个次选，最后是「最近用过」的路径列表。500×560 下它长这样：
+
+- 标题「先看看这些图还打不打得开」排成 3 行，「把网上的图收回来」2 行；
+- 内容比容器高 386px（检测页），页面上却没有滚动条：首行的上沿被页头压住、末行的下沿被窗口底边切掉——两头同时截，用户既读不到第一句，也看不出下面还有东西。
+
+这不是高度不够，是 `justify-content: center` 在溢出时的固有行为：居中把内容往两半分，超出的部分一半冒到上面、一半冒到下面，两边都不可见，也都滚不到。
+
+### 先让它能滚，再决定往哪边靠
+
+`.empty` 从 `justify-content: center` 改成 `flex-start` + `overflow-y: auto`，居中交给 `.empty__lead` 的 `margin-block: auto`：
+
+```css
+.empty {
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+
+.empty__lead {
+  margin-block: auto; /* 有富余时仍然居中；超高时 auto 归零、从顶部起排 */
+}
+```
+
+`margin: auto` 在弹性布局里把剩余空间均分到上下——看起来和 `justify-content: center` 一样；但剩余空间为负时 `auto` 归零，内容就从顶部开始排。于是「矮窗口里居中」和「超高时能滚」不再是二选一。
+
+挂载点只有两个：`web/src/components/FileQueue.vue:506` 的 `.queue__body`、`web/src/components/ReportShell.vue:104` 的 `.report__empty`。两个容器自己都是 `flex: 1 1 auto; min-height: 0` 且不开滚动，所以滚动条只会在 `.empty` 这一个盒子里出现，不会叠成两条。
+
+改完真机量（CDP，500×560）：
+
+| 页面 | 标题行数 | 正文行数 | 上切 | 可滚 |
+| --- | --- | --- | --- | --- |
+| 检测 | 3 | 4 | 0 | 386 |
+| 上传 | 3 | 4 | 0 | 386 |
+| 下载 | 2 | 3 | 0 | 333 |
+
+上切归零、下切变成「可滚」，这达到了目标；但 386px 的可滚量本身说明内容实在太高。
+
+### 386px 里有一多半是「本可以不要的心边距」
+
+`.report__empty` 左右各 34px，`.empty` 再左右各 34px——68px 心边距。在 1200 宽的窗口里那是留白；在 500 宽里它让标题的可用宽度只剩 135px，于是同一句话被排成 3 行、正文 4 行。行数是乘出来的：多一行标题 30px，多一行正文再 24px。
+
+900px 以下把两层都收到 20px，标题框宽到 199px：
+
+| 页面 | 标题 | 正文 | 可滚（500×560） |
+| --- | --- | --- | --- |
+| 检测 / 上传 | 3 → **2** 行 | 4 → 3 行 | 386 → **293** |
+| 下载 | 2 → **1** 行 | 3 → 2 行 | 333 → **240** |
+
+```css
+/* web/src/components/EmptyState.vue（新增） */
+@media (max-width: 900px) {
+  .empty {
+    padding-inline: 20px;
+  }
+}
+
+/* web/src/components/ReportShell.vue:196 与 web/src/components/FileQueue.vue:574 的 900px 断点 */
+.report__empty,
+.queue__body {
+  padding-inline: 20px;
+}
+```
+
+`.report__empty` 是顺手补的：它原来没进 `ReportShell.vue` 那条已有的 900px 断点，比正文多出 14px 内边距，空态里的拖放区和上方正文的左边缘对不齐。
+
+还试过更狠的一档（容器 16 / 空态 10，可滚 242 / 190）、`text-wrap: balance`（数字一模一样，**零收益**）、竖直方向间距微收（只省 12px，不足以改变任何一行）。都没采纳：34→20 是唯一「动一次内边距就换回一整行字」的档位，再往下收，心边距就薄到不好看了。
+
+### 三条教训
+
+1. **`justify-content: center` 遇上会溢出的内容，等于主动放弃两头。** 要么配 `overflow` 再用 `margin: auto` 保留居中，要么干脆从顶部起排。居中不是安全默认。
+2. **先找浪费的空白，再考虑缩字号。** 68px 心边距在宽窗口是留白，在窄窗口就是一整行标题；真正该动的是这 68px。
+3. **量裁切要用「盒子的 top − 首行的 top」，负值或 0 才是可见。** 前几轮把符号读反了，一度以为「上切已经修好」，其实还在。
+
+---
+
+## 最小宽度从 500 抬到 560：先量出来，再决定要不要让步
+
+前面那节把最小宽度定成 500，理由是「贴靠布局要求应用的最小宽度至多 500 epx」。那条要求本身没错，
+但它只说了「至多」，没说「必须」——500 是**能拿到贴靠浮层的门槛**，不是界面能站住的阈值。
+这一轮把它抬到 560，是量完之后做的取舍。
+
+### 量的是什么
+
+用 CDP 连真窗口，requested / 实际窗口 / `innerWidth` 三列对照。这台机器 DPI 缩放 1.25，
+`SetWindowPos` 收的是物理像素，`innerWidth` 报的是 CSS 像素，两者差 1.25 倍：
+
+| 请求（物理） | 实际窗口（物理） | `innerWidth`（CSS） |
+| --- | --- | --- |
+| 1180×820 | 1180×820 | 944×656 |
+| 640×700 | **700×700** | 560×560 |
+| 560×560 | **700×700** | 560×560 |
+| 500×600 | **700×700** | 560×560 |
+
+640 那一行就是证据：请求比 700 窄，窗口被夹回 700 物理 = 560 CSS，说明 `minWindowWidth = 560`
+真的生效了（改之前请求 500 会老实变成 500）。四档里只有 1180 没被夹。
+
+### 560 这一档的几何
+
+560 CSS 宽下 `grid-template-columns` 是 `148px 362px`，正文还有 362px，三个视图的正文左边缘
+（`left: 179`）、顶边（`top: 95`）完全一致，`scrollWidth === clientWidth`，没有横向滚动。
+再往下的代价是实打实的：台账的列和底栏的按钮开始互相挤，这一点在 500 时已经能看到苗头。
+
+### 代价：500～560 这一段的窗口没了
+
+抬到 560 就是承认「500～560 不可用」。1366 屏三分之一 ≈455px 那一档本来就已经放不进（455 < 500），
+所以真正被放弃的是 500～560 这条窄缝——常见场景里没有谁刚好卡在这里。这是有意识的让步，
+不是「忘了 500 是硬指标」；真要回到 500，改 `minWindowWidth` 一个常量就行。
+
+### 顺带修的两处窄档内边距
+
+窄档（900px 以下）正文内边距从 `34px` 收到 `20px`，但底部那一圈原来是各改各的：
+
+- `FileQueue.vue` 的 `.queue__body` 加了 `padding-bottom: 24px`；
+- `ReportShell.vue` 的 `.report__body` 也加了，但 `.report__empty`（空态）漏了，还留着 `34px`。
+
+结果是在 560 宽下切视图时，上传页正文底边和检测/下载页空态底边差 10px，切换时能看见跳。
+修法是把选择器并起来，让正文和空态永远同值：
+
+```css
+/* web/src/components/ReportShell.vue 的 900px 断点 */
+.report__body,
+.report__empty {
+  padding-bottom: 24px;
+}
+```
+
+复验（560 CSS）：三页的 `padding` 现在都是 `16px 20px 24px`，宽档（944 CSS）都是 `16px 34px 34px`。
+`.pagehead__lead` 在窄档是 `display: none`（`PageHead.vue` 的 900px 断点里写死的），
+所以标题栏从 82px 掉到 54px——这是设计如此，不是被换行挤塌的。
+
+### 导航 168 → 148
+
+900px 以下导航从 168px 收到 148px。图标和文字都还在，收的是行距和内边距；
+362px 的正文宽度就是这么腾出来的。宽档不动，仍是 168px。
+
