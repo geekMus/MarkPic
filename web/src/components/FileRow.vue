@@ -647,7 +647,7 @@ function toggleExpanded(): void {
         @enter-cancelled="emit('animating', false)"
         @leave-cancelled="emit('animating', false)"
       >
-      <div v-if="expanded && canExpand" :id="detailsId" class="details">
+      <div v-if="expanded && canExpand" :id="detailsId" class="details selectable">
         <div class="details__inner">
         <div class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>

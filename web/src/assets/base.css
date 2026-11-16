@@ -100,6 +100,35 @@ button {
   background-color: transparent;
 }
 
+/* 桌面程序里的文字默认不许拖蓝。
+ *
+ * 选中在网页里是阅读习惯，在桌面应用里多半是误触：点按钮手一抖就框住一片菜单，
+ * 拖窗口时还会顺手把正文拉成选区。所以全局关掉，只给真正需要复制的地方单独开：
+ * 输入控件、等宽的路径 / 地址 / 版本号 / 行号、检测与下载的报告正文，
+ * 以及标了 .selectable 的元素（比如文件卡展开后的明细与告警）。
+ *
+ * 这条规则用 * 而不是只给 html/body：user-select 在 Chromium 里会向下继承，
+ * 但写死到每个元素上，才不会被后代里显式写的 none 反过来盖住。 */
+*,
+*::before,
+*::after {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable],
+.mono,
+.report__body,
+.report__body *,
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--accent-ink);

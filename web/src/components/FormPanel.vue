@@ -96,7 +96,7 @@ onMounted(() => {
         <div v-else class="placeholder">
           <p v-if="props.loading" role="status" aria-live="polite">{{ t('settings.loading') }}</p>
           <template v-else>
-            <p class="placeholder__error">{{ props.loadError ?? t('settings.loadFailed') }}</p>
+            <p class="placeholder__error selectable">{{ props.loadError ?? t('settings.loadFailed') }}</p>
             <button type="button" class="btn btn--secondary btn--sm" @click="emit('retry')">
               <AppIcon name="refresh" :size="14" />
               {{ t('common.reload') }}

@@ -204,9 +204,9 @@ async function openDataDir(): Promise<void> {
         </dl>
 
         <p v-if="dataNote" class="about__hint">{{ dataNote }}</p>
-        <p v-if="settingsNote" class="about__hint about__hint--bad">{{ settingsNote }}</p>
-        <p v-if="dirOpenError" class="about__hint about__hint--bad">{{ dirOpenError }}</p>
-        <p v-if="linkError" class="about__hint about__hint--bad">{{ linkError }}</p>
+        <p v-if="settingsNote" class="about__hint about__hint--bad selectable">{{ settingsNote }}</p>
+        <p v-if="dirOpenError" class="about__hint about__hint--bad selectable">{{ dirOpenError }}</p>
+        <p v-if="linkError" class="about__hint about__hint--bad selectable">{{ linkError }}</p>
 
         <div
           v-if="state === 'downloading'"
@@ -220,7 +220,7 @@ async function openDataDir(): Promise<void> {
           <span class="about__bar-fill" :style="{ width: percent + '%' }" />
         </div>
 
-        <div v-if="notes" class="about__notes">
+        <div v-if="notes" class="about__notes selectable">
           <h3 class="about__notes-title">
             {{ t('about.notes') }}
             <span v-if="published" class="about__notes-date mono">{{ published }}</span>
