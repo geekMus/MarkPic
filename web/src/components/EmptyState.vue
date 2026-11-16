@@ -99,15 +99,18 @@ const textKey = computed<MessageKey>(() => {
 </template>
 
 <style scoped>
-/* 单栏居中：空态只回答「怎么开始」这一件事，原理收进弹窗。内容变矮，不再有滚动条。 */
+/* 单栏、从顶部起排：空态只回答「怎么开始」这一件事，原理收进弹窗。
+   窗口最窄（500x560）时内容仍比容器高，所以它自己滚 —— .empty__lead 的 margin-block: auto
+   在有富余时负责居中，内容超高时 auto 归零、从顶部起排，不会被上下同时裁掉。 */
 .empty {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   height: 100%;
   min-height: 0;
   padding: 24px 34px;
+  overflow-y: auto;
 }
 
 .empty__lead {
@@ -116,6 +119,7 @@ const textKey = computed<MessageKey>(() => {
   align-items: center;
   width: 100%;
   max-width: 640px;
+  margin-block: auto;
 }
 
 .lead__title {
@@ -246,5 +250,14 @@ const textKey = computed<MessageKey>(() => {
 .recent__item:hover {
   background: var(--panel-2);
   color: var(--ink);
+}
+
+/* 窄窗口：外层容器收到 20px（ReportShell / FileQueue 同一档），这里也收到 20px ——
+   两层加起来 40px，正文还剩 244px，大标题从 3 行回到 2 行，「选文件」按钮整块落在首屏里。
+   34px 是给宽窗口的；窄窗口下那点心边距不值当换掉一行标题。 */
+@media (max-width: 900px) {
+  .empty {
+    padding-inline: 20px;
+  }
 }
 </style>

@@ -565,8 +565,20 @@ function onScroll(): void {
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  /* 卡片之间靠每张卡自己的下边距隔开（高度是量出来的，不能依赖 gap） */
-  padding: 22px 34px 28px;
+  /* 卡片之间靠每张卡自己的下边距隔开（高度是量出来的，不能依赖 gap）。
+     上下留白和检测 / 下载两页的 .report__body 完全一致（16 / 34 / 34）—— 以前这里是
+     22 / 34 / 28，从上传切到另外两页时正文会整体上跳 6px，看着像点错了菜单。 */
+  padding: 16px 34px 34px;
+}
+
+/* 窄窗口和检测 / 下载两页同一档：正文内边距 34 → 20（见 ReportShell.vue 的 900px 断点）。
+   空态和卡片列表都在这个容器里，收窄后空态的大标题能从 3 行回到 2 行。 */
+@media (max-width: 900px) {
+  .queue__body {
+    padding-inline: 20px;
+    /* 和 .report__body 一样，窄窗口下底部留白也收，多留一行给列表。 */
+    padding-bottom: 24px;
+  }
 }
 
 .queue__running {

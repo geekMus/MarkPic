@@ -166,9 +166,24 @@ const percent = computed(() => Math.round(fill.value * 100))
   height: 30px;
 }
 
+/* 窗口窄到贴住最小宽度时，页头这一行放不下「图标 + 标题 + 文件数 + 三个按钮」。
+   以前这里只缩内边距、不禁换行，标题被挤成一条 19px 宽的竖排字，还会和空态大标题叠在一起。
+   现在允许换行：标题先占满一行，文件数与按钮落到下一行，字始终是横的。 */
 @media (max-width: 900px) {
   .pagehead {
+    flex-wrap: wrap;
+    gap: 10px 12px;
     padding: 24px 20px 0;
+  }
+
+  .pagehead__row {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  /* 标题不能折行折到字与字上下摞起来：它要么整行放下，要么把徽标挤到下一行。 */
+  .pagehead__title {
+    white-space: nowrap;
   }
 
   .pagehead__lead {

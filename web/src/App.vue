@@ -787,9 +787,10 @@ onBeforeUnmount(() => {
      写死 64px 会让它贴死在窗口底部，像一条状态栏。 */
   grid-template-rows: 40px minmax(0, 1fr);
   height: 100vh;
-  /* 桌面窗口的最小宽度由后端 WM_GETMINMAXINFO 兜着（760 逻辑像素）；
-     这里再留一道底线，浏览器里拖到更窄就出现横向滚动条，而不是把版面压垮。 */
-  min-width: 620px;
+  /* 桌面窗口的最小宽度由后端 WM_GETMINMAXINFO 兜着（560 逻辑像素：500 的贴靠门槛与
+     「正文别被导航挤扁」之间的折中，见 perf-log）；这里再留一道底线——480 实测仍
+     不横向溢出，再窄就出现横向滚动条兜住版面，而不是把版面压垮。 */
+  min-width: 480px;
   padding: 0 var(--gutter);
   color: var(--ink);
 }
@@ -860,10 +861,17 @@ onBeforeUnmount(() => {
   }
 
   .app__body {
+    /* 168px 在窄窗口里占掉窗口三分之一（560 宽时正文只剩 382px）。收到 148px：
+       图标 + 两个字仍然放得下，正文多出 20px。 */
+    grid-template-columns: 148px minmax(0, 1fr);
     gap: 10px;
     padding-bottom: 8px;
   }
 }
+
+/* 导航一直是「图标 + 文字」，没有收起成图标列的形态（见 README）；但宽窗口的 168px
+   到了窄窗口就嫌宽，所以 900 以下收到 148px（在 .app__body 的 900px 断点里）。
+   再窄的版面问题由页头换行与空态自身滚动解决，不靠收起导航。 */
 
 /* 窗口缩放热区：平时不吃事件，只在这几条边上有反应 */
 .rz {

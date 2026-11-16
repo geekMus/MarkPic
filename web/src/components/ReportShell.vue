@@ -195,11 +195,16 @@ const { t } = useI18n()
 
 @media (max-width: 900px) {
   .report__summary,
-  .report__body {
+  .report__body,
+  /* 空态也收：否则它比正文多出 14px 内边距，拖放区和上面的正文左边缘对不齐 */
+  .report__empty {
     padding-inline: 20px;
   }
 
-  .report__body {
+  /* 底部也一起收：窗口矮时 34px 尾巴会把空态文案顶出可视区。
+     空态必须跟正文同值，否则在三个视图之间切换时正文底边会跳 10px。 */
+  .report__body,
+  .report__empty {
     padding-bottom: 24px;
   }
 }
