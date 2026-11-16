@@ -30,9 +30,3 @@ func setSnapOverlayEvents(func(string)) {}
 func placeSnapOverlay(int, int, int, int) {}
 
 func refreshSnapOverlay() {}
-
-func installCaptionHook() {}
-
-func uninstallCaptionHook() {}
-
-func setCaptionBand(int, int, int) bool { return false }

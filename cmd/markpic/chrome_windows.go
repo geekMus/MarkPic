@@ -10,7 +10,7 @@ package main
 //  2. 拖动 / 缩放不靠 WM_NCHITTEST（WebView2 铺满客户区，鼠标事件根本走不到
 //     顶层窗口），而是前端在标题栏上按下时回调进来，由这里发
 //     WM_NCLBUTTONDOWN 进入系统自带的「拖动标题栏 / 拖边框缩放」循环 ——
-//     吸附、双击最大化、拖动最大化窗口时自动还原，全都由系统负责。
+//     吸附、拖动最大化窗口时自动还原，由系统负责；标题栏双击由网页层判定。
 //  3. 圆角、深色标题栏、去掉 1px 描边交给 DWM。
 //
 // 窗口句柄在 go-webview2 里是以 unsafe.Pointer 保管的，这里统一按
@@ -218,10 +218,6 @@ func installWindowChrome(target any) {
 	// 贴靠布局浮层要压在 WebView2 上面，所以得等 WebView 建完再挂；
 	// 位置由前端量出最大化按钮的矩形后上报。
 	installSnapOverlay(uintptr(hwnd))
-
-	// 标题栏双击最大化也放在原生层：挂一个低层鼠标钩子，鼠标消息在分发到窗口
-	// 之前就先过我们这道判定（为什么不能用子窗口，见 caption_windows.go）。
-	installCaptionHook()
 
 	// 图标由 applyChromeTheme 一起挂上：主题和图标是同一件事（见那里的注释）。
 }
@@ -466,10 +462,6 @@ func chromeWndProc(hwnd unsafe.Pointer, msg, wp uintptr, lp unsafe.Pointer) uint
 		if handleTrayCommand(uint16(wp & 0xffff)) {
 			return 0
 		}
-	case wmCaptionToggle:
-		// 钩子判定出双击后只发这条消息，真正的切换放在窗口过程里做，钩子要保持短。
-		toggleMaximizeWindow()
-		return 0
 	case wmDpiChanged:
 		// 缩放比例变了：热区尺寸是靠 scaleFor 现算的，得按新 DPI 重摆。
 		refreshSnapOverlay()

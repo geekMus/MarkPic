@@ -44,14 +44,6 @@ interface WindowBridge {
    */
   cmpWinSnapZone?: (right: number, top: number, width: number, height: number) => Promise<unknown>
   /**
-   * 把标题栏里「双击可最大化」的范围告诉后端（CSS 像素）：标题栏高度、
-   * 顶部缩放热区的厚度、右侧按钮区从右边量过来有多宽。
-   *
-   * 后端据此在 WebView2 的渲染子窗口上判双击。返回值是「原生判定挂上了没有」：
-   * true 时网页这边就不要再自己判了，两条路同时报会互相抵消（见 DOUBLE_CLICK_MS）。
-   */
-  cmpWinCaption?: (bar: number, top: number, right: number) => Promise<boolean>
-  /**
    * 热区上的鼠标进出 / 按下 / 抬起由后端推回来。那块像素被原生窗口盖住，
    * 网页自己收不到 hover 和 click，只能这样接回来。
    */
@@ -76,29 +68,15 @@ type SnapEvent = 'enter' | 'leave' | 'down' | 'up' | 'click'
  */
 const DRAG_THRESHOLD = 10
 
-/** 窗口四边的缩放热区厚度（和 App.vue 里 .rz__zone 一致），双击落在里面不算标题栏。 */
-const RESIZE_ZONE = 5
-
 /**
- * 双击标题栏最大化由后端在原生层判（cmd/markpic/caption_windows.go）：
- * 在 WebView2 的渲染子窗口上收 WM_LBUTTONDOWN，按 800ms / 20 物理像素配对。
- *
- * 下面这套网页判定只是兜底 —— 万一原生那条没挂上（找不到渲染子窗口），
- * 由它接住，否则双击就彻底没了。两条同时生效反而会互相抵消：
- * 第二下按下这里先等着，抬起之后浏览器再发一次 dblclick，慢一点的点击
- * 就超过防抖间隔，「最大化 + 还原」两下抵消 —— 用户看到的正是「毫无反应」。
- *
- * 兜底也把「切不切」推迟到抬起：第二下按住拖过阈值就交给原生拖动，不再
- * 最大化 —— 和 caption_windows.go 的原生判定保持同一套语义。
+ * 双击标题栏的判定。两次按下间隔 ≤800ms、屏幕距离 ≤20 CSS 像素算双击；
+ * 第二下按下后不立刻切，等抬起时确认这一下没有变成拖动再切。
  */
-const DOUBLE_CLICK_MS = 500
-const DOUBLE_CLICK_SLOP = 8
+const DOUBLE_CLICK_MS = 800
+const DOUBLE_CLICK_SLOP = 20
 
-/** 兜底判定里两次切换之间的最小间隔。 */
+/** 两次切换之间的最小间隔。 */
 const TOGGLE_GUARD_MS = 180
-
-/** 原生判定是否已经接管（由 cmpWinCaption 的返回值告知）。 */
-let nativeCaption = true
 
 let lastDownAt = 0
 let lastDownX = 0
@@ -152,33 +130,6 @@ function reportSnapZone(): void {
   const width = Math.round(rect.width)
   const height = Math.round(rect.height)
   void bridge.cmpWinSnapZone(right, top, width, height)
-}
-
-/**
- * 把标题栏里「双击可最大化」的范围报给后端，让原生判定知道哪一块算标题栏。
- *
- * 参数都是 CSS 像素：标题栏高度、顶部缩放热区的厚度、右侧按钮区从右边量过来
- * 有多宽（按钮归按钮自己，双击它们不该切窗口）。后端按窗口 DPI 折算成物理像素。
- * 返回值是原生判定挂上了没有：挂上了就把本页这条兜底判定关掉。
- */
-function reportCaptionBand(): void {
-  if (!available.value) return
-  const bar = document.querySelector('.tb')
-  if (!(bar instanceof HTMLElement)) return
-  const tools = document.querySelector('.tb__tools')
-  const height = Math.round(bar.getBoundingClientRect().height)
-  const right = tools instanceof HTMLElement ? Math.round(window.innerWidth - tools.getBoundingClientRect().left) : 0
-  if (typeof bridge.cmpWinCaption !== 'function') {
-    nativeCaption = false
-    return
-  }
-  void Promise.resolve(bridge.cmpWinCaption(height, RESIZE_ZONE, right))
-    .then(attached => {
-      nativeCaption = attached === true
-    })
-    .catch(() => {
-      nativeCaption = false
-    })
 }
 
 function toggleMaximize(): void {
@@ -258,19 +209,9 @@ function start(): void {
     if (!maximizeInFlight) void syncMaximized()
     // 窗口大小变了，最大化按钮在屏幕上的位置也跟着变。
     reportSnapZone()
-    reportCaptionBand()
   })
 
-  // 标题栏右侧那排按钮的宽度会随窗口宽度、语言和连接状态变，原生判定要知道
-  // 它从哪儿开始、不能碰，所以盯着这块元素的尺寸。
-  const tools = document.querySelector('.tb__tools')
-  if (tools instanceof HTMLElement && typeof ResizeObserver !== 'undefined') {
-    new ResizeObserver(reportCaptionBand).observe(tools)
-  }
-
   void syncMaximized()
-  // 布局落定之后再量：标题栏高度和按钮位置都要等第一帧画完才准。
-  void nextFrame().then(() => reportCaptionBand())
 }
 
 export function useWindowControls() {
@@ -318,10 +259,8 @@ export function useWindowControls() {
       void bridge.cmpWinQuit?.()
     },
     /**
-     * 在标题栏空白处按下。真正的交接推迟到鼠标确实移动之后：
-     * 只是点一下的话，这次点击留给原生那条双击判定（见 DOUBLE_CLICK_MS 的注释）；
-     * 拖动的话，一到阈值就把「按下的那一点」交给系统的标题栏拖动循环，
-     * 吸附、双击还原之类的原生手感都还在。
+     * 在标题栏空白处按下。单击先记下来；拖动超过阈值才把这一下交给系统的
+     * 标题栏拖动循环（吸附、拖动最大化窗口时还原由系统负责）。
      */
     startDrag: (event: MouseEvent): void => {
       if (!available.value || event.button !== 0) return
@@ -329,45 +268,42 @@ export function useWindowControls() {
       if (target?.closest('[data-no-drag]')) return
       event.preventDefault()
 
-      // 兜底的双击判定（原生那条没挂上才走到这里）：两次按下挨得够近就是双击。
-      // 判完把配对清掉，免得第三次点击又跟第二次配成一对。
-      if (!nativeCaption) {
-        const now = Date.now()
-        const repeat =
-          now - lastDownAt <= DOUBLE_CLICK_MS &&
-          Math.abs(event.clientX - lastDownX) <= DOUBLE_CLICK_SLOP &&
-          Math.abs(event.clientY - lastDownY) <= DOUBLE_CLICK_SLOP
-        lastDownAt = repeat ? 0 : now
-        lastDownX = event.clientX
-        lastDownY = event.clientY
-        if (repeat) {
-          // 第二下不立刻切：先等抬起。若按住拖过阈值，就按拖动处理。
-          const secondX = event.screenX
-          const secondY = event.screenY
-          let dragging = false
-          const stopRepeat = (): void => {
-            window.removeEventListener('mousemove', onRepeatMove, true)
-            window.removeEventListener('mouseup', onRepeatUp, true)
-          }
-          const onRepeatMove = (move: MouseEvent): void => {
-            if (
-              Math.abs(move.screenX - secondX) < DRAG_THRESHOLD &&
-              Math.abs(move.screenY - secondY) < DRAG_THRESHOLD
-            ) {
-              return
-            }
-            dragging = true
-            stopRepeat()
-            void bridge.cmpWinDrag?.(secondX, secondY)
-          }
-          const onRepeatUp = (): void => {
-            stopRepeat()
-            if (!dragging) toggleMaximize()
-          }
-          window.addEventListener('mousemove', onRepeatMove, true)
-          window.addEventListener('mouseup', onRepeatUp, true)
-          return
+      // 两次按下挨得够近就是双击。判完把配对清掉，免得第三次点击又跟第二次一对。
+      const now = Date.now()
+      const repeat =
+        now - lastDownAt <= DOUBLE_CLICK_MS &&
+        Math.abs(event.clientX - lastDownX) <= DOUBLE_CLICK_SLOP &&
+        Math.abs(event.clientY - lastDownY) <= DOUBLE_CLICK_SLOP
+      lastDownAt = repeat ? 0 : now
+      lastDownX = event.clientX
+      lastDownY = event.clientY
+      if (repeat) {
+        // 第二下不立刻切：先等抬起。若按住拖过阈值，就按拖动处理。
+        const secondX = event.screenX
+        const secondY = event.screenY
+        let dragging = false
+        const stopRepeat = (): void => {
+          window.removeEventListener('mousemove', onRepeatMove, true)
+          window.removeEventListener('mouseup', onRepeatUp, true)
         }
+        const onRepeatMove = (move: MouseEvent): void => {
+          if (
+            Math.abs(move.screenX - secondX) < DRAG_THRESHOLD &&
+            Math.abs(move.screenY - secondY) < DRAG_THRESHOLD
+          ) {
+            return
+          }
+          dragging = true
+          stopRepeat()
+          void bridge.cmpWinDrag?.(secondX, secondY)
+        }
+        const onRepeatUp = (): void => {
+          stopRepeat()
+          if (!dragging) toggleMaximize()
+        }
+        window.addEventListener('mousemove', onRepeatMove, true)
+        window.addEventListener('mouseup', onRepeatUp, true)
+        return
       }
 
       const startX = event.screenX
@@ -383,9 +319,9 @@ export function useWindowControls() {
           return
         }
         stop()
-        // 这里故意不清 lastDownAt：越过阈值往往只是手抖，第二下马上就到，
-        // 清掉配对等于把双击判死。真正的拖动持续几百毫秒，松手后再单击时
-        // 早已超过 DOUBLE_CLICK_MS，不会误判成双击。
+        // 越过阈值就是拖动，不是双击：把配对清掉，免得松手后马上单击又被
+        // 当成第二下（窗口已经被拖走，屏幕坐标却可能还在 20px 内）。
+        lastDownAt = 0
         void bridge.cmpWinDrag?.(startX, startY)
       }
 
