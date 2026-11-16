@@ -85,6 +85,24 @@ export function typecheckWeb() {
   runWebBin('vue-tsc', ['--noEmit'], { label: '前端类型检查' });
 }
 
+export function embeddedUiReady() {
+  return fs.existsSync(path.join(repoRoot, 'internal', 'ui', 'dist', 'index.html'));
+}
+
+/** 前端产物是 go:embed 的输入，不在版本库里：没有就先建一次。 */
+export function ensureEmbeddedUi() {
+  if (embeddedUiReady()) return false;
+  ui.detail('internal/ui/dist 还没有前端产物，先建一次。');
+  buildWeb();
+  return true;
+}
+
+/** 明确要求不建前端时用：产物缺了就报错，不要静默编出一个没有界面的 exe。 */
+export function requireEmbeddedUi() {
+  if (embeddedUiReady()) return;
+  throw new Error('internal/ui/dist 里没有前端产物：先跑 npm run build（或 node scripts/build.mjs），再试 --no-web。');
+}
+
 export function buildWeb() {
   ensureWebDependencies();
   ui.step('构建前端（Vue 3 + Vite → internal/ui/dist）');

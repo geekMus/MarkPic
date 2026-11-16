@@ -1,5 +1,8 @@
 // Package ui 把前端构建产物打进二进制，并在启动时摊到磁盘上给窗口加载。
 //
+// dist 是构建产物、不进版本库：先跑 npm run build:web（或 npm run build / npm run start，
+// 它们会在缺产物时自动补建），再执行 go build / go test。
+//
 // 为什么不再用 http://127.0.0.1 提供：这是一个桌面程序，不该在用户机器上开端口。
 // 窗口直接加载 file:// 下的页面，前端与 Go 之间走窗口自带的 bridge（postMessage），
 // 全程没有网络服务。

@@ -309,9 +309,17 @@ exe 没有这个注入值，版本号就是 `dev`，侧边栏与关于对话框�
 没有 HTTP 路由，也没有命令行解析器：命令行只认 `-dev`、`-data-dir` 两个开发开关和自动更新用的
 `--restart`；`chi`、`cobra` 这些依赖已经删掉了。
 
-### 日常开发：只用 Go
+### 日常开发
 
-前端产物 `internal/ui/dist` 提交在仓库里，所以改后端根本不需要 Node：
+前端产物 `internal/ui/dist` 不再提交：它是 `go:embed` 的输入，由构建脚本生成。
+第一次 clone 之后先建一次：
+
+```bash
+npm run build:web                           # 只生成前端产物（约 5 秒）
+npm run build                               # 或者直接构建 前端 + exe
+```
+
+之后改后端就不用再碰 Node，`internal/ui/dist` 已经在工作区里：
 
 ```bash
 go run ./cmd/markpic                        # 改 Go 代码就这一条
@@ -343,9 +351,9 @@ npm run build       # 发布构建：前端 + exe
 
 ### 开发环境
 
-需要 Go 1.24 或更新版本。下面的 `npm run start` 系列是可选的一键入口，用 Node 20.19+ 写成，
-Windows / macOS / Linux 命令一致；只走 `go run` 的话不需要装 Node。
-前端依赖仍由 pnpm 管理：第一次构建前端时脚本会在 `web/` 下自动执行 `pnpm install`，
+需要 Go 1.24 或更新版本。第一次生成前端产物时需要 Node 20.19+（`npm run start` / `npm run build`
+都行）；产物建好之后，只改 Go 的话可以直接 `go run`。
+前端依赖由 pnpm 管理：第一次构建前端时脚本会在 `web/` 下自动执行 `pnpm install`，
 没有 pnpm 时再试 corepack；两样都没有就先 `corepack enable`。
 
 ```bash
@@ -398,28 +406,28 @@ npm run start -- --debug
 
 | 命令 | 作用 |
 | --- | --- |
-| `go run ./cmd/markpic` | 开发：只用 Go，加载仓库里已提交的前端产物 |
+| `go run ./cmd/markpic` | 开发：加载工作区里已构建的前端产物（首次先 `npm run build:web`） |
 | `go run ./cmd/markpic -dev` | 开发：窗口加载 `127.0.0.1:5173` 的 Vite（另开终端 `cd web && npm run dev`） |
 | `npm run start` | 开发：Vite + 调试窗口，前后端都热更新 |
 | `npm run start:mock` | 开发 + 本地假图床，真的会走一遍上传流程 |
 | `npm run build` | 发布构建：前端 + exe |
-| `npm run build:go` | 只构建 exe（前端产物已提交在仓库里） |
+| `npm run build:go` | 只构建 exe（要求 `internal/ui/dist` 已存在） |
 | `npm run test` | `go test ./...` |
 | `npm run typecheck` | 前端类型检查（`vue-tsc --noEmit`） |
 
 ### 打包
 
 ```bash
-npm run build       # 构建前端 + 构建 exe
-npm run build:go    # 只重新编译 exe（前端没动时够用）
+npm run build       # 默认：构建前端 + 构建 exe
+npm run build:go    # 只重新编译 exe（要求 internal/ui/dist 已存在）
 ```
 
 等价的脚本调用与更多开关：
 
 ```bash
-node scripts/build.mjs              # 只构建 exe（前端产物已提交在仓库里）
-node scripts/build.mjs --web        # 先重建前端再构建 exe
-node scripts/build.mjs --web --test # 再顺手跑一遍测试
+node scripts/build.mjs              # 默认：前端 + exe
+node scripts/build.mjs --no-web     # 只构建 exe（要求前端产物已存在）
+node scripts/build.mjs --test       # 先跑一遍测试，再构建
 node scripts/build.mjs --debug      # 编一个调试版（只扫描，不写文件）
 ```
 
@@ -442,25 +450,25 @@ npm run start -- --port 5180                  # Vite 换个端口（默认 5173�
 ### 手动构建（不用脚本）
 
 ```bash
-# 只构建 Go 部分（前端产物已提交在仓库里）
-# -H=windowsgui 不能省：少了它 exe 就是控制台程序，双击会先闪一个黑框
-go build -ldflags "-H=windowsgui" -o bin/MarkPic.exe ./cmd/markpic
-
-# 改了前端：先构建前端，再构建 exe
+# 第一次先建前端产物（之后工作区里一直有，Git 不跟踪它）
 cd web
 pnpm install
 pnpm build
 cd ..
+
+# 构建 Go 部分
+# -H=windowsgui 不能省：少了它 exe 就是控制台程序，双击会先闪一个黑框
 go build -ldflags "-H=windowsgui" -o bin/MarkPic.exe ./cmd/markpic
 
-# 跑测试
+# 跑测试（internal/ui 会 //go:embed dist，所以跑之前也要有产物）
 go test ./...
 ```
 
 在 macOS / Linux 上把 `-H=windowsgui` 去掉，编出来的是能跑测试、但没有原生窗口的本机二进制。
 
-前端产物 `internal/ui/dist` 是提交进仓库的，这样 clone 之后只装 Go 也能手动 `go build`，不必先装 Node；
-用 `scripts/build.mjs` 这类入口则需要 Node 20.19+。
+前端产物 `internal/ui/dist` 由 `npm run build:web` / `npm run build` 生成，不进版本库：
+`go build` / `go test` 之前必须已经有一份，否则 `//go:embed all:dist` 找不到文件。
+`scripts/build.mjs`、`npm run start`、`npm run test` 都会在缺产物时自动先建一次。
 它不打成 HTTP 资源，而是由 `internal/ui` 在启动时摊到数据目录的 `ui/<指纹>/` 下，
 窗口用 `file://` 加载——同一次构建指纹相同，不会每次启动都重写。
 
@@ -482,19 +490,20 @@ go test ./...
 （运行时从 exe 资源里取，见下）。这三处都必须离线渲染，没法共用文件，所以改完 SVG 要重新生成：
 
 ```bat
-# 1. 把两份 SVG 渲染成各尺寸 PNG（用本机 Edge/Chrome 无头截图，4× 超采样后缩到目标尺寸）
-python scripts\make-mark.py
+# 1. 两份 SVG 用任意透明底 SVG 光栅化工具导出这些尺寸（16 20 24 32 40 48 64 128 256），
+#    存到 assets/build/light 与 assets/build/dark，文件名 mark-<尺寸>.png
 # 2. 打包成两个多尺寸 ico（16 24 32 48 64 128 256，全部 32 位 DIB，256 那档存 PNG）
-python scripts\make-icon.py assets\build\light assets\icon-light.ico
-python scripts\make-icon.py assets\build\dark  assets\icon-dark.ico
+#    仓库里的 assets/icon-*.ico 已经生成好并提交，日常构建不用再做这一步
 # 3. 生成资源文件（已提交，构建时不需要联网）。顺序不能反：亮色在前 = exe 的图标 = 默认窗口图标，
 #    暗色在后 = 界面转暗时换上去的那块。
 go run github.com/akavel/rsrc@latest -ico assets\icon-light.ico,assets\icon-dark.ico -arch amd64 -o cmd\markpic\rsrc_windows_amd64.syso
-# 4. 重新生成 web/index.html 里的 favicon data URI
-python scripts\make-favicon.py
+# 4. 重新生成 web/index.html 里的 favicon data URI（纯 Node，无第三方依赖）
+node scripts\make-favicon.mjs
 ```
 
-`assets/build` 里的 PNG 一起提交，所以打包这一步不依赖浏览器，只有改了 SVG 才需要跑第 1 步。
+`assets/build` 里的 PNG 和 `assets/icon-*.ico` 都一起提交，所以打包这一步既不需要浏览器，
+也不需要 Python：仓库里没有 Python 脚本，只有改了 SVG 才需要重做第 1～2 步（用你手边的任意
+光栅化 / ICO 工具）。
 窗口图标在运行时从这份资源里读出来挂上去，所以任务栏和 Alt-Tab 拿到的也是我们的标记，而不是窗口类
 的默认图标；`applyChromeTheme` 每次跟着主题换一次，亮色界面挂浅底那块、暗色挂深底那块。
 Go 只链接**主包目录**里的 `.syso`，所以这个文件必须和 `main.go` 放在一起。删掉它再构建会尝试用

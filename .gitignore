@@ -2,6 +2,9 @@
 /bin/
 *.exe
 
+# 前端构建产物（go:embed 的输入，由 npm run build / npm run start 生成）
+/internal/ui/dist/
+
 # 本机用完的 Go 缓存与临时 HOME（构建验证时才建，别进仓库）
 /.gocache/
 /.gotmp/

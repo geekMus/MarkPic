@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 
 import { isEntry } from './lib/cli.mjs';
 import { resolveGo, runGoTest } from './lib/go.mjs';
+import { ensureEmbeddedUi } from './lib/web.mjs';
 import { ui } from './lib/ui.mjs';
 
 const HELP = `
@@ -32,6 +33,8 @@ function main() {
     return;
   }
   const go = resolveGo(values.go ?? '');
+  // go test 也要编译 internal/ui（//go:embed dist），首次 clone 得先把前端产物建出来。
+  ensureEmbeddedUi();
   ui.step('跑 Go 测试');
   runGoTest(go, values.pattern);
 }

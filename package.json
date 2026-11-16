@@ -9,8 +9,8 @@
   "scripts": {
     "start": "node scripts/start.mjs",
     "start:mock": "node scripts/start.mjs --mock",
-    "build": "node scripts/build.mjs --web",
-    "build:go": "node scripts/build.mjs",
+    "build": "node scripts/build.mjs",
+    "build:go": "node scripts/build.mjs --no-web",
     "build:web": "node scripts/web.mjs",
     "typecheck": "node scripts/web.mjs --check",
     "test": "node scripts/test.mjs",

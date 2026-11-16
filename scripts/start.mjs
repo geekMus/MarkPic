@@ -11,7 +11,7 @@ import { capture, delay, isWindows, startProcess, stopProcess, waitForExit, wait
 import { ui } from './lib/ui.mjs';
 import { buildProject } from './build.mjs';
 import { resolveBuildVersion, resolveCommit } from './lib/version.mjs';
-import { ensureWebDependencies, startVite } from './lib/web.mjs';
+import { ensureEmbeddedUi, ensureWebDependencies, startVite } from './lib/web.mjs';
 
 const HELP = `
 用法：node scripts/start.mjs [选项]
@@ -188,6 +188,8 @@ function writeBuildStamp(stamp) {
  * 想推翻这个判断：--rebuild，或者删掉 bin 里的 exe。
  */
 function ensureBuilt({ go, debug, force }) {
+  // 前端产物不再进版本库：没有就先建一次；刚建过必须重编，否则 go:embed 还是空的。
+  if (ensureEmbeddedUi()) force = true;
   const version = resolveBuildVersion();
   const commit = resolveCommit();
   const stamp = { source: goSourceStamp(), version, commit, debug };
@@ -195,7 +197,7 @@ function ensureBuilt({ go, debug, force }) {
     ui.detail('源码没变，跳过编译（要强制重编加 --rebuild）');
     return;
   }
-  const built = buildProject({ go, debug, output: defaultExe, version, commit });
+  const built = buildProject({ go, debug, output: defaultExe, version, commit, web: false });
   writeBuildStamp({ source: stamp.source, version: built.version, commit: built.commit, debug });
 }
 
