@@ -280,30 +280,44 @@ func initProcessIdentity() {
 	procSetAppUserModelID.Call(uintptr(unsafe.Pointer(id)))
 }
 
-// setWindowIcon 把 exe 自带的图标挂到窗口上，按主题挑亮色那块还是暗色那块。
+// themeIconGroup 选出当前主题对应的图标组 id。窗口、任务栏和托盘共用这一套判断，
+// 不要各自挑一份，否则同一时刻三处可能挂着不同明暗的图标。
 //
 // 资源里有两块图标，顺序由 rsrc 的 -ico 决定（见 README「图标」）：亮色在前，
 // 暗色在后；枚举出来的 id 是整数、升序，所以 groups[0] 就是亮色，也是 exe
 // 自己显示在资源管理器里的那块。
-func setWindowIcon(hwnd uintptr, dark bool) {
+func themeIconGroup(dark bool) uintptr {
 	hInst, _, _ := procGetModuleHandle.Call(0)
 	if hInst == 0 {
-		return
+		return 0
 	}
-
 	var groups []uintptr
 	cb := syscall.NewCallback(func(_, _, name, _ uintptr) uintptr {
 		groups = append(groups, name)
 		return 1 // 全部收下，下面再按主题挑
 	})
 	procEnumResourceNames.Call(hInst, rtGroupIcon, cb, 0)
+	return pickThemeIconGroup(groups, dark)
+}
+
+// pickThemeIconGroup 单独拆出来，便于用不依赖资源的单测钉住「亮色第一、暗色第二」。
+func pickThemeIconGroup(groups []uintptr, dark bool) uintptr {
 	if len(groups) == 0 {
-		return
+		return 0
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i] < groups[j] })
-	group := groups[0]
 	if dark && len(groups) > 1 {
-		group = groups[1]
+		return groups[1]
+	}
+	return groups[0]
+}
+
+// setWindowIcon 把 exe 自带的图标挂到窗口上，按主题挑亮色那块还是暗色那块。
+func setWindowIcon(hwnd uintptr, dark bool) {
+	hInst, _, _ := procGetModuleHandle.Call(0)
+	group := themeIconGroup(dark)
+	if hInst == 0 || group == 0 {
+		return
 	}
 
 	iconCx, _, _ := procGetSystemMetrics.Call(smCxIcon)
@@ -530,6 +544,9 @@ func applyChromeTheme(dark bool) {
 	// 任务栏和 Alt-Tab 上的图标也跟着明暗换：亮色界面用浅底那版（方块退成
 	// 一层薄荷白的纸，靠深青笔画认人），暗色界面用深底那版。
 	setWindowIcon(hwnd, dark)
+	// 托盘图标也得跟着换：任务栏底色由系统决定，图标却一直挂在通知区，
+	// 深色任务栏上留一块亮色方片最扎眼。setTrayIcon 会在图标尚未挂上时自己跳过。
+	setTrayIcon(dark)
 
 	// 擦背景的画刷跟着一起换：底色和边框必须是同一套主题，否则会先看见
 	// 浅色底、再跳成深色，还是闪。

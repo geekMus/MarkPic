@@ -21,6 +21,7 @@ const (
 	wmTray = wmApp + 2
 
 	nimAdd    = 0
+	nimModify = 1
 	nimDelete = 2
 
 	nifMessage = 0x00000001
@@ -82,6 +83,7 @@ type notifyIconData struct {
 
 var tray = struct {
 	added     bool
+	dark      bool // 通知区当前挂的是哪一版；NIM_MODIFY 之前先比一下，避免无谓重设。
 	openLabel func() string
 	quitLabel func() string
 	onQuit    func()
@@ -95,7 +97,9 @@ func setTrayActions(openLabel, quitLabel func() string, onQuit func()) {
 	tray.onQuit = onQuit
 }
 
-func trayIconHandle() uintptr {
+// trayIconHandle 取通知区要用的那版图标。资源和窗口图标是同一份，按当前主题
+// 选亮色组或暗色组，不能写死第 1 组 —— 那样切到深色界面后托盘里仍是亮色方片。
+func trayIconHandle(dark bool) uintptr {
 	hInst, _, _ := procGetModuleHandle.Call(0)
 	cx, _, _ := procGetSystemMetrics.Call(smCxSmIcon)
 	cy, _, _ := procGetSystemMetrics.Call(smCySmIcon)
@@ -105,13 +109,15 @@ func trayIconHandle() uintptr {
 	if cy == 0 {
 		cy = 16
 	}
-	// exe 的图标组 ID 是 1（winres 生成）；LR_SHARED 让系统保管句柄，不归我们 DestroyIcon。
-	icon, _, _ := procLoadImage.Call(hInst, 1, imageIcon, cx, cy, lrShared)
-	if icon != 0 {
-		return icon
+	if group := themeIconGroup(dark); group != 0 {
+		// LR_SHARED 让系统保管句柄，不归我们 DestroyIcon。
+		icon, _, _ := procLoadImage.Call(hInst, group, imageIcon, cx, cy, lrShared)
+		if icon != 0 {
+			return icon
+		}
 	}
 	// 资源里没图标时退回系统通用图标，至少托盘里有个可点的东西。
-	icon, _, _ = procLoadIcon.Call(0, idiApplication)
+	icon, _, _ := procLoadIcon.Call(0, idiApplication)
 	return icon
 }
 
@@ -139,7 +145,7 @@ func ensureTrayIcon(hwnd uintptr) bool {
 		uID:              trayID,
 		uFlags:           nifMessage | nifIcon | nifTip,
 		uCallbackMessage: wmTray,
-		hIcon:            trayIconHandle(),
+		hIcon:            trayIconHandle(themeDarkNow()),
 	}
 	fillUTF16(nid.szTip[:], "MarkPic")
 
@@ -149,7 +155,40 @@ func ensureTrayIcon(hwnd uintptr) bool {
 		return false
 	}
 	tray.added = true
+	tray.dark = themeDarkNow()
 	return true
+}
+
+// setTrayIcon 在界面主题变化时换掉通知区图标。NIM_MODIFY 只处理 uFlags 里
+// 点名的字段，这里只带 NIF_ICON，不动提示文字和鼠标回调。
+//
+// 它可能在托盘还没挂上时被 applyChromeTheme 调用（启动早期），直接跳过；
+// 稍后 ensureTrayIcon 会按 themeDarkNow() 一次性挑对那张。
+func setTrayIcon(dark bool) {
+	if !tray.added || tray.dark == dark {
+		return
+	}
+	hwnd := hwndValue()
+	if hwnd == 0 {
+		return
+	}
+	icon := trayIconHandle(dark)
+	if icon == 0 {
+		return
+	}
+	nid := notifyIconData{
+		cbSize: uint32(unsafe.Sizeof(notifyIconData{})),
+		hWnd:   hwnd,
+		uID:    trayID,
+		uFlags: nifIcon,
+		hIcon:  icon,
+	}
+	ok, _, _ := procShellNotifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
+	if ok == 0 {
+		log.Printf("托盘图标换色失败（Shell_NotifyIcon NIM_MODIFY 返回 0）")
+		return
+	}
+	tray.dark = dark
 }
 
 func removeTrayIcon() {
