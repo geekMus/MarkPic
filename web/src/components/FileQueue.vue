@@ -463,7 +463,12 @@ function onScroll(): void {
       </template>
     </PageHead>
 
-    <div ref="body" class="panel__body queue__body" @scroll.passive="onScroll">
+    <div
+      ref="body"
+      class="queue__body"
+      :class="{ 'panel__body': rows.length > 0 }"
+      @scroll.passive="onScroll"
+    >
       <ul
         v-if="rows.length > 0"
         ref="list"
@@ -570,6 +575,7 @@ function onScroll(): void {
 
 /* 窄窗口和检测 / 下载两页同一档：正文内边距 34 → 20（见 ReportShell.vue 的 900px 断点）。
    空态和卡片列表都在这个容器里，收窄后空态的大标题能从 3 行回到 2 行。 */
+/* 空态不挂 .panel__body：不占滚动条槽，居中的空态才不会比检测 / 下载两页左移。 */
 @media (max-width: 900px) {
   .queue__body {
     padding-inline: 20px;
