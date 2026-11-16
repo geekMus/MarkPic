@@ -38,6 +38,98 @@ func TestCaptionBandRect(t *testing.T) {
 	}
 }
 
+func TestCaptionGestureDoubleClick(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	if g.release(1040) {
+		t.Fatal("单击抬起不应触发切换")
+	}
+	g.press(1300, 103, 21)
+	if !g.release(1340) {
+		t.Fatal("第二次点击（800ms 内、20px 内）应当在抬起时触发最大化")
+	}
+	// 成功配对之后第三下不能再和上一对凑成第二组，否则连续三击会来回切。
+	g.press(1500, 103, 21)
+	if g.release(1540) {
+		t.Fatal("三击不应再触发一次切换")
+	}
+}
+
+func TestCaptionGestureDragDoesNotPair(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	// 按住拖 12px：超过点击抖动，这一下是拖动，不是点击。
+	g.move(112, 20)
+	if g.release(1100) {
+		t.Fatal("拖动抬起不应触发切换")
+	}
+	g.press(1200, 100, 20)
+	if g.release(1240) {
+		t.Fatal("拖动之后的快速再点击不应被当成双击")
+	}
+}
+
+func TestCaptionGestureSecondPressDragCancels(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	g.release(1040)
+	g.press(1200, 101, 20) // 第二下已经和上一按配对，挂起待办
+	g.move(1215, 20)       // 但接着拖了 14px：抬起时应当反悔
+	if g.release(1260) {
+		t.Fatal("第二下按下后变成拖动，不应在抬起时最大化")
+	}
+}
+
+func TestCaptionGestureSmallJitterStillPairs(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	g.move(104, 22) // 4px / 2px：仍在点击抖动范围内
+	g.release(1040)
+	g.press(1200, 102, 21)
+	if !g.release(1240) {
+		t.Fatal("轻微抖动仍应按点击配对")
+	}
+}
+
+func TestCaptionGestureSlowOrFarClicks(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	g.release(1040)
+	g.press(1900, 100, 20)
+	if g.release(1940) {
+		t.Fatal("超过 800ms 的两次点击不应配对")
+	}
+
+	var h captionGesture
+	h.press(1000, 100, 20)
+	h.release(1040)
+	h.press(1200, 140, 20)
+	if h.release(1240) {
+		t.Fatal("两次按下相距超过 20px 不应配对")
+	}
+}
+
+func TestCaptionGestureHeldSecondPress(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	g.release(1040)
+	g.press(1200, 100, 20)
+	if g.release(2100) {
+		t.Fatal("第二下按住超过 800ms 再抬起，不应再算双击")
+	}
+}
+
+func TestCaptionGesturePressOutsideCancels(t *testing.T) {
+	var g captionGesture
+	g.press(1000, 100, 20)
+	g.release(1040)
+	g.cancel()
+	g.press(1100, 100, 20)
+	if g.release(1140) {
+		t.Fatal("取消之后不应把上一按与这一按配对")
+	}
+}
+
 func TestClampCaption(t *testing.T) {
 	cases := []struct {
 		in, low, high int

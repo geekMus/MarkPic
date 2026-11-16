@@ -35,6 +35,8 @@ const (
 	gaRoot = 2
 
 	wmCaptionLButtonDown = 0x0201
+	wmCaptionMouseMove   = 0x0200
+	wmCaptionLButtonUp   = 0x0202
 
 	// 钩子配对成功之后发给顶层窗口的自定义消息（WM_APP + 0x51）。
 	wmCaptionToggle = 0x8000 + 0x51
@@ -46,6 +48,11 @@ const (
 
 	// 两次切换之间的最小间隔：配对成功后立刻把状态清掉，这里只是保险。
 	captionToggleGuardMs = 250
+
+	// 一次「点击」允许的抖动（物理像素）。超过它就算拖动，这一下不再参与
+	// 双击配对 —— 不然后面每次重新按下，都会和拖动前那一下凑成「双击」，
+	// 窗口就在连续拖标题栏时莫名其妙地最大化。
+	captionClickSlop = 6
 
 	// 前端还没上报之前的兜底范围（CSS 像素）。
 	captionFallbackBar   = 40
@@ -79,12 +86,102 @@ var (
 	procCaptionDispatch     = user32Chrome.NewProc("DispatchMessageW")
 
 	// 配对状态。钩子回调跑在安装线程（界面线程）上，只在那一处读写。
-	captionLastDownTick uint64
-	captionLastDownX    int32
-	captionLastDownY    int32
-	captionDownValid    bool
-	captionLastToggle   uint64
+	captionGestureState captionGesture
 )
+
+// captionGesture 是「双击标题栏」的判定状态机。
+//
+// 只按下、抬起、移动三种输入，但必须区分「点击」和「拖动」：系统那套双击
+// 要求两次点击之间不能有明显位移，我们放宽到 800ms / 20px 是为了照顾慢手，
+// 却也因此把「按下拖十几像素再松开」也算成了点击。连续拖标题栏时，第二次
+// 按下就会和上一次凑成双击，窗口跳到最大化 —— 用户看到的就是「自己吸到
+// 屏幕正上方」。所以按下之后只要移动超过 captionClickSlop，这次按下就作废。
+type captionGesture struct {
+	lastDownTick uint64
+	lastDownX    int32
+	lastDownY    int32
+	downValid    bool
+
+	// 当前这一次按下的起点与位移，用来判断它是点击还是拖动。
+	pressed bool
+	pressX  int32
+	pressY  int32
+	moved   bool
+
+	// 第二下已经凑成双击，但还没抬起。真正切换放到抬起时做：第二下若按住
+	// 拖了一段，抬起时就能反悔，不会在按下的一瞬间先把窗口最大化了。
+	pendingToggle bool
+
+	lastToggle uint64
+}
+
+// press 记录一次落在标题栏空白处的左键按下。凑成双击时只挂一个待办，
+// 等 release 确认这一下没有变成拖动再切换。
+func (g *captionGesture) press(now uint64, x, y int32) {
+	pair := false
+	if g.downValid && now >= g.lastDownTick && now-g.lastDownTick <= captionDblClickMs {
+		dx := captionAbs(x - g.lastDownX)
+		dy := captionAbs(y - g.lastDownY)
+		if dx <= captionDblClickSlop && dy <= captionDblClickSlop {
+			pair = true
+			g.downValid = false
+		}
+	}
+	g.lastDownTick = now
+	g.lastDownX = x
+	g.lastDownY = y
+	g.pressed = true
+	g.pressX = x
+	g.pressY = y
+	g.moved = false
+	g.pendingToggle = pair && now-g.lastToggle >= captionToggleGuardMs
+	if !pair {
+		g.downValid = true
+	}
+}
+
+// move 在按住期间记录光标位置：只要离开按下点超过点击允许的抖动，这次按下
+// 就是拖动，不能再和下一按配成双击。
+func (g *captionGesture) move(x, y int32) {
+	if !g.pressed || g.moved {
+		return
+	}
+	if captionAbs(x-g.pressX) > captionClickSlop || captionAbs(y-g.pressY) > captionClickSlop {
+		g.moved = true
+		g.downValid = false
+	}
+}
+
+// release 结束一次按下，返回这次抬起是否该切换最大化。
+//
+// 只有「第二下按下凑成双击、且按住期间没有变成拖动」才返回 true。第二下
+// 拖过一段就作废 —— 连续拖标题栏时，第二次按下哪怕和上一次挨得很近，也
+// 不会再把窗口甩到最大化。
+func (g *captionGesture) release(now uint64) bool {
+	if !g.pressed {
+		return false
+	}
+	g.pressed = false
+	toggle := g.pendingToggle && !g.moved &&
+		now >= g.lastDownTick && now-g.lastDownTick <= captionDblClickMs
+	g.pendingToggle = false
+	if g.moved {
+		g.downValid = false
+		return false
+	}
+	if toggle {
+		g.lastToggle = now
+		g.downValid = false
+	}
+	return toggle
+}
+
+// cancel 在按下没有落在标题栏空白处时调用：这一下不参与任何配对。
+func (g *captionGesture) cancel() {
+	g.pressed = false
+	g.downValid = false
+	g.pendingToggle = false
+}
 
 func init() {
 	captionBarCSS.Store(captionFallbackBar)
@@ -202,11 +299,18 @@ func captionBandRect(width, height int32, scale float64) (top, bottom, right int
 	return gap, bar, right
 }
 
-// captionHookProc 是钩子过程：只看左键按下，其余消息原样往下传。
+// captionHookProc 是钩子过程：只看左键按下/移动/抬起，其余消息原样往下传。
 // 任何分支都必须走到 CallNextHookEx，否则整个系统的鼠标输入会被卡住。
 func captionHookProc(code, wp, lp uintptr) uintptr {
-	if int32(code) >= 0 && wp == wmCaptionLButtonDown {
-		captionPress()
+	if int32(code) >= 0 {
+		switch wp {
+		case wmCaptionLButtonDown:
+			captionPress()
+		case wmCaptionMouseMove:
+			captionMove()
+		case wmCaptionLButtonUp:
+			captionRelease()
+		}
 	}
 	r, _, _ := procCallNextHookEx.Call(captionHook.Load(), code, wp, lp)
 	return r
@@ -216,7 +320,7 @@ func captionHookProc(code, wp, lp uintptr) uintptr {
 func captionPress() {
 	top := hwndValue()
 	if top == 0 {
-		captionDownValid = false
+		captionGestureState.cancel()
 		return
 	}
 	var pt point32
@@ -225,28 +329,35 @@ func captionPress() {
 	}
 	if !captionHit(top, pt) {
 		// 点的是别的地方（按钮、导航、别的窗口）：这一下不参与配对。
-		captionDownValid = false
+		captionGestureState.cancel()
 		return
 	}
 
-	now := captionTick()
-	if captionDownValid && now >= captionLastDownTick && now-captionLastDownTick <= captionDblClickMs {
-		dx := captionAbs(pt.x - captionLastDownX)
-		dy := captionAbs(pt.y - captionLastDownY)
-		if dx <= captionDblClickSlop && dy <= captionDblClickSlop {
-			captionDownValid = false
-			if now-captionLastToggle >= captionToggleGuardMs {
-				captionLastToggle = now
-				procPostMessage.Call(top, wmCaptionToggle, 0, 0)
-			}
-			return
-		}
-	}
+	captionGestureState.press(captionTick(), pt.x, pt.y)
+}
 
-	captionLastDownTick = now
-	captionLastDownX = pt.x
-	captionLastDownY = pt.y
-	captionDownValid = true
+// captionRelease 收尾一次抬起：双击且没有拖动时才发切换消息。切换仍然交给
+// 窗口过程做，钩子过程只负责判。
+func captionRelease() {
+	if !captionGestureState.release(captionTick()) {
+		return
+	}
+	if top := hwndValue(); top != 0 {
+		procPostMessage.Call(top, wmCaptionToggle, 0, 0)
+	}
+}
+
+// captionMove 在按住左键期间跟踪位移。只有按下过一次（pressed）才去取
+// 光标位置，避免钩子在全系统的每一次鼠标移动上做多余的系统调用。
+func captionMove() {
+	if !captionGestureState.pressed {
+		return
+	}
+	var pt point32
+	if r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt))); r == 0 {
+		return
+	}
+	captionGestureState.move(pt.x, pt.y)
 }
 
 // captionHit 判断屏幕坐标 pt 是否落在「本窗口的标题栏空白带」里。

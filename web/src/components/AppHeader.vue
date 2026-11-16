@@ -158,6 +158,7 @@ const themeTitle = computed(() => {
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 5.5h9" />
         </svg>
+        <span class="wbtn__tip" aria-hidden="true">{{ t('header.window.minimize') }}</span>
       </button>
       <button
         ref="maxButton"
@@ -174,11 +175,13 @@ const themeTitle = computed(() => {
         <svg v-else viewBox="0 0 10 10" aria-hidden="true">
           <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" />
         </svg>
+        <span class="wbtn__tip" aria-hidden="true">{{ maximized ? t('header.window.restore') : t('header.window.maximize') }}</span>
       </button>
       <button type="button" class="wbtn wbtn--close" :aria-label="t('common.close')" @click="close">
         <svg viewBox="0 0 10 10" aria-hidden="true">
           <path d="M0.5 0.5l9 9M9.5 0.5l-9 9" />
         </svg>
+        <span class="wbtn__tip" aria-hidden="true">{{ t('common.close') }}</span>
       </button>
     </div>
   </header>
@@ -395,6 +398,7 @@ const themeTitle = computed(() => {
 }
 
 .wbtn {
+  position: relative;
   display: grid;
   place-items: center;
   width: 46px;
@@ -443,6 +447,53 @@ const themeTitle = computed(() => {
 .wbtn--close:active {
   background: #b1271b;
   color: #fff;
+}
+
+/* 悬停提示：和 VSCode 的窗口按钮一样，停够一小会儿才出来，不是一碰就弹。
+   最大化键被原生热区盖着，网页收不到 :hover，所以它由 is-hover（后端推来的
+   enter 事件）点亮；三个键共用同一块提示，位置和观感才不会两套。
+   用 absolute 而不是原生 title：原生提示框在深色界面里还是浅色的，且它和
+   这块自绘标题栏的圆角/字号对不上。 */
+.wbtn__tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  z-index: 30;
+  padding: 5px 9px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--panel-2);
+  box-shadow: 0 4px 14px rgba(9, 13, 20, 0.18);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--fs-2);
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 0.08s var(--ease);
+}
+
+.wbtn--close .wbtn__tip {
+  /* 贴到窗口右缘会像被裁掉，留 4px 呼吸；左/中两键仍是居中。 */
+  right: 4px;
+  left: auto;
+  transform: none;
+}
+
+.wbtn:hover .wbtn__tip,
+.wbtn--max.is-hover .wbtn__tip {
+  opacity: 1;
+  /* 悬停 450ms 后再淡入：和系统/VSCode 的提示节奏一致，快速划过不会闪一片。 */
+  transition-delay: 0.45s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wbtn__tip {
+    transition: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

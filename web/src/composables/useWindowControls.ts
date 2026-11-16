@@ -85,8 +85,11 @@ const RESIZE_ZONE = 5
  *
  * 下面这套网页判定只是兜底 —— 万一原生那条没挂上（找不到渲染子窗口），
  * 由它接住，否则双击就彻底没了。两条同时生效反而会互相抵消：
- * 第二下按下这里先切一次，抬起之后浏览器再发一次 dblclick，慢一点的点击
+ * 第二下按下这里先等着，抬起之后浏览器再发一次 dblclick，慢一点的点击
  * 就超过防抖间隔，「最大化 + 还原」两下抵消 —— 用户看到的正是「毫无反应」。
+ *
+ * 兜底也把「切不切」推迟到抬起：第二下按住拖过阈值就交给原生拖动，不再
+ * 最大化 —— 和 caption_windows.go 的原生判定保持同一套语义。
  */
 const DOUBLE_CLICK_MS = 500
 const DOUBLE_CLICK_SLOP = 8
@@ -338,7 +341,31 @@ export function useWindowControls() {
         lastDownX = event.clientX
         lastDownY = event.clientY
         if (repeat) {
-          toggleMaximize()
+          // 第二下不立刻切：先等抬起。若按住拖过阈值，就按拖动处理。
+          const secondX = event.screenX
+          const secondY = event.screenY
+          let dragging = false
+          const stopRepeat = (): void => {
+            window.removeEventListener('mousemove', onRepeatMove, true)
+            window.removeEventListener('mouseup', onRepeatUp, true)
+          }
+          const onRepeatMove = (move: MouseEvent): void => {
+            if (
+              Math.abs(move.screenX - secondX) < DRAG_THRESHOLD &&
+              Math.abs(move.screenY - secondY) < DRAG_THRESHOLD
+            ) {
+              return
+            }
+            dragging = true
+            stopRepeat()
+            void bridge.cmpWinDrag?.(secondX, secondY)
+          }
+          const onRepeatUp = (): void => {
+            stopRepeat()
+            if (!dragging) toggleMaximize()
+          }
+          window.addEventListener('mousemove', onRepeatMove, true)
+          window.addEventListener('mouseup', onRepeatUp, true)
           return
         }
       }
