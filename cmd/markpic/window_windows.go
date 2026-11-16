@@ -166,6 +166,9 @@ func bindWindowCommands(w webview2.WebView, desktop *app.App) {
 		{"cmpWinSetDark", func(dark bool) { applyChromeTheme(dark) }},
 		{"cmpWinFlash", func() { flashTaskbar() }},
 		{"cmpWinSnapZone", func(x, y, w, h int) { placeSnapOverlay(x, y, w, h) }},
+		// 标题栏里「双击可最大化」的范围（CSS 像素）：高度、顶部缩放热区厚度、
+		// 右侧按钮区宽度。返回值是原生判定挂上没有 —— 挂上了网页就不要再自己判。
+		{"cmpWinCaption", func(bar, top, right int) bool { return setCaptionBand(bar, top, right) }},
 	}
 	for _, b := range binds {
 		if err := w.Bind(b.name, b.fn); err != nil {

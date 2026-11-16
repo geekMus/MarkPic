@@ -42,6 +42,14 @@ interface WindowBridge {
    */
   cmpWinSnapZone?: (right: number, top: number, width: number, height: number) => Promise<unknown>
   /**
+   * 把标题栏里「双击可最大化」的范围告诉后端（CSS 像素）：标题栏高度、
+   * 顶部缩放热区的厚度、右侧按钮区从右边量过来有多宽。
+   *
+   * 后端据此在 WebView2 的渲染子窗口上判双击。返回值是「原生判定挂上了没有」：
+   * true 时网页这边就不要再自己判了，两条路同时报会互相抵消（见 DOUBLE_CLICK_MS）。
+   */
+  cmpWinCaption?: (bar: number, top: number, right: number) => Promise<boolean>
+  /**
    * 热区上的鼠标进出 / 按下 / 抬起由后端推回来。那块像素被原生窗口盖住，
    * 网页自己收不到 hover 和 click，只能这样接回来。
    */
@@ -59,27 +67,33 @@ type SnapEvent = 'enter' | 'leave' | 'down' | 'up' | 'click'
 /**
  * 拖动标题栏时，鼠标移动超过这个距离（CSS 像素）才把这次按下交给系统。
  * 阈值不能是 0：一旦交给系统，鼠标就被拖动循环接管，网页再也收不到
- * 这次抬起，浏览器也就凑不出 click / dblclick —— 那样双击就没法用了。
+ * 这次抬起，浏览器也就凑不出 click / dblclick。
+ *
+ * 给到 10 而不是 4：手抖、触摸板轻点会让按下之后漂几个像素，阈值太小会把
+ * 「其实只是想双击」的第一下当成拖动交出去，手感也发涩。
  */
-const DRAG_THRESHOLD = 4
+const DRAG_THRESHOLD = 10
+
+/** 窗口四边的缩放热区厚度（和 App.vue 里 .rz__zone 一致），双击落在里面不算标题栏。 */
+const RESIZE_ZONE = 5
 
 /**
- * 双击 = 两次按下挨得足够近。
+ * 双击标题栏最大化由后端在原生层判（cmd/markpic/caption_windows.go）：
+ * 在 WebView2 的渲染子窗口上收 WM_LBUTTONDOWN，按 800ms / 20 物理像素配对。
  *
- * 不直接等浏览器的 dblclick：它只认系统判定出来的那双击，手腕抖一下或者两次
- * 点击慢一点就整段吞掉，表现成「双击标题栏毫无反应」。这里自己按时间 + 位移判，
- * 容忍度按人手来（500ms / 6px），比浏览器的判定宽松一点。
+ * 下面这套网页判定只是兜底 —— 万一原生那条没挂上（找不到渲染子窗口），
+ * 由它接住，否则双击就彻底没了。两条同时生效反而会互相抵消：
+ * 第二下按下这里先切一次，抬起之后浏览器再发一次 dblclick，慢一点的点击
+ * 就超过防抖间隔，「最大化 + 还原」两下抵消 —— 用户看到的正是「毫无反应」。
  */
 const DOUBLE_CLICK_MS = 500
-const DOUBLE_CLICK_SLOP = 6
+const DOUBLE_CLICK_SLOP = 8
 
-/**
- * 两次切换之间的最小间隔。
- *
- * 双击会有两条路一起报上来（自己判的 mousedown、浏览器的 dblclick），
- * 隔得太近的那一次直接丢掉，否则「最大化 + 还原」两下抵消，看起来像没反应。
- */
+/** 兜底判定里两次切换之间的最小间隔。 */
 const TOGGLE_GUARD_MS = 180
+
+/** 原生判定是否已经接管（由 cmpWinCaption 的返回值告知）。 */
+let nativeCaption = true
 
 let lastDownAt = 0
 let lastDownX = 0
@@ -133,6 +147,33 @@ function reportSnapZone(): void {
   const width = Math.round(rect.width)
   const height = Math.round(rect.height)
   void bridge.cmpWinSnapZone(right, top, width, height)
+}
+
+/**
+ * 把标题栏里「双击可最大化」的范围报给后端，让原生判定知道哪一块算标题栏。
+ *
+ * 参数都是 CSS 像素：标题栏高度、顶部缩放热区的厚度、右侧按钮区从右边量过来
+ * 有多宽（按钮归按钮自己，双击它们不该切窗口）。后端按窗口 DPI 折算成物理像素。
+ * 返回值是原生判定挂上了没有：挂上了就把本页这条兜底判定关掉。
+ */
+function reportCaptionBand(): void {
+  if (!available.value) return
+  const bar = document.querySelector('.tb')
+  if (!(bar instanceof HTMLElement)) return
+  const tools = document.querySelector('.tb__tools')
+  const height = Math.round(bar.getBoundingClientRect().height)
+  const right = tools instanceof HTMLElement ? Math.round(window.innerWidth - tools.getBoundingClientRect().left) : 0
+  if (typeof bridge.cmpWinCaption !== 'function') {
+    nativeCaption = false
+    return
+  }
+  void Promise.resolve(bridge.cmpWinCaption(height, RESIZE_ZONE, right))
+    .then(attached => {
+      nativeCaption = attached === true
+    })
+    .catch(() => {
+      nativeCaption = false
+    })
 }
 
 function toggleMaximize(): void {
@@ -203,9 +244,19 @@ function start(): void {
     if (!maximizeInFlight) void syncMaximized()
     // 窗口大小变了，最大化按钮在屏幕上的位置也跟着变。
     reportSnapZone()
+    reportCaptionBand()
   })
 
+  // 标题栏右侧那排按钮的宽度会随窗口宽度、语言和连接状态变，原生判定要知道
+  // 它从哪儿开始、不能碰，所以盯着这块元素的尺寸。
+  const tools = document.querySelector('.tb__tools')
+  if (tools instanceof HTMLElement && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(reportCaptionBand).observe(tools)
+  }
+
   void syncMaximized()
+  // 布局落定之后再量：标题栏高度和按钮位置都要等第一帧画完才准。
+  void nextFrame().then(() => reportCaptionBand())
 }
 
 export function useWindowControls() {
@@ -254,8 +305,7 @@ export function useWindowControls() {
     },
     /**
      * 在标题栏空白处按下。真正的交接推迟到鼠标确实移动之后：
-     * 只是点一下的话，这次点击留给网页 —— 双击由下面自己判（不靠浏览器的
-     * dblclick，理由见 DOUBLE_CLICK_MS 的注释）；
+     * 只是点一下的话，这次点击留给原生那条双击判定（见 DOUBLE_CLICK_MS 的注释）；
      * 拖动的话，一到阈值就把「按下的那一点」交给系统的标题栏拖动循环，
      * 吸附、双击还原之类的原生手感都还在。
      */
@@ -265,19 +315,21 @@ export function useWindowControls() {
       if (target?.closest('[data-no-drag]')) return
       event.preventDefault()
 
-      // 双击标题栏空白处 = 最大化 / 还原，和系统标题栏一致。判完就把配对清掉，
-      // 免得第三次点击又跟第二次配成一对。
-      const now = Date.now()
-      const repeat =
-        now - lastDownAt <= DOUBLE_CLICK_MS &&
-        Math.abs(event.clientX - lastDownX) <= DOUBLE_CLICK_SLOP &&
-        Math.abs(event.clientY - lastDownY) <= DOUBLE_CLICK_SLOP
-      lastDownAt = repeat ? 0 : now
-      lastDownX = event.clientX
-      lastDownY = event.clientY
-      if (repeat) {
-        toggleMaximize()
-        return
+      // 兜底的双击判定（原生那条没挂上才走到这里）：两次按下挨得够近就是双击。
+      // 判完把配对清掉，免得第三次点击又跟第二次配成一对。
+      if (!nativeCaption) {
+        const now = Date.now()
+        const repeat =
+          now - lastDownAt <= DOUBLE_CLICK_MS &&
+          Math.abs(event.clientX - lastDownX) <= DOUBLE_CLICK_SLOP &&
+          Math.abs(event.clientY - lastDownY) <= DOUBLE_CLICK_SLOP
+        lastDownAt = repeat ? 0 : now
+        lastDownX = event.clientX
+        lastDownY = event.clientY
+        if (repeat) {
+          toggleMaximize()
+          return
+        }
       }
 
       const startX = event.screenX
@@ -293,8 +345,9 @@ export function useWindowControls() {
           return
         }
         stop()
-        // 这次按下已经算拖动，别再留着当双击的第一次：松手后马上单击不该变成最大化。
-        lastDownAt = 0
+        // 这里故意不清 lastDownAt：越过阈值往往只是手抖，第二下马上就到，
+        // 清掉配对等于把双击判死。真正的拖动持续几百毫秒，松手后再单击时
+        // 早已超过 DOUBLE_CLICK_MS，不会误判成双击。
         void bridge.cmpWinDrag?.(startX, startY)
       }
 
