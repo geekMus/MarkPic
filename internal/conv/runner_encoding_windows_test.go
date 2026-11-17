@@ -17,6 +17,11 @@ import (
 // 老的中文文档：本机 ANSI（中文机器上是 GBK）。
 // 以前整份拒收，现在要能正常转换，而且**写回去还是 GBK**。
 func TestANSIDocumentIsConverted(t *testing.T) {
+	// 这个用例的夹具是「本机 ANSI = GBK」；CI 的 runner 是 en-US（代码页 1252），
+	// 中文根本编码不进去，跳过而不是误报失败。
+	if _, err := textenc.Encode([]byte("标题"), textenc.ANSI); err != nil {
+		t.Skipf("本机 ANSI 代码页不是 GBK，跳过：%v", err)
+	}
 	dir := t.TempDir()
 	// 图片文件名也是中文，顺便验证「按 GBK 解出来的路径」能对上磁盘上的文件。
 	writeFile(t, filepath.Join(dir, "图目录", "图片.png"), "png")

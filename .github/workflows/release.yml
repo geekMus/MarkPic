@@ -1,196 +1,484 @@
-# 推送到 main 后自动构建并发版。规则：
-#   - 版本号就是发布当天的日期（CalVer，Asia/Shanghai）：2026.11.14；
-#     同一天再推一次自动顺延成 2026.11.14.1、2026.11.14.2……
-#   - 提交信息里带 [no-release] 的推送只跑检查、不发版；
-#   - Release 记录按提交主题前缀分组：界面/资源 → 新功能，改进/重构/更名 → 改进，修复 → 修复，其余 → 其他；
-#   - 顺序铁律：先把 exe 传上 release，再把 version.json 推回 main——老版本不能在下载地址
-#     还不存在时看到「有新版本」；
-#   - 只有 main 分支会发布：push 只监听 main，手动触发（workflow_dispatch）也被 job 级 if 拦下。
-name: Release
+# 推送到 main 后自动构建并发布 Windows 版。
+#
+# 规则：
+#   - 只有 main 会发版：push 只监听 main；手动触发（workflow_dispatch）在 prepare 的
+#     job 级 if 里被拦下，其他分支和 PR 都走不到这里。
+#   - 版本号就是发布当天的日期（CalVer，Asia/Shanghai）：2026.11.17；
+#     同一天再推一次就顺延成 2026.11.17.1、2026.11.17.2……（靠 tag 探测，不落状态）。
+#   - 提交信息里带 [no-release] 的推送：照常装依赖、构建前端、跑 Go 测试，但不建 release、
+#     不推 version.json —— 相当于一条完整的 CI 检查。
+#   - 目前只产出 Windows / amd64 一个安装包：MarkPic-v<版本>-windows-amd64.exe。
+#   - 顺序铁律：先把 exe 传上 release，再把 version.json 推回 main。老版本不能在下载地址
+#     还不存在时就看到「有新版本」。
+#
+# 分层（与 PacPilot 的 workflow 同一套写法：每层一个 job，末尾写「阶段 N 小结」进 Job Summary）：
+#   阶段 1 prepare：算版本号、判断这次要不要发
+#   阶段 2 build  ：装依赖 → 构建前端 → Go 测试 → 编译 exe → 上传 artifact
+#   阶段 3 publish：生成 Release 记录 → 建 release 传 exe → 回写 version.json 推回 main
+#   阶段 4 report ：汇总各阶段结果
+name: 构建并发布 Windows 版
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
-permissions:
-  contents: write
+env:
+  # 时区集中配置：换发版日历只改这里。
+  RELEASE_TIMEZONE: Asia/Shanghai
+  # 产物前缀，发布时拼成 <前缀>-v<版本>-windows-amd64.exe。
+  ASSET_PREFIX: MarkPic
 
+# 同一工作流、同一 ref 只保留一条；发版要串行写版本号，所以不取消正在跑的那条。
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+# 默认只读，写权限只在真正要推回 main 的那个 job 上开。
+permissions:
+  contents: read
 
 jobs:
   prepare:
-    name: 按日期定版本号
-    runs-on: ubuntu-latest
+    name: 计算版本号
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
     outputs:
-      version: ${{ steps.ver.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      asset: ${{ steps.version.outputs.asset }}
+      publish: ${{ steps.version.outputs.publish }}
+      reason: ${{ steps.version.outputs.reason }}
     steps:
-      - uses: actions/checkout@v5
+      - name: 检出 main 历史与全部标签
+        id: checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 按日期算版本号（同一天第二次发布自动加序号）
-        id: ver
+      - name: 按日期算版本号并判断是否发布
+        id: version
+        shell: bash
         run: |
-          base=$(TZ=Asia/Shanghai date +%Y.%m.%d)
-          v="$base"
-          n=0
-          while git rev-parse -q --verify "refs/tags/v$v" >/dev/null 2>&1; do
-            n=$((n + 1))
-            v="$base.$n"
+          set -euo pipefail
+
+          BASE="$(TZ="$RELEASE_TIMEZONE" date +%Y.%m.%d)"
+          VERSION="$BASE"
+          N=0
+          while git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null 2>&1; do
+            N=$((N + 1))
+            VERSION="$BASE.$N"
           done
-          if ! [[ "$v" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
-            echo "::error::算出来的版本号（$v）不是日期格式"
+
+          if [[ ! "$VERSION" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}(\.[0-9]+)?$ ]]; then
+            echo "::error::算出来的版本号（$VERSION）不是日期格式"
             exit 1
           fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "本次发布：v$v"
 
-  release:
-    name: 构建并发布
+          MESSAGE="$(git log -1 --format='%B')"
+          if [[ "$MESSAGE" == *"[no-release]"* ]]; then
+            PUBLISH="false"
+            REASON="提交信息里带 [no-release]：这次只构建、只跑测试，不发版。"
+          else
+            PUBLISH="true"
+            REASON="准备发布 v$VERSION。"
+          fi
+
+          ASSET="${ASSET_PREFIX}-v${VERSION}-windows-amd64.exe"
+          {
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "asset=$ASSET"
+            echo "publish=$PUBLISH"
+            echo "reason=$REASON"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "发布时区：$RELEASE_TIMEZONE"
+          echo "本次版本：v$VERSION"
+          echo "产物名称：$ASSET"
+          echo "发布判断：$REASON"
+
+      - name: 阶段 1 小结
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ASSET: ${{ steps.version.outputs.asset }}
+          PUBLISH: ${{ steps.version.outputs.publish }}
+          REASON: ${{ steps.version.outputs.reason }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 1：版本号与发布判断"
+            echo
+            echo "- **结果：** ${JOB_STATUS:-未知}"
+            echo "- **目标版本：** ${VERSION:+v}${VERSION:-未算出}"
+            echo "- **产物名称：** ${ASSET:-未确定}"
+            if [[ "${PUBLISH:-}" == "true" ]]; then
+              echo "- **发布决策：** 允许进入构建与发布阶段"
+            elif [[ "${PUBLISH:-}" == "false" ]]; then
+              echo "- **发布决策：** 本次只构建不发布（[no-release]）"
+            else
+              echo "- **发布决策：** 未能完成判断，请查看上方日志"
+            fi
+            echo "- **说明：** ${REASON:-阶段未产生判断结果，详见日志}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: 构建 Windows 版
     needs: prepare
-    if: github.ref == 'refs/heads/main' && !contains(github.event.head_commit.message, '[no-release]')
+    if: needs.prepare.outputs.publish != ''
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    permissions:
+      contents: read
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v5
+      - name: 检出代码（完整历史：Release 记录要用上一个 tag 圈范围）
+        id: checkout
+        uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # Release 记录需要完整历史
-          fetch-tags: true # 用上一个 tag 圈定记录范围
+          fetch-depth: 0
+          fetch-tags: true
 
-      - uses: actions/setup-go@v6
+      - name: 安装 Go
+        id: setup-go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
-      - uses: pnpm/action-setup@v6
+      - name: 安装 pnpm
+        id: setup-pnpm
+        uses: pnpm/action-setup@v6
         with:
           version: 11
+          run_install: false
 
-      - uses: actions/setup-node@v5
+      - name: 安装 Node
+        id: setup-node
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
 
+      - name: 记录构建环境
+        id: env
+        run: |
+          Write-Host "PowerShell：$($PSVersionTable.PSVersion)"
+          Write-Host "Node：$(node --version)"
+          Write-Host "pnpm：$(pnpm --version)"
+          Write-Host "Go：$(go version)"
+          # textenc.ANSI 走的是 GetACP()/CP_ACP：中文机器是 936，GitHub 的 runner 是 1252。
+          # 把这里记下来，失败时一眼就能对上「依赖本机代码页的用例被跳过」。
+          $acp = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage').ACP
+          Write-Host "系统 ANSI 代码页（ACP）：$acp"
+          if ("$acp" -ne "936") {
+            Write-Host "::warning::本机 ANSI 代码页是 $acp，不是 GBK(936)：依赖本机代码页的 GBK 用例会自动跳过。"
+          }
+
       - name: 安装前端依赖
+        id: install
         run: pnpm --dir web install --frozen-lockfile
 
-      - name: 重建前端、跑测试、编译 exe
+      - name: 构建前端（vue-tsc + vite → internal/ui/dist）
+        id: web
+        run: node scripts/web.mjs
+
+      - name: 跑 Go 测试
+        id: tests
+        run: node scripts/test.mjs --pattern ./...
+
+      - name: 编译 exe
+        id: build
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
         run: |
-          node scripts/build.mjs --web --test --version $env:VERSION --output "bin/MarkPic-v$env:VERSION-windows-amd64.exe"
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          node scripts/build.mjs --no-web --version $env:VERSION --output "bin/$($env:ASSET)"
 
-      - name: 生成 Release 记录
+      - name: 校验产物并记录摘要
+        id: verify
+        env:
+          ASSET: ${{ needs.prepare.outputs.asset }}
+        run: |
+          $path = "bin/$($env:ASSET)"
+          if (-not (Test-Path -LiteralPath $path)) {
+            Write-Host "::error::没有生成 $path"
+            exit 1
+          }
+          $item = Get-Item -LiteralPath $path
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash.ToLower()
+          Write-Host ("产物：{0}（{1:N1} MB）" -f $item.Name, ($item.Length / 1MB))
+          Write-Host "SHA256：$hash"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "size=$($item.Length)" -Encoding utf8
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha256=$hash" -Encoding utf8
+
+      - name: 上传安装包给发布阶段
+        id: upload
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-amd64-exe
+          path: bin/${{ needs.prepare.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: 阶段 2 小结
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+          CHECKOUT: ${{ steps.checkout.outcome }}
+          GO: ${{ steps.setup-go.outcome }}
+          PNPM: ${{ steps.setup-pnpm.outcome }}
+          NODE: ${{ steps.setup-node.outcome }}
+          INSTALL: ${{ steps.install.outcome }}
+          WEB: ${{ steps.web.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+          SIZE: ${{ steps.verify.outputs.size }}
+          SHA256: ${{ steps.verify.outputs.sha256 }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 2：构建 Windows 版"
+            echo
+            echo "- **结果：** ${JOB_STATUS:-未知}"
+            echo "- **目标版本：** ${VERSION:+v}${VERSION:-未确定}"
+            echo "- **产物名称：** ${ASSET:-未确定}"
+            echo "- **产物大小：** ${SIZE:-未生成} 字节"
+            echo "- **产物 SHA256：** ${SHA256:-未生成}"
+            echo
+            echo "### 步骤结果"
+            echo
+            echo "- **检出代码：** ${CHECKOUT:-未执行}"
+            echo "- **Go / pnpm / Node：** ${GO:-未执行} / ${PNPM:-未执行} / ${NODE:-未执行}"
+            echo "- **安装前端依赖：** ${INSTALL:-未执行}"
+            echo "- **构建前端：** ${WEB:-未执行}"
+            echo "- **Go 测试：** ${TESTS:-未执行}"
+            echo "- **编译 exe：** ${BUILD:-未执行}"
+            echo "- **校验产物 / 上传：** ${VERIFY:-未执行} / ${UPLOAD:-未执行}"
+            if [[ "${JOB_STATUS:-}" != "success" ]]; then
+              echo
+              echo "- **排查建议：** 在「步骤结果」里找出第一个非 success 的步骤，只看那一段日志；发布阶段不会执行。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: 发布 Release
+    needs: [prepare, build]
+    if: needs.prepare.outputs.publish == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: 检出 main（完整历史）
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 安装 Node（只用于改 package.json 的版本号）
+        id: setup-node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: 下载构建阶段上传的安装包
+        id: download
+        uses: actions/download-artifact@v8
+        with:
+          name: windows-amd64-exe
+          path: bin
+
+      - name: 生成更新说明
         id: notes
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
         run: |
-          [Console]::OutputEncoding = [Text.Encoding]::UTF8
-          $v = $env:VERSION
-          $prev = "$(git describe --tags --abbrev=0 HEAD 2>$null)".Trim()
-          $subjects = if ($prev) { git log --format='%s' "$prev..HEAD" } else { git log --format='%s' }
-
-          $groups = [ordered]@{
-            '新功能' = [System.Collections.Generic.List[string]]::new()
-            '改进'   = [System.Collections.Generic.List[string]]::new()
-            '修复'   = [System.Collections.Generic.List[string]]::new()
-            '其他'   = [System.Collections.Generic.List[string]]::new()
-          }
-          foreach ($s in $subjects) {
-            $t = "$s".Trim()
-            if (-not $t -or $t -match '^release v\d') { continue }
-            if     ($t -match '^(界面|资源)[：:]')      { $groups['新功能'].Add($t) }
-            elseif ($t -match '^(改进|重构|更名)[：:]')  { $groups['改进'].Add($t) }
-            elseif ($t -match '^修复[：:]')             { $groups['修复'].Add($t) }
-            else                                        { $groups['其他'].Add($t) }
-          }
-
-          $now = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time')
-          $lines = [System.Collections.Generic.List[string]]::new()
-          $lines.Add("## v$v（$($now.ToString('yyyy-MM-dd'))）")
-          $icons = @{ '新功能' = '✨'; '改进' = '🔧'; '修复' = '🐛'; '其他' = '📝' }
-          foreach ($key in $groups.Keys) {
-            if ($groups[$key].Count -eq 0) { continue }
-            $lines.Add('')
-            $lines.Add("### $($icons[$key]) $key")
-            foreach ($item in $groups[$key]) { $lines.Add("- $item") }
-          }
-          if ($lines.Count -eq 1) {
-            $lines.Add('')
-            $lines.Add('维护性更新。')
-          }
-          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/notes.md", ($lines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
-
-          if (-not $prev) {
-            $oneLine = '首个版本。'
-          } else {
-            $oneLine = "本次更新：新功能 $($groups['新功能'].Count) 项，改进 $($groups['改进'].Count) 项，修复 $($groups['修复'].Count) 项。"
-          }
-          Add-Content -Path $env:GITHUB_OUTPUT -Value "notes=$oneLine" -Encoding utf8
+          set -euo pipefail
+          SHA="$(sha256sum "bin/$ASSET" | cut -d' ' -f1)"
+          # 更新说明由 scripts/release-notes.mjs 生成；本地可以先预览：
+          #   node scripts/release-notes.mjs --version 2026.11.17 --dry-run
+          node scripts/release-notes.mjs \
+            --version "$VERSION" \
+            --repo "$REPOSITORY" \
+            --asset "$ASSET" \
+            --sha256 "$SHA" \
+            --out "$RUNNER_TEMP/notes.md" \
+            --github-output
+          echo "----------------------------------------"
+          cat "$RUNNER_TEMP/notes.md"
+          echo "----------------------------------------"
 
       - name: 创建 release 并上传 exe
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+        shell: bash
         run: |
-          $v = $env:VERSION
-          gh release create "v$v" "bin/MarkPic-v$v-windows-amd64.exe" --title "v$v" --notes-file notes.md --target "$env:GITHUB_SHA"
+          set -euo pipefail
+          gh release create "$TAG" "bin/$ASSET" \
+            --title "v$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA"
 
-      - name: 回写 version.json 并推回 main
+      - name: 回写 version.json 与 package.json
+        id: manifest
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          NOTES: ${{ steps.notes.outputs.notes }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+          ONELINE: ${{ steps.notes.outputs.oneline }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
         run: |
-          $v = $env:VERSION
-          $tag = "v$v"
-          $asset = "MarkPic-v$v-windows-amd64.exe"
-          $sha = (Get-FileHash -Algorithm SHA256 "bin/$asset").Hash.ToLower()
-          $size = (Get-Item "bin/$asset").Length
-          $now = [TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow, 'China Standard Time')
-          $manifest = [ordered]@{
-            version   = $v
-            tag       = $tag
-            published = $now.ToString('yyyy-MM-dd')
-            notes     = $env:NOTES
-            windows   = [ordered]@{
-              amd64 = [ordered]@{
-                url    = "https://github.com/geekMus/MarkPic/releases/download/$tag/$asset"
-                sha256 = $sha
-                size   = $size
-              }
-            }
-          }
-          $json = ($manifest | ConvertTo-Json -Depth 6) -replace "`r`n", "`n"
-          [IO.File]::WriteAllText("$env:GITHUB_WORKSPACE/version.json", $json + "`n", [Text.UTF8Encoding]::new($false))
+          set -euo pipefail
 
-          # 前端重建可能让 internal/ui/dist 与提交不一致（本地忘了重建时），恢复成提交的内容，保持工作树干净。
-          git checkout -- internal/ui/dist
-          git clean -fd internal/ui/dist
+          PUBLISHED="$(TZ="${{ env.RELEASE_TIMEZONE }}" date +%Y-%m-%d)"
+          SHA="$(sha256sum "bin/$ASSET" | cut -d' ' -f1)"
+          SIZE="$(stat -c%s "bin/$ASSET")"
+          URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg tag "$TAG" \
+            --arg published "$PUBLISHED" \
+            --arg notes "$ONELINE" \
+            --arg url "$URL" \
+            --arg sha256 "$SHA" \
+            --argjson size "$SIZE" \
+            '{version: $version, tag: $tag, published: $published, notes: $notes,
+              windows: {amd64: {url: $url, sha256: $sha256, size: $size}}}' > version.json
+
+          # 只换根 package.json 的第一个 version 字段，避免整份文件被重排。
+          node -e '
+            const fs = require("node:fs");
+            const file = "package.json";
+            const text = fs.readFileSync(file, "utf8");
+            fs.writeFileSync(file, text.replace(/"version"\s*:\s*"[^"]*"/, `"version": "${process.env.VERSION}"`));
+          '
+
+          echo "version.json："
+          cat version.json
+          echo "package.json 版本号：$(node -p "require('./package.json').version")"
+
+      - name: 提交并推回 main
+        id: commit
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          # package.json 的版本号跟着回到刚发的这一版（只换第一个 version 字段，避免整份重排）。
-          $pkgPath = "$env:GITHUB_WORKSPACE/package.json"
-          $pkgText = [IO.File]::ReadAllText($pkgPath)
-          $pattern = [regex]'"version"\s*:\s*"[^"]*"'
-          $pkgText = $pattern.Replace($pkgText, '"version": "' + $v + '"', 1)
-          [IO.File]::WriteAllText($pkgPath, $pkgText, [Text.UTF8Encoding]::new($false))
-
           git add version.json package.json
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host 'version.json 与 package.json 都没变化，跳过推送。'
-          }
-          else {
-            git commit -m "release $tag [skip ci]"
-            git fetch origin main
-            git rebase origin/main
-            git push origin HEAD:main
-          }
+          if git diff --cached --quiet; then
+            echo "version.json 与 package.json 都没有变化，跳过推送。"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # [skip ci]：这次提交只是版本号回写，不需要再跑一遍发版流水线。
+          git commit -m "release v$VERSION [skip ci]"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: 阶段 3 小结
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+          PREVIOUS: ${{ steps.notes.outputs.previous }}
+          FEATURES: ${{ steps.notes.outputs.features }}
+          IMPROVES: ${{ steps.notes.outputs.improves }}
+          FIXES: ${{ steps.notes.outputs.fixes }}
+          DOWNLOAD: ${{ steps.download.outcome }}
+          NOTES: ${{ steps.notes.outcome }}
+          RELEASE: ${{ steps.release.outcome }}
+          MANIFEST: ${{ steps.manifest.outcome }}
+          PUSH: ${{ steps.commit.outcome }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 3：发布 Release"
+            echo
+            echo "- **结果：** ${JOB_STATUS:-未知}"
+            echo "- **版本 / 标签：** v${VERSION:-未确定} / ${TAG:-未确定}"
+            echo "- **产物：** ${ASSET:-未确定}"
+            echo "- **上一个 tag：** ${PREVIOUS:-未获取}"
+            echo "- **记录分组：** 新功能 ${FEATURES:-0} 项 / 改进 ${IMPROVES:-0} 项 / 修复 ${FIXES:-0} 项"
+            echo
+            echo "### 步骤结果"
+            echo
+            echo "- **下载安装包：** ${DOWNLOAD:-未执行}"
+            echo "- **生成记录：** ${NOTES:-未执行}"
+            echo "- **创建 release：** ${RELEASE:-未执行}"
+            echo "- **回写 version.json：** ${MANIFEST:-未执行}"
+            echo "- **推回 main：** ${PUSH:-未执行}"
+            if [[ "${JOB_STATUS:-}" == "success" ]]; then
+              echo
+              echo "- **下一步：** 客户端下次检查更新时会看到 v${VERSION}；dev 分支由「同步 main 到 dev」工作流跟进。"
+            else
+              echo
+              echo "- **注意：** 若安装包已上传但 version.json 未推回，客户端就不会看到这次更新（这是刻意的顺序）。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: 汇总结果
+    needs: [prepare, build, publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: 汇总各阶段结果
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PUBLISH: ${{ needs.prepare.outputs.publish }}
+          REASON: ${{ needs.prepare.outputs.reason }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 4：汇总"
+            echo
+            echo "- **阶段 1（版本号）：** ${PREPARE_RESULT:-未执行}"
+            echo "- **阶段 2（构建）：** ${BUILD_RESULT:-未执行}"
+            echo "- **阶段 3（发布）：** ${PUBLISH_RESULT:-未执行}"
+            echo "- **目标版本：** ${VERSION:+v}${VERSION:-未确定}"
+            if [[ "${PUBLISH:-}" == "false" ]]; then
+              echo "- **结论：** 本次只构建不发布。${REASON:-}"
+            elif [[ "${BUILD_RESULT:-}" == "success" && "${PUBLISH_RESULT:-}" == "success" ]]; then
+              echo "- **结论：** v${VERSION} 已发布，version.json 已推回 main。"
+            elif [[ "${BUILD_RESULT:-}" == "success" ]]; then
+              echo "- **结论：** 构建通过但没有完成发布，请看阶段 3。"
+            else
+              echo "- **结论：** 构建未通过，没有产生 release。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -14,7 +14,20 @@ var (
 	gbkTu    = []byte{0xCD, 0xBC}             // 图
 )
 
+// requireGBK 是这一组用例的共同前提：本机 ANSI 代码页必须是 GBK(936)。
+//
+// textenc.ANSI 走的是 GetACP()/CP_ACP：中文机器上是 936，GitHub 的 windows-latest
+// 是 en-US（1252），「标题」根本编码不进去。那不是缺陷，是环境不同 ——
+// 这里跳过，而不是让 CI 红着报一个假失败。
+func requireGBK(t *testing.T) {
+	t.Helper()
+	if _, err := Encode([]byte("标题"), ANSI); err != nil {
+		t.Skipf("本机 ANSI 代码页不是 GBK，跳过 GBK 相关用例：%v", err)
+	}
+}
+
 func TestANSIRoundTrip(t *testing.T) {
+	requireGBK(t)
 	raw := append(append([]byte("# "), gbkTitle...), ' ', 0x0D, 0x0A)
 	raw = append(raw, gbkTu...)
 	raw = append(raw, '(', 'a', ')', 0x0D, 0x0A)
@@ -39,6 +52,7 @@ func TestANSIRoundTrip(t *testing.T) {
 }
 
 func TestANSIRoundTripKeepsUntouchedBytes(t *testing.T) {
+	requireGBK(t)
 	// 全角空格、中文标点、GBK 的制表符号，都应当原样进出。
 	raw := []byte{0xA1, 0xA1, 0xA3, 0xAC, 0xA1, 0xAA, 0xA8, 0xA2}
 	text, err := Decode(raw, ANSI)
