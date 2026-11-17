@@ -1,8 +1,9 @@
 // Package update 负责检查并安装新版本。
 //
 // 检查方式参照 Magpie：不调 GitHub 的 Releases API（有速率限制，还要能连上
-// api.github.com），而是读仓库里的静态清单 version.json —— 里面写着最新版本号、
-// 各平台的下载地址和 SHA-256。清单小、可以放到任何静态托管上，也方便自建镜像。
+// api.github.com），而是读一份静态清单 version.json —— 里面写着最新版本号、
+// 各平台的下载地址和 SHA-256。清单作为 Release 附件发布，客户端读
+// releases/latest/download/version.json；清单很小，也可以换成任何自建托管。
 //
 // 安装则比 Magpie 简单：我们是单个 exe，没有 DLL 要换，所以不需要第二个进程。
 // Windows 允许给正在运行的程序改名、也允许在原路径写入新文件，于是流程是
@@ -39,10 +40,6 @@ const (
 	// 客户端读 releases/latest 的下载地址，永远指向最新一版。
 	// （以前放在仓库 main 分支上，但 main 现在只接受来自 dev 的合并，CI 推不进去。）
 	DefaultManifestURL = "https://github.com/geekMus/MarkPic/releases/latest/download/version.json"
-
-	// legacyManifestURL 是老位置（仓库 main 分支），只在新地址取不到时兜底：
-	// 清单被误删、或某一次发版漏传附件，用户还有一条退路。
-	legacyManifestURL = "https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json"
 
 	// ReleasePage 是发布页，检查失败时让用户自己去看看。
 	ReleasePage = "https://github.com/geekMus/MarkPic/releases"
@@ -101,23 +98,8 @@ type manifest struct {
 }
 
 // Check 读取版本清单并与当前版本比较。arch 取 runtime.GOARCH（amd64 / arm64）。
-//
-// 主地址（Release 附件）取不到时，退到仓库 main 上的老清单再试一次；
-// 用环境变量指定了地址的（自建镜像、本地调试）就不兜底，免得掩盖配置错误。
 func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release, error) {
-	release, err := checkManifest(ctx, ManifestURL(), current, arch, lang)
-	if err == nil || manifestOverride() != "" {
-		return release, err
-	}
-	// 还是不行就把主地址的错误报出去，别用一个次生错误盖住真正的原因。
-	if fallback, fallbackErr := checkManifest(ctx, legacyManifestURL, current, arch, lang); fallbackErr == nil {
-		return fallback, nil
-	}
-	return release, err
-}
-
-// checkManifest 从指定地址读清单，和当前版本比一比。
-func checkManifest(ctx context.Context, target, current, arch string, lang i18n.Lang) (*Release, error) {
+	target := ManifestURL()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadURL), err)
