@@ -69,7 +69,7 @@ data/
   webview2/
 ```
 
-该目录不可写时会退回 `%APPDATA%\markpic`；也可以用环境变量 `MARKPIC_DATA_DIR` 指定别处。
+Windows 上该目录不可写时会退回 `%APPDATA%\markpic`；也可以用环境变量 `MARKPIC_DATA_DIR` 指定别处。
 
 ## 更新
 

@@ -77,7 +77,7 @@ data/
   webview2/
 ```
 
-If that folder is not writable, MarkPic falls back to `%APPDATA%\markpic`. Set
+On Windows, if that folder is not writable MarkPic falls back to `%APPDATA%\markpic`. Set
 `MARKPIC_DATA_DIR` to point somewhere else.
 
 ## Updating
