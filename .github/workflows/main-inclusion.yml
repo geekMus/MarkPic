@@ -1,0 +1,175 @@
+# 检查 PR 的来源分支是否已经包含最新的 main。
+#
+# 为什么需要它：main 只能由 dev 合入。如果 dev 落后于 main——「同步 main 到 dev」那次跑失败了、
+# 或者有人绕过流程动过 main——把 dev 合回 main 时就会悄悄把 main 上的改动回退掉。
+# 这条检查在 PR 阶段就把这种情况拦下来，而不是等合并之后才发现。
+#
+# 判定规则（满足其一即通过）：
+#   1. 最新 main 是当前分支的祖先（正常的 merge 同步）；
+#   2. 当前分支历史里存在与最新 main 完全一致的文件树（兼容 Squash Merge 重新生成 SHA）。
+#
+# 在规则集里设成必需检查时，选 gate 那个 job 的名字：主分支包含性检查。
+name: 主从同步检查
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+
+permissions:
+  contents: read
+
+# 同一工作流、同一 ref 只保留最新运行；不同工作流或不同 ref 互不取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: 准备待检查分支
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      main_sha: ${{ steps.main.outputs.sha }}
+    steps:
+      - name: 检出当前分支
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          # 对外部 Fork PR，检出贡献者仓库中的源提交。
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: 记录来源提交
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: 获取主仓库最新 main
+        id: main
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          git remote add upstream "https://github.com/${BASE_REPOSITORY}.git"
+          git fetch upstream main:refs/remotes/upstream/main
+          echo "sha=$(git rev-parse upstream/main)" >> "$GITHUB_OUTPUT"
+
+      - name: 阶段 1 小结
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          MAIN_SHA: ${{ steps.main.outputs.sha }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 1：准备待检查分支"
+            echo
+            echo "- **结果：** ${JOB_STATUS}"
+            echo "- **来源提交：** ${SOURCE_SHA:-未获取}"
+            echo "- **检查时 main 提交：** ${MAIN_SHA:-未获取}"
+            if [[ "${JOB_STATUS}" != "success" ]]; then
+              echo "- **后续处理：** 阶段 2 不会执行。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  inclusion:
+    name: 检查是否包含最新 main
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: 检出待检查提交
+        id: checkout
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: 获取主仓库最新 main
+        id: fetch-main
+        env:
+          BASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          git remote add upstream "https://github.com/${BASE_REPOSITORY}.git"
+          git fetch upstream main:refs/remotes/upstream/main
+
+      - name: 检查当前分支是否已同步最新 main
+        id: inclusion-check
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 优先检查真正的提交祖先关系，兼容正常 merge/rebase 同步。
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "检查通过：最新 main 是当前分支的提交祖先。"
+            exit 0
+          fi
+
+          # Squash Merge 会在 main 上重新生成提交 SHA，但合并后的文件树通常与
+          # 当时 dev 的提交树完全一致。检查该代码快照是否出现在当前分支历史中。
+          MAIN_TREE="$(git rev-parse 'upstream/main^{tree}')"
+          if git log --format='%T' HEAD | awk -v target="$MAIN_TREE" '$0 == target { found = 1 } END { exit(found ? 0 : 1) }'; then
+            echo "检查通过：最新 main 的文件树与当前分支历史中的代码快照一致；兼容 Squash Merge。"
+          else
+            echo "::error::当前分支历史中没有与最新 main 相同的文件树，main 可能包含尚未同步的代码变更。请先把 main 合入 dev（或重跑「同步 main 到 dev」）再推送。"
+            echo "最新 main tree：$MAIN_TREE"
+            echo "当前分支 tree：$(git rev-parse 'HEAD^{tree}')"
+            exit 1
+          fi
+
+      - name: 阶段 2 小结
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          MAIN_SHA: ${{ needs.prepare.outputs.main_sha }}
+          FETCH_RESULT: ${{ steps.fetch-main.outcome }}
+          CHECK_RESULT: ${{ steps.inclusion-check.outcome }}
+        shell: bash
+        run: |
+          {
+            echo "## 阶段 2：检查是否包含最新 main"
+            echo
+            echo "- **整体结果：** ${JOB_STATUS}"
+            echo "- **来源提交：** ${SOURCE_SHA:-未获取}"
+            echo "- **准备阶段记录的 main：** ${MAIN_SHA:-未获取}"
+            echo "- **检查阶段获取 main：** ${FETCH_RESULT}"
+            echo "- **代码同步检查：** ${CHECK_RESULT:-未执行}"
+            if [[ "${CHECK_RESULT}" == "success" ]]; then
+              echo "- **结论：** 当前分支包含最新 main 的提交，或其历史中存在与最新 main 完全一致的文件树。"
+            else
+              echo "- **结论：** 当前分支尚未同步最新 main 的代码快照；请先把 main 合入 dev 后重新推送。"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  gate:
+    name: 主分支包含性检查
+    needs: [prepare, inclusion]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: 汇总并验证检查结果
+        env:
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          INCLUSION_RESULT: ${{ needs.inclusion.result }}
+        shell: bash
+        run: |
+          {
+            echo "## 主分支包含性检查"
+            echo
+            echo "- **阶段 1（准备待检查分支）：** ${PREPARE_RESULT}"
+            echo "- **阶段 2（检查是否包含最新 main）：** ${INCLUSION_RESULT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$PREPARE_RESULT" != "success" || "$INCLUSION_RESULT" != "success" ]]; then
+            echo "::error::主分支包含性检查未通过，禁止合并。"
+            exit 1
+          fi
+
+          echo "主分支包含性检查通过。"
