@@ -15,3 +15,6 @@ func ANSIToUTF16([]byte) ([]uint16, bool) { return nil, false }
 
 // UTF16ToANSI 在非 Windows 平台不支持。
 func UTF16ToANSI([]uint16) ([]byte, bool) { return nil, false }
+
+// SetANSICodePageForTest 在非 Windows 平台没有意义，保留同名函数只为两边的 API 一致。
+func SetANSICodePageForTest(uint32) func() { return func() {} }

@@ -1,4 +1,4 @@
-# 推送到 main 后自动构建并发布 Windows 版。
+# 推送到 main 后自动构建并发布。
 #
 # 规则：
 #   - 只有 main 会发版：push 只监听 main；手动触发（workflow_dispatch）在 prepare 的
@@ -18,7 +18,7 @@
 #   阶段 2 build  ：装依赖 → 构建前端 → Go 测试 → 编译 exe → 上传 artifact
 #   阶段 3 publish：生成 Release 记录 → 建 release 传 exe → 回写 version.json 推回 main
 #   阶段 4 report ：汇总各阶段结果
-name: 构建并发布 Windows 版
+name: 构建并发布
 
 on:
   push:
@@ -145,7 +145,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: 构建 Windows 版
+    name: 构建安装包
     needs: prepare
     if: needs.prepare.outputs.publish != ''
     runs-on: windows-latest
@@ -191,13 +191,10 @@ jobs:
           Write-Host "Node：$(node --version)"
           Write-Host "pnpm：$(pnpm --version)"
           Write-Host "Go：$(go version)"
-          # textenc.ANSI 走的是 GetACP()/CP_ACP：中文机器是 936，GitHub 的 runner 是 1252。
-          # 把这里记下来，失败时一眼就能对上「依赖本机代码页的用例被跳过」。
+          # 记一下系统 ANSI 代码页，失败时好对照现场；GBK 相关用例会把代码页钉成 936，
+          # 所以这个值不影响测试覆盖面。
           $acp = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage').ACP
           Write-Host "系统 ANSI 代码页（ACP）：$acp"
-          if ("$acp" -ne "936") {
-            Write-Host "::warning::本机 ANSI 代码页是 $acp，不是 GBK(936)：依赖本机代码页的 GBK 用例会自动跳过。"
-          }
 
       - name: 安装前端依赖
         id: install
@@ -267,7 +264,7 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## 阶段 2：构建 Windows 版"
+            echo "## 阶段 2：构建安装包"
             echo
             echo "- **结果：** ${JOB_STATUS:-未知}"
             echo "- **目标版本：** ${VERSION:+v}${VERSION:-未确定}"
