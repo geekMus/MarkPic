@@ -2,14 +2,14 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-MarkPic 是一个 Windows 桌面工具，处理 Markdown 文档里的图片。三件事互相独立：
+MarkPic 是一个桌面工具，处理 Markdown 文档里的图片。三件事互相独立：
 
 - **上传**：找出文档引用的本地图片，交给 [PicGo](https://github.com/Molunerfinn/PicGo)
   图床上传，再把文档里的地址换成图床链接。
 - **检测**：逐个检查文章里已有的网络图片，报告打不开、不是图片、只返回半截的状况。只读，不改文档。
 - **下载**：把这些网络图片下载到本地的 `images/`，链接改成相对路径。
 
-程序是单个 `.exe`，界面内嵌：不需要 Node.js，不起本地服务，没有命令行。上传只走 PicGo
+程序是单个自包含的应用，界面内嵌：不需要 Node.js，不起本地服务，没有命令行。上传只走 PicGo
 的本机 HTTP 接口，MarkPic 不接触你的图床密钥。
 
 ## 一眼看懂
@@ -28,6 +28,8 @@ MarkPic 是一个 Windows 桌面工具，处理 Markdown 文档里的图片。�
 从 [Releases](https://github.com/geekMus/MarkPic/releases) 下载
 `MarkPic-v<版本>-windows-amd64.exe`。没有安装程序：放哪都能跑。已安装的版本会自己更新，
 设置与缓存放在 exe 旁边的 `data/` 目录里。
+
+目前只发布 Windows 版；macOS 和 Linux 在计划中，但还没有在真机上验证过。
 
 ## 快速开始
 

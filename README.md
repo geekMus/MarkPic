@@ -2,8 +2,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-MarkPic is a Windows desktop app for the images inside Markdown documents. It does
-three independent jobs:
+MarkPic is a desktop app for the images inside Markdown documents. It does three
+independent jobs:
 
 - **Upload** — find the local images a document references, send them to your
   [PicGo](https://github.com/Molunerfinn/PicGo) image host, and rewrite the links to
@@ -13,9 +13,9 @@ three independent jobs:
 - **Download** — pull those remote images into a local `images/` folder and rewrite
   the links to relative paths.
 
-It is a single `.exe` with the UI embedded: no Node.js, no local server, no command
-line. Uploads go through PicGo's local HTTP interface, so MarkPic never sees your
-image-host credentials.
+It ships as one self-contained app with the UI embedded: no Node.js, no local server,
+no command line. Uploads go through PicGo's local HTTP interface, so MarkPic never
+sees your image-host credentials.
 
 ## At a glance
 
@@ -35,6 +35,9 @@ Download `MarkPic-v<version>-windows-amd64.exe` from
 [Releases](https://github.com/geekMus/MarkPic/releases). There is no installer: put
 it anywhere and run it. An installed copy updates itself; settings and caches live in
 the `data/` folder next to the executable.
+
+Windows is the only platform published so far; macOS and Linux are planned, but not
+verified yet.
 
 ## Quick start
 
