@@ -56,7 +56,7 @@ function parseCli(argv) {
 }
 
 /**
- * 可被 release.mjs 复用：不解析命令行，只做「前端 → 测试 → 图标 → 编译 → 版本信息」。
+ * 供其它脚本复用：不解析命令行，只做「前端 → 测试 → 图标 → 编译 → 版本信息」。
  */
 export function buildProject(options = {}) {
   const go = options.go || resolveGo(options.goHint ?? '');

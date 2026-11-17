@@ -10,13 +10,15 @@
 #   - 提交信息里带 [no-release] 的推送：照常装依赖、构建前端、跑 Go 测试，但不建 release、
 #     不推 version.json —— 相当于一条完整的 CI 检查。
 #   - 目前只产出 Windows / amd64 一个安装包：MarkPic-v<版本>-windows-amd64.exe。
-#   - 顺序铁律：先把 exe 传上 release，再把 version.json 推回 main。老版本不能在下载地址
-#     还不存在时就看到「有新版本」。
+#   - 顺序铁律：先建草稿 release，把 exe 和 version.json 都传齐，最后才发布。老版本不能
+#     在下载地址还不存在时就看到「有新版本」。
+#   - 清单不再写回 main（main 只接受来自 dev 的合并，CI 推不进去），而是作为 release
+#     附件上传；客户端读 releases/latest/download/version.json。
 #
 # 分层（与 PacPilot 的 workflow 同一套写法：每层一个 job，末尾写「阶段 N 小结」进 Job Summary）：
 #   阶段 1 prepare：算版本号、判断这次要不要发
 #   阶段 2 build  ：装依赖 → 构建前端 → Go 测试 → 编译 exe → 上传 artifact
-#   阶段 3 publish：生成 Release 记录 → 建 release 传 exe → 回写 version.json 推回 main
+#   阶段 3 publish：生成更新说明 → 生成版本清单 → 建草稿 → 传 exe 与清单 → 发布
 #   阶段 4 report ：汇总各阶段结果
 name: 构建并发布
 
@@ -303,7 +305,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 安装 Node（只用于改 package.json 的版本号）
+      - name: 安装 Node（生成更新说明要用）
         id: setup-node
         uses: actions/setup-node@v5
         with:
@@ -339,23 +341,7 @@ jobs:
           cat "$RUNNER_TEMP/notes.md"
           echo "----------------------------------------"
 
-      - name: 创建 release 并上传 exe
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ASSET: ${{ needs.prepare.outputs.asset }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release create "$TAG" "bin/$ASSET" \
-            --title "v$VERSION" \
-            --notes-file "$RUNNER_TEMP/notes.md" \
-            --target "$GITHUB_SHA"
-
-      - name: 回写 version.json 与 package.json
+      - name: 生成版本清单
         id: manifest
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -363,15 +349,16 @@ jobs:
           ASSET: ${{ needs.prepare.outputs.asset }}
           ONELINE: ${{ steps.notes.outputs.oneline }}
           REPOSITORY: ${{ github.repository }}
+          TIMEZONE: ${{ env.RELEASE_TIMEZONE }}
         shell: bash
         run: |
           set -euo pipefail
-
-          PUBLISHED="$(TZ="${{ env.RELEASE_TIMEZONE }}" date +%Y-%m-%d)"
+          PUBLISHED="$(TZ="$TIMEZONE" date +%Y-%m-%d)"
           SHA="$(sha256sum "bin/$ASSET" | cut -d' ' -f1)"
           SIZE="$(stat -c%s "bin/$ASSET")"
           URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 
+          mkdir -p "$RUNNER_TEMP/manifest"
           jq -n \
             --arg version "$VERSION" \
             --arg tag "$TAG" \
@@ -381,41 +368,43 @@ jobs:
             --arg sha256 "$SHA" \
             --argjson size "$SIZE" \
             '{version: $version, tag: $tag, published: $published, notes: $notes,
-              windows: {amd64: {url: $url, sha256: $sha256, size: $size}}}' > version.json
+              windows: {amd64: {url: $url, sha256: $sha256, size: $size}}}' \
+            > "$RUNNER_TEMP/manifest/version.json"
 
-          # 只换根 package.json 的第一个 version 字段，避免整份文件被重排。
-          node -e '
-            const fs = require("node:fs");
-            const file = "package.json";
-            const text = fs.readFileSync(file, "utf8");
-            fs.writeFileSync(file, text.replace(/"version"\s*:\s*"[^"]*"/, `"version": "${process.env.VERSION}"`));
-          '
+          echo "version.json（随 release 一起发布）："
+          cat "$RUNNER_TEMP/manifest/version.json"
 
-          echo "version.json："
-          cat version.json
-          echo "package.json 版本号：$(node -p "require('./package.json').version")"
-
-      - name: 提交并推回 main
-        id: commit
+      - name: 建草稿 release
+        id: release
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add version.json package.json
-          if git diff --cached --quiet; then
-            echo "version.json 与 package.json 都没有变化，跳过推送。"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # [skip ci]：这次提交只是版本号回写，不需要再跑一遍发版流水线。
-          git commit -m "release v$VERSION [skip ci]"
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+          # 草稿不会被 releases/latest 选中：等 exe 和清单都传齐再发布，
+          # 客户端就不可能看到「清单已在、包还没上传」的中间状态。
+          gh release create "$TAG" --draft \
+            --title "v$VERSION" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA"
+
+      - name: 上传 exe 与清单并发布
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          ASSET: ${{ needs.prepare.outputs.asset }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "bin/$ASSET" --clobber
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest/version.json" --clobber
+          gh release edit "$TAG" --draft=false
+          echo "已发布 $TAG（exe + version.json）"
 
       - name: 阶段 3 小结
         if: always()
@@ -430,9 +419,9 @@ jobs:
           FIXES: ${{ steps.notes.outputs.fixes }}
           DOWNLOAD: ${{ steps.download.outcome }}
           NOTES: ${{ steps.notes.outcome }}
-          RELEASE: ${{ steps.release.outcome }}
           MANIFEST: ${{ steps.manifest.outcome }}
-          PUSH: ${{ steps.commit.outcome }}
+          RELEASE: ${{ steps.release.outcome }}
+          PUBLISH: ${{ steps.publish.outcome }}
         shell: bash
         run: |
           {
@@ -447,16 +436,16 @@ jobs:
             echo "### 步骤结果"
             echo
             echo "- **下载安装包：** ${DOWNLOAD:-未执行}"
-            echo "- **生成记录：** ${NOTES:-未执行}"
-            echo "- **创建 release：** ${RELEASE:-未执行}"
-            echo "- **回写 version.json：** ${MANIFEST:-未执行}"
-            echo "- **推回 main：** ${PUSH:-未执行}"
+            echo "- **生成更新说明：** ${NOTES:-未执行}"
+            echo "- **生成版本清单：** ${MANIFEST:-未执行}"
+            echo "- **建草稿 release：** ${RELEASE:-未执行}"
+            echo "- **上传并发布：** ${PUBLISH:-未执行}"
             if [[ "${JOB_STATUS:-}" == "success" ]]; then
               echo
-              echo "- **下一步：** 客户端下次检查更新时会看到 v${VERSION}；dev 分支由「同步 main 到 dev」工作流跟进。"
+              echo "- **说明：** 客户端读的是 Release 附件 version.json（releases/latest/download/version.json），不再依赖 main 分支上的文件。"
             else
               echo
-              echo "- **注意：** 若安装包已上传但 version.json 未推回，客户端就不会看到这次更新（这是刻意的顺序）。"
+              echo "- **注意：** 草稿 release 不会被客户端看到；修好之后重跑，或者去 Releases 页面把草稿删掉。"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 

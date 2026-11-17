@@ -1,8 +1,9 @@
 // Package update 负责检查并安装新版本。
 //
 // 检查方式参照 Magpie：不调 GitHub 的 Releases API（有速率限制，还要能连上
-// api.github.com），而是读仓库里的静态清单 version.json —— 里面写着最新版本号、
-// 各平台的下载地址和 SHA-256。清单小、可以放到任何静态托管上，也方便自建镜像。
+// api.github.com），而是读一份静态清单 version.json —— 里面写着最新版本号、
+// 各平台的下载地址和 SHA-256。清单作为 Release 附件发布，客户端读
+// releases/latest/download/version.json；清单很小，也可以换成任何自建托管。
 //
 // 安装则比 Magpie 简单：我们是单个 exe，没有 DLL 要换，所以不需要第二个进程。
 // Windows 允许给正在运行的程序改名、也允许在原路径写入新文件，于是流程是
@@ -35,8 +36,10 @@ import (
 )
 
 const (
-	// DefaultManifestURL 是版本清单的默认地址。
-	DefaultManifestURL = "https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json"
+	// DefaultManifestURL 是版本清单的默认地址：发版时作为 Release 附件上传，
+	// 客户端读 releases/latest 的下载地址，永远指向最新一版。
+	// （以前放在仓库 main 分支上，但 main 现在只接受来自 dev 的合并，CI 推不进去。）
+	DefaultManifestURL = "https://github.com/geekMus/MarkPic/releases/latest/download/version.json"
 
 	// ReleasePage 是发布页，检查失败时让用户自己去看看。
 	ReleasePage = "https://github.com/geekMus/MarkPic/releases"
@@ -51,13 +54,18 @@ const (
 	maxManifestBytes = 256 << 10
 )
 
-// ManifestURL 返回版本清单地址，允许通过环境变量覆盖。
-func ManifestURL() string {
+// manifestOverride 返回环境变量里写死的清单地址（没有就是空串）。
+func manifestOverride() string {
 	if v := strings.TrimSpace(os.Getenv(ManifestEnv)); v != "" {
 		return v
 	}
 	// 旧名字也认。
-	if v := strings.TrimSpace(os.Getenv(LegacyManifestEnv)); v != "" {
+	return strings.TrimSpace(os.Getenv(LegacyManifestEnv))
+}
+
+// ManifestURL 返回版本清单地址，允许通过环境变量覆盖。
+func ManifestURL() string {
+	if v := manifestOverride(); v != "" {
 		return v
 	}
 	return DefaultManifestURL
