@@ -6,7 +6,7 @@
 # 触发：
 #   - push 到 main：日常提交直接推 main 时同步；
 #   - main 上的 PR 关闭（合并）：走 PR 流程时同步；
-#   - 「构建并发布 Windows 版」跑完：那条 [skip ci] 的回写提交不会触发 push 事件，
+#   - 「构建并发布」跑完：那条 [skip ci] 的回写提交不会触发 push 事件，
 #     所以再挂一次发布完成事件兜底；
 #   - workflow_dispatch：手动补一次。
 #
@@ -24,7 +24,7 @@ on:
       - main
   workflow_run:
     workflows:
-      - 构建并发布 Windows 版
+      - 构建并发布
     types:
       - completed
     branches:
