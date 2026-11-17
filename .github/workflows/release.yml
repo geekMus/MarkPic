@@ -305,7 +305,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: 安装 Node（只用于改 package.json 的版本号）
+      - name: 安装 Node（生成更新说明要用）
         id: setup-node
         uses: actions/setup-node@v5
         with:
