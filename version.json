@@ -1,13 +1,13 @@
 {
-  "version": "1.0.0",
-  "tag": "v1.0.0",
-  "published": "2026-11-09",
+  "version": "2026.11.17",
+  "tag": "v2026.11.17",
+  "published": "2026-11-17",
   "notes": "首个版本。",
   "windows": {
     "amd64": {
-      "url": "",
-      "sha256": "",
-      "size": 0
+      "url": "https://github.com/geekMus/MarkPic/releases/download/v2026.11.17/MarkPic-v2026.11.17-windows-amd64.exe",
+      "sha256": "16e4a84dff5a36d9b360af9e74c81757ed1547a5e7f3d839ccd51c523107c65e",
+      "size": 8242688
     }
   }
 }

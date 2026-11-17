@@ -1,6 +1,6 @@
 {
   "name": "markpic",
-  "version": "2026.11.14",
+  "version": "2026.11.17",
   "private": true,
   "repository": { "type": "git", "url": "https://github.com/geekMus/MarkPic.git" },
   "description": "MarkPic：把 Markdown 里的图片收进图床（Go + 原生窗口 + Vue 3 界面，纯桌面程序）",
