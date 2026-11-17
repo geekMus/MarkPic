@@ -3,6 +3,8 @@
 # 规则：
 #   - 只有 main 会发版：push 只监听 main；手动触发（workflow_dispatch）在 prepare 的
 #     job 级 if 里被拦下，其他分支和 PR 都走不到这里。
+#   - 只有会进 exe 的路径才发版（cmd/ internal/ web/ scripts/ assets/ tools/ go.mod go.sum
+#     package.json）；只动文档或 CI 配置的合并不发版，需要时用 workflow_dispatch 手动触发。
 #   - 版本号就是发布当天的日期（CalVer，Asia/Shanghai）：2026.11.17；
 #     同一天再推一次就顺延成 2026.11.17.1、2026.11.17.2……（靠 tag 探测，不落状态）。
 #   - 提交信息里带 [no-release] 的推送：照常装依赖、构建前端、跑 Go 测试，但不建 release、
@@ -22,6 +24,18 @@ on:
   push:
     branches:
       - main
+    # 只有会进 exe 的路径才发版：只动文档、README、.github 的合并不再给用户推一版。
+    # 需要在这种情况下也发一版，用 workflow_dispatch 手动触发（同样只能在 main 上跑）。
+    paths:
+      - 'cmd/**'
+      - 'internal/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'assets/**'
+      - 'tools/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
   workflow_dispatch:
 
 env:
