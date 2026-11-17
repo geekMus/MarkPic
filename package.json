@@ -2,7 +2,7 @@
   "name": "markpic",
   "private": true,
   "repository": { "type": "git", "url": "https://github.com/geekMus/MarkPic.git" },
-  "description": "MarkPic：把 Markdown 里的图片收进图床（Go + 原生窗口 + Vue 3 界面，纯桌面程序）",
+  "description": "Markdown image manager: upload local images to your PicGo host, check or download the remote ones. No installer, no local server, no command line.",
   "//": "任务入口：Node 脚本跨平台，真正的依赖在 web/package.json；需要 Node 20.19+。",
   "engines": { "node": ">=20.19" },
   "scripts": {
