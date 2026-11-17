@@ -1,0 +1,77 @@
+# 使用说明
+
+[English](usage.md) | [简体中文](usage.zh-CN.md) · 返回 [README](../README.zh-CN.md)
+
+## 三种作业
+
+| 作业 | 处理什么 | 会改文档吗 | 需要 PicGo 开着 |
+| --- | --- | --- | --- |
+| 上传 | 本地图片 → 图床 | 会 | 是 |
+| 检测 | 网络图片地址 | 不会 | 否 |
+| 下载 | 网络图片 → `images/` | 会 | 否 |
+
+- **上传**：文章里原有的远程图片原样保留。
+- **检测**：只读，但也会指出「文档引用了、磁盘上却不存在」的本地图。
+- **下载**：只处理远程图，本地图保留。
+
+拖入文件或整个文件夹，看队列、中途取消、失败重试、只看问题，每张图的明细可以展开。
+同一张图只上传一次；已经上传/下载过且内容未变的图直接复用。
+
+## 输出方式
+
+| 模式 | 结果 |
+| --- | --- |
+| sidecar（默认） | 生成 `note.converted.md`，原文件不动 |
+| in-place | 改写原文件，先备份成 `note.md.bak` |
+| directory | 写到指定目录；同名文件自动加序号，不覆盖已有文件 |
+
+## 支持的写法
+
+```markdown
+![图片](images/a.png)
+![图片](images/a.png "标题")
+![图片](<images/带 空格.png>)
+![](images/有(括号).png)
+<img src="images/a.png" width="60">
+<img srcset="images/a.png 1x, images/a@2x.png 2x">
+<source srcset="images/wide.png 640w">
+![完整][ref1]  ![折叠][]  ![简写]
+[ref1]: images/a.png
+```
+
+- 支持引用式图片、HTML `src` / `srcset` / `<source>`、一行多图、带空格或括号的路径。
+- 跳过远程图、`data:`、缺失的本地文件，以及 `.ps` / `.eps` / `.pdf` / `.ai` /
+  `.psd` / `.sketch` / `.fig` / `.drawio` 这类附件。
+- 代码块、行内代码、HTML 注释、`<pre>` / `<code>` 里的图片不处理。
+
+## 编码
+
+文档按原编码读入、按原编码写回：UTF-8（含或不含 BOM）、带 BOM 的 UTF-16、以及本机
+ANSI 代码页。程序内部统一是 UTF-8，但只有「能逐字节转回原文」的文档才会被接受——
+所以除了被替换掉的图片地址，其余内容不可能发生漂移。
+
+## 设置
+
+PicGo 地址、并发数、重试次数；是否复用上次的上传/下载结果；输出方式、输出目录、
+sidecar 后缀、远程图存放目录；主题（亮色 / 暗色 / 跟随系统）；语言（中文 / 英文）；
+关闭窗口时询问、最小化到托盘还是直接退出；是否启动时进入托盘。
+
+## 数据目录
+
+默认在 exe 旁边：
+
+```text
+MarkPic.exe
+data/
+  settings.json
+  upload-cache.json
+  remote-cache.json
+  webview2/
+```
+
+该目录不可写时会退回 `%APPDATA%\markpic`；也可以用环境变量 `MARKPIC_DATA_DIR` 指定别处。
+
+## 更新
+
+已安装的版本会读每次发布随包上传的版本清单，在「关于」里提示更新；`+dev` 的开发构建
+不检查更新。想自建镜像的话，把 `MARKPIC_UPDATE_MANIFEST` 指向你自己的 `version.json`。
