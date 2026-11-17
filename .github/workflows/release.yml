@@ -80,8 +80,9 @@ jobs:
             exit 1
           fi
 
-          MESSAGE="$(git log -1 --format='%B')"
-          if [[ "$MESSAGE" == *"[no-release]"* ]]; then
+          # 只看提交标题：正文里引用这个标记（写提交说明、写文档时）不该让发布被跳过。
+          SUBJECT="$(git log -1 --format='%s')"
+          if [[ "$SUBJECT" == *"[no-release]"* ]]; then
             PUBLISH="false"
             REASON="提交信息里带 [no-release]：这次只构建、只跑测试，不发版。"
           else
