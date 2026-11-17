@@ -159,7 +159,9 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 				mu.Lock()
 				done++
 				progress := done
-				mu.Unlock()
+				// 进度事件在锁里发：done 保证单调递增，回调也不会被多个 worker 同时调用。
+				// 下游（app.Batcher、测试里的收集函数）都按「同一个文件的事件是顺序来的」写，
+				// 一旦并发进来，done 会倒退、Items 增量会在并发追加里丢掉。
 				r.notify(Event{
 					Type:  EventFileProgress,
 					ID:    id,
@@ -167,6 +169,7 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 					Total: total,
 					Items: patches,
 				})
+				mu.Unlock()
 			}
 		}()
 	}
