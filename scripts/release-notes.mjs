@@ -20,7 +20,7 @@ const HELP = [
   '把上一个 tag 到 HEAD 的提交按类型分组，生成 GitHub Release 的更新说明。',
   '',
   '选项：',
-  '  --version <号>      本次版本号（不带 v）；默认取 package.json 的 version',
+  '  --version <号>      本次版本号（不带 v）；默认取当天日期（Asia/Shanghai）',
   '  --from <tag>        从哪个 tag 开始算；默认自动找最近的 tag，找不到就按首个版本算',
   '  --repo <owner/repo> GitHub 仓库，用来拼提交链接和 compare 链接；默认从 package.json 读',
   '  --asset <文件名>    安装包文件名，写进「安装」小节',
@@ -243,8 +243,9 @@ function main() {
   }
 
   const pkg = readPackageJson();
-  const version = values.version || String(pkg.version || '');
-  if (!version) throw new Error('没有版本号：用 --version 指定，或者先在 package.json 里写一个。');
+  // 版本号不写进任何 package.json：发版号由 tag 定，平时预览按当天日期算，
+  // 和流水线的 CalVer 规则一致（当天第一次发就是当天日期）。
+  const version = values.version || todayInShanghai().replace(/-/gu, '.');
 
   const repo = values.repo || (process.env.GITHUB_REPOSITORY || repoFromPackageJson(pkg));
   const from = values.from !== undefined ? values.from : previousTag();
