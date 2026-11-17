@@ -20,6 +20,9 @@ import (
 )
 
 // Emit 是事件回调，可以为 nil（CLI 模式）。
+// Emit 是事件出口。它可能被多个 goroutine 同时调用（多个文件并行转换，日志事件也是随时发的），
+// 实现方必须自己保证并发安全；同一个文件的进度事件由 runner 串行发出，done 单调递增、
+// Items 增量按顺序到达。
 type Emit func(Event)
 
 type cacheEntry struct {
