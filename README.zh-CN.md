@@ -42,4 +42,4 @@ MarkPic 是一个桌面工具，处理 Markdown 文档里的图片。三件事�
 
 - [使用说明](docs/usage.zh-CN.md)：支持的写法、输出方式、设置、数据目录
 - [构建与开发](docs/build.zh-CN.md)：工具链、脚本、目录结构
-- [Bridge API](docs/API.md)：内嵌界面的通信接口（中文）
+- [Bridge API](docs/API.zh-CN.md)：内嵌界面与 Go 之间的通信接口

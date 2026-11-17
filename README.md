@@ -50,4 +50,4 @@ verified yet.
 
 - [Usage](docs/usage.md) — supported syntax, output modes, settings, data directory
 - [Build & development](docs/build.md) — toolchain, scripts, repository layout
-- [Bridge API](docs/API.md) — internal WebView2 bridge (Chinese)
+- [Bridge API](docs/API.md) — internal WebView2 bridge between the UI and Go
