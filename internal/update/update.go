@@ -35,8 +35,14 @@ import (
 )
 
 const (
-	// DefaultManifestURL 是版本清单的默认地址。
-	DefaultManifestURL = "https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json"
+	// DefaultManifestURL 是版本清单的默认地址：发版时作为 Release 附件上传，
+	// 客户端读 releases/latest 的下载地址，永远指向最新一版。
+	// （以前放在仓库 main 分支上，但 main 现在只接受来自 dev 的合并，CI 推不进去。）
+	DefaultManifestURL = "https://github.com/geekMus/MarkPic/releases/latest/download/version.json"
+
+	// legacyManifestURL 是老位置（仓库 main 分支），只在新地址取不到时兜底：
+	// 清单被误删、或某一次发版漏传附件，用户还有一条退路。
+	legacyManifestURL = "https://raw.githubusercontent.com/geekMus/MarkPic/main/version.json"
 
 	// ReleasePage 是发布页，检查失败时让用户自己去看看。
 	ReleasePage = "https://github.com/geekMus/MarkPic/releases"
@@ -51,13 +57,18 @@ const (
 	maxManifestBytes = 256 << 10
 )
 
-// ManifestURL 返回版本清单地址，允许通过环境变量覆盖。
-func ManifestURL() string {
+// manifestOverride 返回环境变量里写死的清单地址（没有就是空串）。
+func manifestOverride() string {
 	if v := strings.TrimSpace(os.Getenv(ManifestEnv)); v != "" {
 		return v
 	}
 	// 旧名字也认。
-	if v := strings.TrimSpace(os.Getenv(LegacyManifestEnv)); v != "" {
+	return strings.TrimSpace(os.Getenv(LegacyManifestEnv))
+}
+
+// ManifestURL 返回版本清单地址，允许通过环境变量覆盖。
+func ManifestURL() string {
+	if v := manifestOverride(); v != "" {
 		return v
 	}
 	return DefaultManifestURL
@@ -90,8 +101,23 @@ type manifest struct {
 }
 
 // Check 读取版本清单并与当前版本比较。arch 取 runtime.GOARCH（amd64 / arm64）。
+//
+// 主地址（Release 附件）取不到时，退到仓库 main 上的老清单再试一次；
+// 用环境变量指定了地址的（自建镜像、本地调试）就不兜底，免得掩盖配置错误。
 func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release, error) {
-	target := ManifestURL()
+	release, err := checkManifest(ctx, ManifestURL(), current, arch, lang)
+	if err == nil || manifestOverride() != "" {
+		return release, err
+	}
+	// 还是不行就把主地址的错误报出去，别用一个次生错误盖住真正的原因。
+	if fallback, fallbackErr := checkManifest(ctx, legacyManifestURL, current, arch, lang); fallbackErr == nil {
+		return fallback, nil
+	}
+	return release, err
+}
+
+// checkManifest 从指定地址读清单，和当前版本比一比。
+func checkManifest(ctx context.Context, target, current, arch string, lang i18n.Lang) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
 		return nil, fmt.Errorf(i18n.T(lang, i18n.KeyUpdateBadURL), err)
