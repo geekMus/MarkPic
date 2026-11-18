@@ -221,6 +221,8 @@ func hideToTray() bool {
 // showFromTray 从托盘或最小化状态回到屏幕。托盘图标从启动一直挂到退出，
 // 不在这里摘：窗口回来了，通知区那个入口仍然在（用户要求与 Mac 版一致）。
 func showFromTray() {
+	// 启动时窗口被 cloak 住还没露过面的话，先揭开 —— 只 Show 是看不见的。
+	revealStartupWindow()
 	hwnd := hwndValue()
 	if hwnd == 0 {
 		return

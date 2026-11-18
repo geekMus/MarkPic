@@ -178,6 +178,47 @@ func TestCheckAcceptsOnlyRealUpgrades(t *testing.T) {
 	})
 }
 
+func TestCheckReadsNotesBody(t *testing.T) {
+	const sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	// 整篇更新说明走 notesBody：程序里的「更新说明」对话框读它，
+	// notes 仍然只留给关于里那一行摘要。
+	t.Run("清单带 notesBody 就读进来", func(t *testing.T) {
+		body := fmt.Sprintf(`{
+  "version": "1.2.0", "tag": "v1.2.0", "notes": "一句话简介", "published": "2026-01-01",
+  "notesBody": "## v1.2.0（2026-01-01）\n\n### ✨ 新功能\n- 第一条\n",
+  "windows": {"amd64": {"url": "http://example.invalid/a.exe", "sha256": %q, "size": 3}}
+}`, sha)
+		srv := manifestServer(t, body, http.StatusOK)
+		t.Setenv(ManifestEnv, srv.URL)
+
+		rel, err := Check(context.Background(), "1.0.0", "amd64", i18n.ZH)
+		if err != nil {
+			t.Fatalf("不该报错：%v", err)
+		}
+		want := "## v1.2.0（2026-01-01）\n\n### ✨ 新功能\n- 第一条"
+		if rel.NotesBody != want {
+			t.Errorf("notesBody = %q，想要 %q", rel.NotesBody, want)
+		}
+		if rel.Notes != "一句话简介" {
+			t.Errorf("notes 该还是一句话摘要：%q", rel.Notes)
+		}
+	})
+
+	t.Run("老清单没有 notesBody 就是空串", func(t *testing.T) {
+		srv := manifestServer(t, manifestWith("1.2.0", "amd64", "http://example.invalid/a.exe", sha), http.StatusOK)
+		t.Setenv(ManifestEnv, srv.URL)
+
+		rel, err := Check(context.Background(), "1.0.0", "amd64", i18n.ZH)
+		if err != nil {
+			t.Fatalf("不该报错：%v", err)
+		}
+		if rel.NotesBody != "" {
+			t.Errorf("没有 notesBody 时该是空串，实际 %q", rel.NotesBody)
+		}
+	})
+}
+
 func TestDownloadVerifiesHash(t *testing.T) {
 	payload := []byte("假装这是一个 exe")
 	sum := sha256.Sum256(payload)

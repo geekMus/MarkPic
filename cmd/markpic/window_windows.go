@@ -9,7 +9,9 @@ import (
 	"log"
 	"math"
 	"os"
+	"runtime"
 	"syscall"
+	"time"
 
 	webview2 "github.com/jchv/go-webview2"
 
@@ -37,6 +39,12 @@ var (
 // openAppWindow 在原生窗口里打开界面，并在传给 stop 的通道收到信号时关掉窗口。
 // 窗口被用户关闭后返回 nil；拿不到 WebView2 时返回 errNoWebView2。
 func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Signal) error {
+	// 窗口、WebView2 和消息循环必须在同一个 OS 线程上：Go 的 goroutine 会被调度
+	// 到别的线程去，而 Windows 的窗口消息只投递给创建它的那个线程。启动闸门的
+	// CBT 钩子也是按线程挂的，不锁线程就会挂到一条「已经不在跑这段代码」的线上。
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
 	// 尺寸与内边距都是按 96 DPI 设计的，窗口要按显示器缩放折算成物理像素，
 	// 这样在 125% / 150% 的屏幕上界面「看上去」还是同样大小（内容由 WebView 自己按缩放渲染）。
 	scale := systemScale()
@@ -49,6 +57,18 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 		width = uint(math.Round(float64(saved.Width) * scale))
 		height = uint(math.Round(float64(saved.Height) * scale))
 	}
+
+	// 先挂一张同尺寸的「正在启动」画面：主窗口要等 WebView2 起来才有内容，
+	// 这张图几毫秒就能画出来，双击后立刻有反应（见 splash_windows.go）。
+	if !desktop.StartInTray() {
+		showSplash(width, height, scale, resolveThemeDark(startupThemeChoice()))
+		defer closeSplash()
+	}
+
+	// 窗口建出来之后先别让人看见：库建完窗口立刻 ShowWindow，而 WebView2 要
+	// 再过几百毫秒才初始化完，那段时间屏幕上是白底 + 系统标题栏的空窗口。
+	// 钩子在这里挂、下一个窗口创建时生效（见 startup_windows.go）。
+	holdStartupWindow(!desktop.StartInTray())
 
 	w := webview2.NewWithOptions(webview2.WebViewOptions{
 		AutoFocus: true,
@@ -63,6 +83,7 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 			IconId: 1,
 		},
 	})
+	releaseStartupHook()
 	if w == nil {
 		return errNoWebView2
 	}
@@ -70,6 +91,8 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 
 	// 去掉系统标题栏，标题栏交给前端画（Magpie 风格）。
 	installWindowChrome(w)
+	// cloak 万一没成功：至少别让用户盯着那块白板等 WebView2 起来。
+	concealStartupWindow()
 
 	// 托盘图标跟进程同寿：窗口开着也在通知区留一个入口（用户要求与 Mac 版
 	// 一致），只有真正退出程序才摘掉。挂不上不影响窗口继续用。
@@ -85,7 +108,11 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 	// hideToTray 自己保证「先挂上托盘图标再藏窗口」，挂不上就不藏 ——
 	// 否则用户既看不见窗口，也找不到托盘入口。
 	if desktop.StartInTray() {
-		hideToTray()
+		if !hideToTray() {
+			// 托盘图标没挂上就不藏：前端报到时照常露面，否则用户既看不见窗口、
+			// 也找不到托盘入口。启动闸门在那种情况下也得跟着放行。
+			allowStartupReveal()
+		}
 	}
 
 	if err := bindBridge(w, desktop); err != nil {
@@ -121,6 +148,10 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 	}
 
 	w.Navigate(indexURL)
+	// 前端一直不报到就先露出来：界面再慢，也不该让人以为程序没打开。
+	time.AfterFunc(startupRevealFallback, func() {
+		w.Dispatch(func() { markStartupWindowReady() })
+	})
 	w.Run()
 	return nil
 }
@@ -177,6 +208,10 @@ func bindWindowCommands(w webview2.WebView, desktop *app.App) {
 		}},
 		{"cmpWinTheme", func(choice string) { applyThemeChoice(w, choice) }},
 		{"cmpWinFlash", func() { flashTaskbar() }},
+		// 前端首屏画完了：揭开启动时 cloak 住的窗口（见 startup_windows.go）。
+		{"cmpWinReady", func() {
+			w.Dispatch(func() { markStartupWindowReady() })
+		}},
 		{"cmpWinSnapZone", func(x, y, w, h int) { placeSnapOverlay(x, y, w, h) }},
 	}
 	for _, b := range binds {

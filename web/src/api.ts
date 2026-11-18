@@ -86,6 +86,17 @@ async function call<T>(method: string, params: unknown = {}): Promise<T> {
   return reply.data as T
 }
 
+/**
+ * 首屏已经画好：让原生窗口露面（见 cmd/markpic/startup_windows.go）。
+ *
+ * 窗口命令走 go-webview2 的直接绑定（和 cmpWinMinimize 一样），没有参数；
+ * 浏览器预览里没有这个函数，所以是可选调用。
+ */
+export function markWindowReady(): void {
+  const bridge = window as Window & { cmpWinReady?: () => Promise<unknown> }
+  void bridge.cmpWinReady?.()
+}
+
 /** 把任意异常收敛成一句可展示的文案。 */
 export function describeError(error: unknown, fallback: string): string {
   if (error instanceof ApiError) return error.message.trim() || fallback
