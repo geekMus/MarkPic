@@ -280,6 +280,7 @@ export const en: Record<keyof typeof zh, string> = {
   'about.dataDir': 'Data folder',
   'about.downloadProgress': 'Download progress',
   'about.notes': 'Release notes',
+  'about.notesEmpty': 'No release notes yet',
   'about.autoCheck': 'Check for updates on startup',
   'about.release': 'Open release page',
   'about.checkUpdate': 'Check for updates',
@@ -295,6 +296,11 @@ export const en: Record<keyof typeof zh, string> = {
   'about.state.error': 'Check failed',
   'about.state.idle': 'Not checked yet',
 
+  // What's new dialog: one version line plus the whole release note
+  'whatsnew.title': "What's new",
+  'whatsnew.newVersion': 'New version',
+  'whatsnew.empty': 'The release notes could not be loaded. The release page has them for every version.',
+  'whatsnew.release': 'Open release page',
 
   // Close confirmation
   'close.title': 'Close MarkPic',

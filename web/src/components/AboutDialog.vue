@@ -16,7 +16,7 @@ const props = defineProps<{
   settingsNote?: string
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; 'open-notes': [] }>()
 
 /* 打开就把焦点搬进对话框：键盘操作不该落在背后的页面上 */
 const panel = ref<HTMLElement | null>(null)
@@ -87,8 +87,15 @@ const statusTone = computed(() => {
   }
 })
 
-const notes = computed(() => status.value.notes.trim())
-const published = computed(() => status.value.published.trim())
+/**
+ * 「更新说明」只留一行：版本号加摘要，够判断值不值得点开。整篇在 WhatsNewDialog 里。
+ */
+const notesLine = computed(() => {
+  const latest = status.value.latest.trim()
+  if (!latest) return t('about.notesEmpty')
+  const summary = status.value.notes.trim()
+  return summary ? `v${latest} · ${summary}` : `v${latest}`
+})
 
 const sizeLabel = computed(() => {
   const size = status.value.asset.size
@@ -177,6 +184,15 @@ async function openDataDir(): Promise<void> {
             <dd class="mono">{{ sizeLabel }}</dd>
           </div>
           <div class="about__fact">
+            <dt>{{ t('about.notes') }}</dt>
+            <dd class="about__path">
+              <span class="about__path-text" :title="notesLine">{{ notesLine }}</span>
+              <button type="button" class="btn btn--ghost btn--sm" @click="emit('open-notes')">
+                {{ t('common.open') }}
+              </button>
+            </dd>
+          </div>
+          <div class="about__fact">
             <dt>{{ t('about.project') }}</dt>
             <dd class="about__path">
               <span
@@ -218,14 +234,6 @@ async function openDataDir(): Promise<void> {
           aria-valuemax="100"
         >
           <span class="about__bar-fill" :style="{ width: percent + '%' }" />
-        </div>
-
-        <div v-if="notes" class="about__notes selectable">
-          <h3 class="about__notes-title">
-            {{ t('about.notes') }}
-            <span v-if="published" class="about__notes-date mono">{{ published }}</span>
-          </h3>
-          <pre class="about__notes-body">{{ notes }}</pre>
         </div>
 
         <label class="check about__auto">
@@ -371,38 +379,6 @@ async function openDataDir(): Promise<void> {
   height: 100%;
   background: var(--accent);
   transition: width 200ms var(--ease);
-}
-
-.about__notes {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.about__notes-title {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 6px;
-  color: var(--ink-3);
-  font-size: var(--fs-2);
-  font-weight: 500;
-}
-
-.about__notes-date {
-  font-size: var(--fs-1);
-}
-
-.about__notes-body {
-  max-height: 132px;
-  margin: 0;
-  overflow-y: auto;
-  color: var(--ink-2);
-  font-family: var(--font);
-  font-size: var(--fs-2);
-  line-height: 1.55;
-  white-space: pre-wrap;
 }
 
 .about__auto {

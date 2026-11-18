@@ -19,6 +19,7 @@ type updateStatus struct {
 	Latest      string       `json:"latest"`
 	Tag         string       `json:"tag"`
 	Notes       string       `json:"notes"`
+	NotesBody   string       `json:"notesBody"`
 	Published   string       `json:"published"`
 	Asset       update.Asset `json:"asset"`
 	Received    int64        `json:"received"`
@@ -62,6 +63,7 @@ func (t *updateTracker) applyRelease(rel *update.Release) {
 	t.status.Latest = rel.Latest
 	t.status.Tag = rel.Tag
 	t.status.Notes = rel.Notes
+	t.status.NotesBody = rel.NotesBody
 	t.status.Published = rel.Published
 	t.status.Asset = rel.Asset
 	t.status.Received, t.status.Total = 0, rel.Asset.Size

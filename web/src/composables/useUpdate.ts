@@ -38,6 +38,7 @@ function blank(): UpdateStatus {
     latest: '',
     tag: '',
     notes: '',
+    notesBody: '',
     published: '',
     asset: { url: '', sha256: '', size: 0 },
     received: 0,

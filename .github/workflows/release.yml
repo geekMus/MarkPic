@@ -359,15 +359,19 @@ jobs:
           URL="https://github.com/$REPOSITORY/releases/download/$TAG/$ASSET"
 
           mkdir -p "$RUNNER_TEMP/manifest"
+          # notes 是给「有新版本」那一行看的一句话摘要；notesBody 是整篇更新说明
+          # ——程序里的「更新说明」对话框读的是它，不用再连一次 GitHub。
           jq -n \
             --arg version "$VERSION" \
             --arg tag "$TAG" \
             --arg published "$PUBLISHED" \
             --arg notes "$ONELINE" \
+            --rawfile notesBody "$RUNNER_TEMP/notes.md" \
             --arg url "$URL" \
             --arg sha256 "$SHA" \
             --argjson size "$SIZE" \
             '{version: $version, tag: $tag, published: $published, notes: $notes,
+              notesBody: $notesBody,
               windows: {amd64: {url: $url, sha256: $sha256, size: $size}}}' \
             > "$RUNNER_TEMP/manifest/version.json"
 

@@ -84,6 +84,7 @@ type Release struct {
 	Latest    string
 	Tag       string
 	Notes     string
+	NotesBody string // 发布说明正文（Markdown），可能为空：老清单里没有
 	Published string
 	Asset     Asset
 	HasUpdate bool
@@ -94,6 +95,7 @@ type manifest struct {
 	Tag       string           `json:"tag"`
 	Notes     string           `json:"notes"`
 	Published string           `json:"published"`
+	NotesBody string           `json:"notesBody"`
 	Windows   map[string]Asset `json:"windows"`
 }
 
@@ -139,6 +141,7 @@ func Check(ctx context.Context, current, arch string, lang i18n.Lang) (*Release,
 	}
 
 	release := &Release{
+		NotesBody: strings.TrimSpace(m.NotesBody),
 		Current:   current,
 		Latest:    strings.TrimSpace(m.Version),
 		Tag:       strings.TrimSpace(m.Tag),

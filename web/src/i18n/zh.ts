@@ -277,6 +277,7 @@ export const zh = {
   'about.dataDir': '数据目录',
   'about.downloadProgress': '下载进度',
   'about.notes': '更新说明',
+  'about.notesEmpty': '还没拿到更新说明',
   'about.autoCheck': '启动时自动检查更新',
   'about.release': '打开发布页',
   'about.checkUpdate': '检查更新',
@@ -292,6 +293,11 @@ export const zh = {
   'about.state.error': '检查失败',
   'about.state.idle': '还没有检查过',
 
+  // 更新说明弹窗：照 magpie 的 What's new，一行版本 + 整篇发布说明
+  'whatsnew.title': '更新说明',
+  'whatsnew.newVersion': '新版本',
+  'whatsnew.empty': '这次没能拿到更新说明。发布页上每个版本都写着一份。',
+  'whatsnew.release': '打开发布页',
 
   // 关闭确认
   'close.title': '关闭 MarkPic',

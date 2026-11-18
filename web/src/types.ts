@@ -311,6 +311,8 @@ export type UpdateStatus = {
   latest: string
   tag: string
   notes: string
+  /** 发布说明正文（Markdown）：清单里的 notesBody，没有就是空串。 */
+  notesBody: string
   published: string
   asset: UpdateAsset
   received: number

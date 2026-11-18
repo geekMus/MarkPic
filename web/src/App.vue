@@ -11,9 +11,11 @@ import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
+import WhatsNewDialog from './components/WhatsNewDialog.vue'
 import {
   describeError,
   isDialogUnsupported,
+  markWindowReady,
   pickFiles,
   pickFolder,
   revealPath,
@@ -177,6 +179,17 @@ const runningElsewhere = computed<string>(() => {
   return t('footer.runningElsewhereMany', { pages: names.join(t('common.listJoin')) })
 })
 const aboutOpen = ref(false)
+
+/**
+ * 「更新说明」弹窗：从关于里点「打开」进来，关于本身先关掉 —— 两个弹窗叠在一起
+ * 既挡视线又难退出，一次只留一个。
+ */
+const whatsNewOpen = ref(false)
+
+function openWhatsNew(): void {
+  aboutOpen.value = false
+  whatsNewOpen.value = true
+}
 
 /**
  * 点叉号需要确认的两种情况（见 cmd/markpic/chrome_windows.go 的 WM_CLOSE）：
@@ -535,6 +548,10 @@ function handleKeydown(event: KeyboardEvent): void {
       closePrompt.value = false
       return
     }
+    if (whatsNewOpen.value) {
+      whatsNewOpen.value = false
+      return
+    }
     if (aboutOpen.value) {
       aboutOpen.value = false
       return
@@ -561,6 +578,22 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
+/**
+ * 首屏画完再让原生窗口露面。
+ *
+ * 启动时窗口是 cloak 着的（见 cmd/markpic/startup_windows.go）：报到之前用户
+ * 根本看不到窗口，也就不会先看见一个白底、带系统标题栏的空窗口。两份首屏数据
+ * 落地、再等两帧把界面画出来，报到才算数。
+ */
+async function revealWindowWhenReady(firstLoad: Promise<unknown>): Promise<void> {
+  await firstLoad.catch(() => undefined)
+  await nextTick()
+  await new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
+  })
+  markWindowReady()
+}
+
 onMounted(() => {
   // 后端点叉号时调用；浏览器预览里没有这个函数，弹窗也就不会出现。
   closeBridge.__markpicCloseRequest = handleCloseRequest
@@ -571,8 +604,8 @@ onMounted(() => {
     () => writeQueues(),
   )
   window.setTimeout(() => void restoreQueue(), 700)
-  void refreshHealth()
-  void loadSettings()
+  // 首屏要这两份数据：拿到（或失败）再让原生窗口露面，别把半张空架子推给人。
+  void revealWindowWhenReady(Promise.allSettled([refreshHealth(), loadSettings()]))
   window.addEventListener('keydown', handleKeydown)
   // 启动后悄悄查一次（可在「关于」里关掉），查到就在侧边栏版本号旁点个记号。
   if (autoCheck.value) {
@@ -739,7 +772,11 @@ onBeforeUnmount(() => {
       :data-note="dataNote"
       :settings-note="settingsNote"
       @close="aboutOpen = false"
+      @open-notes="openWhatsNew"
     />
+
+    <!-- 更新说明：关于里那一行的「打开」把正文搬到这里 -->
+    <WhatsNewDialog v-if="whatsNewOpen" @close="whatsNewOpen = false" />
 
     <!-- 点叉号需要确认时：没有任务可选最小化或退出并勾「不再询问」，有任务只确认是否退出 -->
     <CloseConfirmDialog
