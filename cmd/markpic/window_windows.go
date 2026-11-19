@@ -147,6 +147,9 @@ func openAppWindow(indexURL, title string, desktop *app.App, stop <-chan os.Sign
 		}()
 	}
 
+	// 网页层拿不到拖入文件的本地路径（见 drop_windows.go），在原生侧接管放置目标。
+	installFileDrop(w, hwndValue())
+
 	w.Navigate(indexURL)
 	// 前端一直不报到就先露出来：界面再慢，也不该让人以为程序没打开。
 	time.AfterFunc(startupRevealFallback, func() {

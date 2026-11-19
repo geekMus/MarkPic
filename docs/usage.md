@@ -15,10 +15,16 @@
   the disk no longer has.
 - **Download** only touches remote images; local ones are left alone.
 
-Drop files or a whole folder, watch the queue, cancel mid-run, retry failures, filter
-down to problems only, and expand any row for per-image details. The same image is
-never uploaded twice, and an unchanged image that was already uploaded or downloaded
-is reused from cache.
+Drop a single file, several files, or a whole folder. The path comes from the native
+drop target — WebView2 itself never exposes the local path of a dropped file. A folder
+is scanned recursively, and **the extension is not what decides**: a file counts as a
+document when it is `.md` / `.markdown`, or when its opening bytes look like Markdown
+(a heading, an image, a link, a table, a fenced block). So `.txt` notes and extension-less
+fragments are picked up too, while images, archives and other binaries are skipped.
+
+Watch the queue, cancel mid-run, retry failures, filter down to problems only, and expand
+any row for per-image details. The same image is never uploaded twice, and an unchanged
+image that was already uploaded or downloaded is reused from cache.
 
 ## Output modes
 
