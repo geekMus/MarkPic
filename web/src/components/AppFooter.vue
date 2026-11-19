@@ -11,8 +11,7 @@ const props = defineProps<{
   remoteMode?: 'ignore' | 'check' | 'download'
   busy: boolean
   canStart: boolean
-  canReveal: boolean
-  /** 调试构建：整轮只扫描、不写文件，所以「打开输出目录」必然打空。 */
+  /** 调试构建：这一轮不写文件，有些读数得换个说法（见 remoteKept）。 */
   debug: boolean
   /**
    * 另一页正在跑时的一句说明（「转换 正在运行」）。
@@ -33,7 +32,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   run: []
   cancel: []
-  reveal: []
 }>()
 
 const { t } = useI18n()
@@ -210,13 +208,7 @@ const parts = computed<Part[]>(() => {
   return list
 })
 
-// 调试构建没有真正写出文件，别给一个必然失败的「打开输出目录」
-const showReveal = computed(
-  () =>
-    props.canReveal && !props.debug && (props.phase === 'done' || props.phase === 'cancelled'),
-)
 
-const showShortcut = computed(() => props.canStart && !props.busy)
 </script>
 
 <template>
@@ -230,17 +222,6 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 
     <div class="foot__actions">
       <span v-if="!busy && blockedHint" class="foot__hint">{{ blockedHint }}</span>
-
-      <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
-        <kbd class="kbd">Ctrl</kbd>
-        <span class="foot__plus">+</span>
-        <kbd class="kbd">Enter</kbd>
-      </span>
-
-      <button v-if="showReveal" type="button" class="btn btn--secondary" @click="emit('reveal')">
-        <AppIcon name="folder-open" :size="15" />
-        {{ t('footer.reveal') }}
-      </button>
 
       <button
         v-if="phase === 'preparing'"
@@ -352,22 +333,4 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   white-space: nowrap;
 }
 
-.foot__kbd {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-.foot__plus {
-  color: var(--ink-3);
-}
-
-/* 窄窗口：先丢掉快捷键提示，把空间让给汇总和按钮 */
-@media (max-width: 820px) {
-  .foot__kbd {
-    display: none;
-  }
-}
 </style>

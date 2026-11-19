@@ -44,6 +44,10 @@ func Read[V any](path string) (map[string]V, int) {
 // Save 把 entries 合并进磁盘上已有的内容（界面与其它进程可能同时在写），
 // 交给 prune 淘汰之后原子写回，返回真正落盘的那一份。
 func Save[V any](path string, entries map[string]V, prune func(map[string]V)) (map[string]V, error) {
+	// 没给路径 = 这个缓存是关掉的：什么都不写，也不要报错。
+	if path == "" {
+		return entries, nil
+	}
 	merged := make(map[string]V, len(entries))
 	if raw, err := os.ReadFile(path); err == nil {
 		var f file[V]

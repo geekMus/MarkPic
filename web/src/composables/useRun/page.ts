@@ -217,7 +217,7 @@ export function restoreQueuePage(mode: RemoteMode, saved: readonly string[]): st
     added.push(path)
     const { name, dir } = splitPath(path)
     page.rows.push({
-      id: `local-${++page.localSeq}`,
+      id: pageLocalId(mode),
       path,
       name,
       dir,
@@ -243,7 +243,20 @@ export function pageRows(mode: RemoteMode): RunRow[] {
   return pages[mode].rows
 }
 
-/** 给新加进队列的一行发一个本地 id（服务端那套 id 要等扫描回来才有）。 */
+/**
+ * 给某一页的新行发一个本地 id（服务端那套 id 要等扫描回来才有）。
+ *
+ * 计数器必须按页唯一：seq.local 只是「当前页那个计数器」的别名，切页时同步。
+ * 以前扫描展开直接 ++page.localSeq、而 addPaths 走 seq.local —— 两套计数器各走各的，
+ * 同一页会发出重复的 id；Vue 按 key 复用组件，于是出现「卡片标题和展开内容对不上」。
+ */
+export function pageLocalId(mode: RemoteMode): string {
+  const page = pages[mode]
+  page.localSeq += 1
+  if (mode === activePage) seq.local = page.localSeq
+  return 'local-' + page.localSeq
+}
+
 export function nextLocalId(): string {
-  return 'local-' + String(++seq.local)
+  return pageLocalId(activePage)
 }

@@ -83,7 +83,6 @@ const {
   isRunBusy,
   totalCount,
   completedCount,
-  revealTarget,
   connect,
   disconnect,
   addPaths,
@@ -303,7 +302,6 @@ const startHint = computed(() => {
   if (scanBlocked.value.length > 0) return t('footer.blocked.problem', { count: scanBlocked.value.length })
   return ''
 })
-const canReveal = computed(() => revealTarget.value !== null)
 
 async function pick(kind: 'files' | 'folder'): Promise<void> {
   try {
@@ -481,16 +479,6 @@ async function handleRefreshHealth(): Promise<void> {
   else info(t('toast.healthNotNeeded'))
 }
 
-async function handleReveal(): Promise<void> {
-  const target = revealTarget.value
-  if (target === null) return
-  try {
-    await revealPath(target)
-  } catch (error) {
-    warning(t('error.revealOutput', { detail: describeError(error, t('error.unknown')) }))
-  }
-}
-
 /** 行上的「在资源管理器里打开」：改完文档总要去看一眼 */
 async function revealRow(path: string): Promise<void> {
   try {
@@ -532,7 +520,7 @@ function goView(next: View): void {
   })
 }
 
-/** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
+/** Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
   const mod = event.ctrlKey || event.metaKey
   if (mod && event.key.toLowerCase() === 'o') {
@@ -572,21 +560,6 @@ function handleKeydown(event: KeyboardEvent): void {
     if (isFormView.value) {
       goView(viewOfMode(mode.value))
       return
-    }
-  }
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    // 表单页上回车是「保存」——底栏那个「开始」按钮不在这两页上
-    if (isFormView.value) {
-      if (dirty.value) {
-        event.preventDefault()
-        void handleSaveSettings()
-      }
-      return
-    }
-    if (aboutOpen.value) return
-    if (canStart.value) {
-      event.preventDefault()
-      handleRun()
     }
   }
 }
@@ -756,11 +729,9 @@ onBeforeUnmount(() => {
           :remote-mode="mode"
           :busy="jobBusy"
           :can-start="canStart"
-          :can-reveal="canReveal"
           :debug="mode !== 'check' && debug"
           @run="handleRun"
           @cancel="cancel"
-          @reveal="handleReveal"
         />
           </div>
           </Transition>

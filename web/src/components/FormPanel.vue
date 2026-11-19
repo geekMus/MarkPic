@@ -106,11 +106,6 @@ onMounted(() => {
       </div>
 
       <footer v-if="props.loaded" class="panel__foot panel__foot--form">
-        <span class="form__kbd">
-          <span class="kbd">Ctrl</span>
-          <span class="kbd">Enter</span>
-          {{ t('settings.shortcut.save') }}
-        </span>
         <button
           type="button"
           class="btn btn--ghost btn--sm"
@@ -151,15 +146,6 @@ onMounted(() => {
   color: var(--warn);
   font-size: var(--fs-1);
   font-weight: 500;
-}
-
-.form__kbd {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-right: auto;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
 }
 
 .panel__note--dirty {

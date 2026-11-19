@@ -76,7 +76,12 @@ export function reindexPage(page: QueuePage): void {
 }
 
 export function reindexRows(): void {
-  reindexPage(pages[activePage])
+  // rows.value 可能刚被整体替换过（applyStarted 会重建数组）：先把这一页的引用同步过来，
+  // 再按它建索引。不同步的话索引表记的是旧数组的顺序，之后按路径 / 服务端 id 找行
+  // 就会找错 —— 表现是「卡片标题和展开的明细对不上」。
+  const page = pages[activePage]
+  page.rows = rows.value
+  reindexPage(page)
 }
 
 export function pushRow(row: RunRow): void {

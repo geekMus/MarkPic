@@ -14,7 +14,7 @@ import { markRaw } from 'vue'
 import { cancelScan as requestCancelScan, describeError, scanStart as requestScanStart } from '../../api'
 import type { FileResult, RemoteMode, ScanEvent } from '../../types'
 import { t } from '../../i18n'
-import { activePage, pages, pageRows, rows } from './page'
+import { activePage, pageLocalId, pages, pageRows, rows } from './page'
 import { pathKey, splitPath } from './paths'
 import { reindexPage, seedImagesFromRows } from './rows'
 import type { RunRow, ScanState } from './types'
@@ -83,7 +83,7 @@ function appendScannedRow(mode: RemoteMode, file: FileResult): void {
 
   const fallback = splitPath(file.path)
   const row: RunRow = {
-    id: 'local-' + ++page.localSeq,
+    id: pageLocalId(mode),
     path: file.path,
     name: file.name || fallback.name,
     dir: file.dir || fallback.dir,

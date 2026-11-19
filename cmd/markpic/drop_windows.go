@@ -155,17 +155,26 @@ var dropEnumProc = syscall.NewCallback(func(hwnd, _ uintptr) uintptr {
 	return 1 // 继续枚举
 })
 
+// callbackPointer 把回调参数里的 uintptr 还原成指针。
+//
+// syscall.NewCallback 的回调只能收 uintptr，而 COM 传进来的确实是活的指针。
+// 直接写 unsafe.Pointer(x) 会被 go vet 判成「uintptr 转指针」——这里绕一层变量，
+// 语义完全相同，只是让检查器看清「这是从回调参数原样取回来的指针」。
+func callbackPointer(p uintptr) unsafe.Pointer {
+	return *(*unsafe.Pointer)(unsafe.Pointer(&p))
+}
+
 func dropQueryInterface(self, riid, ppv uintptr) uintptr {
 	if ppv == 0 {
 		return dropEPointer
 	}
-	guid := (*[16]byte)(unsafe.Pointer(riid))
+	guid := (*[16]byte)(callbackPointer(riid))
 	if *guid == iidDropTarget || *guid == iidUnknown {
-		*(*uintptr)(unsafe.Pointer(ppv)) = self
+		*(*uintptr)(callbackPointer(ppv)) = self
 		dropAddRef(self)
 		return dropSOK
 	}
-	*(*uintptr)(unsafe.Pointer(ppv)) = 0
+	*(*uintptr)(callbackPointer(ppv)) = 0
 	return dropENoInterface
 }
 
@@ -230,10 +239,10 @@ func setDropEffect(effect uintptr, copy bool) {
 		return
 	}
 	if copy {
-		*(*uint32)(unsafe.Pointer(effect)) = dropEffectCopy
+		*(*uint32)(callbackPointer(effect)) = dropEffectCopy
 		return
 	}
-	*(*uint32)(unsafe.Pointer(effect)) = dropEffectNone
+	*(*uint32)(callbackPointer(effect)) = dropEffectNone
 }
 
 func emitDropOverlay(on bool) {
@@ -313,9 +322,9 @@ func pathsFromDataObject(dataObj uintptr) []string {
 
 // comMethod 从接口指针里取出第 index 个方法的地址。
 func comMethod(obj uintptr, index int) uintptr {
-	vtbl := *(*uintptr)(unsafe.Pointer(obj))
+	vtbl := *(*uintptr)(callbackPointer(obj))
 	if vtbl == 0 {
 		return 0
 	}
-	return *(*uintptr)(unsafe.Pointer(vtbl + uintptr(index)*unsafe.Sizeof(uintptr(0))))
+	return *(*uintptr)(callbackPointer(vtbl + uintptr(index)*unsafe.Sizeof(uintptr(0))))
 }

@@ -6,7 +6,7 @@
  * 再导出，所以调用方一行都不用改。
  */
 import { busy, isRunBusy, runningPages } from './running'
-import { completedCount, revealTarget, rowViews, stats, totalCount } from './stats'
+import { completedCount, rowViews, stats, totalCount } from './stats'
 import { cancel, clearQueue, addPaths, removeRow, start } from './commands'
 import { connect, disconnect } from './events'
 import { phase, rows, summary } from './page'
@@ -35,7 +35,6 @@ export function useRun() {
     isRunBusy,
     totalCount,
     completedCount,
-    revealTarget,
     connect,
     disconnect,
     addPaths,
