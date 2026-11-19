@@ -72,10 +72,10 @@ func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missin
 					skipped = append(skipped, path)
 					return nil
 				}
-				// 后缀不再是唯一标准：目录里可能有 .txt、无后缀的片段，甚至
-				// 别的编辑器存的 .markdown。收不收由内容判断（见 markdown_detect.go），
-				// 里面先按后缀与二进制特征把读盘省掉。
-				if !markdownDocument(path) {
+				// 后缀不再是标准：目录里可能有 .txt、.log、无后缀的片段。
+				// 只要是文本文件就收（见 document_detect.go），这样「文件夹里有几份
+				// 文档就有几张卡片」，不会因为内容里恰好没有 Markdown 标记而被悄悄跳过。
+				if !documentFile(path) {
 					return nil
 				}
 				add(path)

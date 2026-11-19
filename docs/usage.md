@@ -18,10 +18,10 @@
 Drop a single file, several files, or a whole folder. The path comes from the native
 drop target — WebView2 itself never exposes the local path of a dropped file. A folder
 is scanned recursively and immediately expanded into one card per document — you never
-see a folder card. **The extension is not what decides**: a file counts as a
-document when it is `.md` / `.markdown`, or when its opening bytes look like Markdown
-(a heading, an image, a link, a table, a fenced block). So `.txt` notes and extension-less
-fragments are picked up too, while images, archives and other binaries are skipped.
+see a folder card. **Every text file counts**: `.md`, `.txt`, `.log`, extension-less
+notes, whether or not it has an image to upload. A document with nothing to upload still
+gets a card, so the queue always matches what is in the folder. Only binaries are skipped:
+images, archives, executables, PDFs and Office files.
 
 Watch the queue, cancel mid-run, retry failures, filter down to problems only, and expand
 any row for per-image details. The same image is never uploaded twice, and an unchanged
