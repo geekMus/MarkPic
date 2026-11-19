@@ -9,9 +9,9 @@ import { markRaw } from 'vue'
 import { cancelScan as requestCancelScan, describeError, scanStart as requestScanStart } from '../../api'
 import type { FileResult, RemoteMode, ScanEvent } from '../../types'
 import { t } from '../../i18n'
-import { activePage, pageRows, rows } from './page'
-import { pathKey } from './paths'
-import { seedImagesFromRows } from './rows'
+import { activePage, pages, pageRows, rows } from './page'
+import { pathKey, splitPath } from './paths'
+import { reindexPage, seedImagesFromRows } from './rows'
 import type { RunRow, ScanState } from './types'
 
 /* ---------------- 扫描（每张卡片自己扫） ---------------- */
@@ -48,12 +48,15 @@ export function rowOfPage(mode: RemoteMode, path: string): RunRow | undefined {
 }
 
 /**
- * 把一份文件（或一个目录下的若干文件）的扫描结果写到行上。
+ * 把一份路径的扫描结果写到行上。
  *
- * 目录行没有「自己」的结果 —— 前缀命中的那些加起来就是它的张数，和以前
- * preview 的做法一致；一份都没命中说明路径不存在或目录里没有 Markdown。
+ * 三种情况：
+ *   - 结果里有路径完全相同的文件：那就是这一份文档，直接落数；
+ *   - 一条结果都没有：路径不存在，或目录里没有一份能当成 Markdown 的文件；
+ *   - 结果里有别的文件：说明拖进来的其实是个目录 —— 把这一行就地换成
+ *     文件一张卡片、目录本身不留（见 expandDirectoryRow）。
  */
-export function writeScanResult(row: RunRow, files: readonly FileResult[]): void {
+export function writeScanResult(mode: RemoteMode, row: RunRow, files: readonly FileResult[]): void {
   const key = pathKey(row.path)
   const exact = files.find((file) => pathKey(file.path) === key)
   if (exact) {
@@ -61,27 +64,60 @@ export function writeScanResult(row: RunRow, files: readonly FileResult[]): void
     row.images = exact.images
     row.total = exact.images
     row.missing = false
-    row.isDir = false
     return
   }
 
-  const prefix = `${key}\\`
-  let sum = 0
-  let matched = false
-  for (const file of files) {
-    if (pathKey(file.path).startsWith(prefix)) {
-      sum += file.images
-      matched = true
-    }
-  }
-  if (matched) {
-    row.images = sum
-    row.total = sum
-    row.missing = false
-    row.isDir = true
-  } else {
+  if (files.length === 0) {
     row.missing = true
+    row.images = null
+    return
   }
+
+  expandDirectoryRow(mode, row, files)
+}
+
+/**
+ * 把一个目录行就地展开成逐份文档的卡片。
+ *
+ * 队列里一张卡片就该对应一份要处理的文档；目录只是用户拖进来的那个路径，
+ * 真正要处理的是它展开出来的文件。展开只能发生在扫描结果回来的时候 ——
+ * 只有那一刻才知道目录里到底有哪些文件（以及哪些算 Markdown）。
+ *
+ * 已经在队列里的文件不重复加：同一个文件只能有一张卡片。
+ */
+function expandDirectoryRow(mode: RemoteMode, row: RunRow, files: readonly FileResult[]): void {
+  const page = pages[mode]
+  const index = page.rows.indexOf(row)
+  if (index < 0) return
+
+  const known = new Set(page.rows.map((item) => pathKey(item.path)))
+  known.delete(pathKey(row.path)) // 这一行马上要被换掉
+
+  const expanded: RunRow[] = []
+  for (const file of files) {
+    const key = pathKey(file.path)
+    if (known.has(key)) continue
+    known.add(key)
+    const fallback = splitPath(file.path)
+    expanded.push({
+      id: `local-${++page.localSeq}`,
+      path: file.path,
+      name: file.name || fallback.name,
+      dir: file.dir || fallback.dir,
+      images: file.images,
+      phase: 'queued',
+      uploaded: 0,
+      total: file.images,
+      // 扫描结果就是这一份的明细：展开行时逐图信息直接有出处。
+      result: markRaw(file),
+      scan: 'ok',
+    })
+  }
+
+  // 原地替换（不是换数组）：rows 就是这一页的数组引用，splice 才能让界面看到变化。
+  page.rows.splice(index, 1, ...expanded)
+  reindexPage(page)
+  if (mode === activePage) seedImagesFromRows()
 }
 
 /** 收掉一批：清计时器、从表里摘掉，把没等到结果的行按 state 结掉。 */
@@ -184,7 +220,7 @@ export function onScanEvent(event: ScanEvent): void {
     return
   }
 
-  writeScanResult(row, files)
+  writeScanResult(batch.mode, row, files)
   row.scan = 'ok'
   row.scanError = undefined
   row.scanBatch = undefined
@@ -239,4 +275,3 @@ export function cancelPageScans(): void {
     requestBatchCancel(batch)
   }
 }
-

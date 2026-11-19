@@ -574,7 +574,7 @@ function toggleExpanded(): void {
         <span class="item__mark" aria-hidden="true">
           <!-- 一枚小方块垫在名字左边：一列卡片里每张都有个落点，
                状态靠它的底色说话，不靠一行字。 -->
-          <AppIcon :name="row.isDir ? 'folder' : 'doc'" :size="16" />
+          <AppIcon name="doc" :size="16" />
         </span>
 
         <span class="item__id">

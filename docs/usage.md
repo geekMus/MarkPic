@@ -17,7 +17,8 @@
 
 Drop a single file, several files, or a whole folder. The path comes from the native
 drop target — WebView2 itself never exposes the local path of a dropped file. A folder
-is scanned recursively, and **the extension is not what decides**: a file counts as a
+is scanned recursively and immediately expanded into one card per document — you never
+see a folder card. **The extension is not what decides**: a file counts as a
 document when it is `.md` / `.markdown`, or when its opening bytes look like Markdown
 (a heading, an image, a link, a table, a fenced block). So `.txt` notes and extension-less
 fragments are picked up too, while images, archives and other binaries are skipped.

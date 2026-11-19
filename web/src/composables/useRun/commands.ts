@@ -59,10 +59,6 @@ export function addPaths(input: string[]): string[] {
   if (phase.value === 'done' || phase.value === 'cancelled') resetOutcome()
 
   const known = new Set(rows.value.map(row => pathKey(row.path)))
-  // 已经在队列里的目录，它下面的文件开跑时会被那个目录一起扫出来。
-  // 这时候再单独加一份文件，等于同一篇文档进队列两次：页脚会把图片数算两遍，
-  // 跑完还会看到两行同名结果。所以目录里的路径直接并进那行目录，不再新开一行。
-  const dirPrefixes = rows.value.filter(row => row.isDir).map(row => pathKey(row.path) + '\\')
   const added: string[] = []
 
   for (const raw of input) {
@@ -70,7 +66,6 @@ export function addPaths(input: string[]): string[] {
     if (path === '') continue
     const key = pathKey(path)
     if (key === '' || known.has(key)) continue
-    if (dirPrefixes.some(prefix => key.startsWith(prefix))) continue
     known.add(key)
     added.push(path)
     const { name, dir } = splitPath(path)

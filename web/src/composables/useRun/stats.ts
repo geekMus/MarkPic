@@ -33,7 +33,7 @@ export const stats = computed<RunStats>(() => ({
   // 否则底栏的文件数会随着进度往上跳。开跑时目录会展开成一个个文件，
   // 所以跑起来之后 dirs 自然回到 0。
   files: rows.value.length,
-  dirs: rows.value.reduce((n, row) => n + (row.isDir ? 1 : 0), 0),
+
   // 引用数是「队列里一共多少张」，不是「已经处理了几张」：底栏那行是读队列，
   // 进度由页头的百分比和「替换 N」负责。
   images: rows.value.reduce((n, row) => n + (row.images ?? row.total), 0),

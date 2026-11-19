@@ -32,14 +32,6 @@ export interface RunRow {
   /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
   missing?: boolean
   /**
-   * 这一行是个目录：真正的文档要等开跑时才展开成一行一个。
-   *
-   * 预览是按前缀把目录里的图片数加起来的，所以能分辨出「这一行不是文档」。
-   * 底栏靠它说「1 个目录」而不是「1 个文件」—— 粘一个目录进去却看到「1 个文件」，
-   * 用户会以为只有一篇会被处理。
-   */
-  isDir?: boolean
-  /**
    * 这一行的转换结果（或预检结果）。
    *
    * 结果直接挂在行上，行对象自己就是响应式的：某一行完成时只有那一行重渲染，
@@ -84,8 +76,6 @@ export type RunRowView = RunRow
 
 export interface RunStats {
   files: number
-  /** 队列里那些还没展开的目录行有几行（开跑之后目录展开成文件，这里回到 0）。 */
-  dirs: number
   images: number
   // uploaded 是「替换了几处」，与行上的 done（处理了几张图）不是一个东西。
   uploaded: number

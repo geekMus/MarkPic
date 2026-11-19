@@ -238,8 +238,6 @@ export const en: Record<keyof typeof zh, string> = {
   'footer.queueEmpty': 'Queue is empty',
   'footer.files': '{count} files',
   'footer.files.one': '{count} file',
-  'footer.filesAndDirs': '{files} file(s) · {dirs} folder(s)',
-  'footer.dirsOnly': '{dirs} folders',
   'footer.images': '{count} images',
   'footer.images.one': '{count} image',
   'footer.noImages': 'No images found',

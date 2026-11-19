@@ -7,7 +7,8 @@
 import { markRaw, shallowReactive } from 'vue'
 import type { FileResult, RemoteMode, RunFileInfo } from '../../types'
 import { t } from '../../i18n'
-import { activePage, eventIndex, lastReveal, live, pathIndex, revealIndex, rowIndex, rows } from './page'
+import { activePage, eventIndex, lastReveal, live, pages, pathIndex, revealIndex, rowIndex, rows } from './page'
+import type { QueuePage } from './page'
 import { emptyCounters } from './types'
 import { pathKey } from './paths'
 import type { RunRow } from './types'
@@ -62,15 +63,20 @@ export function rowAt(id: string): RunRow | null {
   return rows.value[index] ?? null
 }
 
-export function reindexRows(): void {
-  rowIndex.clear()
-  eventIndex.clear()
-  pathIndex.clear()
-  rows.value.forEach((row, index) => {
-    rowIndex.set(row.id, index)
-    if (row.serverId) eventIndex.set(row.serverId, index)
-    pathIndex.set(pathKey(row.path), index)
+/** 重建某一页的三张索引表。目录展开时别的页也可能在动，所以要能按页重建。 */
+export function reindexPage(page: QueuePage): void {
+  page.rowIndex.clear()
+  page.eventIndex.clear()
+  page.pathIndex.clear()
+  page.rows.forEach((row, index) => {
+    page.rowIndex.set(row.id, index)
+    if (row.serverId) page.eventIndex.set(row.serverId, index)
+    page.pathIndex.set(pathKey(row.path), index)
   })
+}
+
+export function reindexRows(): void {
+  reindexPage(pages[activePage])
 }
 
 export function pushRow(row: RunRow): void {

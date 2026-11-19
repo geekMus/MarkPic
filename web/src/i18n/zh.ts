@@ -235,8 +235,6 @@ export const zh = {
   'footer.queueEmpty': '队列为空',
   'footer.files': '{count} 个文件',
   'footer.files.one': '{count} 个文件',
-  'footer.filesAndDirs': '{files} 个文件 · {dirs} 个目录',
-  'footer.dirsOnly': '{dirs} 个目录',
   'footer.images': '{count} 张图',
   'footer.images.one': '{count} 张图',
   'footer.noImages': '未发现图片',
