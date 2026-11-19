@@ -23,6 +23,12 @@ notes, whether or not it has an image to upload. A document with nothing to uplo
 gets a card, so the queue always matches what is in the folder. Only binaries are skipped:
 images, archives, executables, PDFs and Office files.
 
+A big folder (a whole drive, a cloud sync root) is scanned while you watch: the folder row
+shows how many documents have been found so far, and cards appear as they are read. Scanning
+has no overall time limit — only an inactivity watchdog — and you can stop it at any time;
+after confirming, everything already found stays in the queue and the row tells you the rest
+of that folder was not scanned.
+
 Watch the queue, cancel mid-run, retry failures, filter down to problems only, and expand
 any row for per-image details. The same image is never uploaded twice, and an unchanged
 image that was already uploaded or downloaded is reused from cache.

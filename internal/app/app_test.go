@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -548,5 +549,88 @@ func TestCheckUpdateSkipsUnversionedBuild(t *testing.T) {
 	}
 	if st := a.upd.snapshot().State; st != "unversioned" {
 		t.Fatalf("状态不该被后台改掉，实际 %q", st)
+	}
+}
+
+// 扫描是流式的：目录里每一份文档单独一条 scan.file，并且有进度事件。
+func TestScanStreamsDocuments(t *testing.T) {
+	a := newTestApp(t)
+	dir := t.TempDir()
+	for i := 0; i < 6; i++ {
+		doc := filepath.Join(dir, fmt.Sprintf("doc%d.md", i))
+		if err := os.WriteFile(doc, []byte("# t\n\n![a](a.png)\n"), 0o644); err != nil {
+			t.Fatalf("写夹具失败：%v", err)
+		}
+	}
+
+	var mu sync.Mutex
+	files := map[string]bool{}
+	progress := 0
+	done := make(chan struct{})
+	var once sync.Once
+	a.SetSink(func(ev conv.Event) {
+		mu.Lock()
+		switch ev.Type {
+		case conv.EventScanProgress:
+			progress++
+		case conv.EventScanFile:
+			for _, f := range ev.Scanned {
+				files[f.Path] = true
+			}
+		case conv.EventScanDone:
+			once.Do(func() { close(done) })
+		}
+		mu.Unlock()
+	})
+
+	dispatch[map[string]any](t, a, "scan.start", map[string]any{"scanId": "stream", "paths": []string{dir}})
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("10 秒内没等到 scan.done")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(files) != 6 {
+		t.Fatalf("应该逐份报出 6 个文件，实际 %d", len(files))
+	}
+	if progress == 0 {
+		t.Fatal("应该至少推一条 scan.progress")
+	}
+}
+
+// 停止扫描：已经在跑的那一份丢掉，但收尾事件必须到达且带 cancelled。
+func TestScanCancelStopsEarly(t *testing.T) {
+	a := newTestApp(t)
+	dir := t.TempDir()
+	for i := 0; i < 80; i++ {
+		doc := filepath.Join(dir, fmt.Sprintf("d%02d.md", i))
+		if err := os.WriteFile(doc, []byte("# t\n"), 0o644); err != nil {
+			t.Fatalf("写夹具失败：%v", err)
+		}
+	}
+
+	done := make(chan conv.Event, 4)
+	a.SetSink(func(ev conv.Event) {
+		if ev.Type == conv.EventScanDone {
+			select {
+			case done <- ev:
+			default:
+			}
+		}
+	})
+
+	dispatch[map[string]any](t, a, "scan.start", map[string]any{"scanId": "cancel", "paths": []string{dir}})
+	dispatch[map[string]any](t, a, "scan.cancel", map[string]any{"scanId": "cancel"})
+
+	select {
+	case ev := <-done:
+		if !ev.Cancelled {
+			t.Fatal("取消之后 scan.done 应该带 cancelled")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("取消之后没等到 scan.done")
 	}
 }

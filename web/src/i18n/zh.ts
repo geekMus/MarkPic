@@ -446,6 +446,12 @@ export const zh = {
   'scan.failed': '扫描失败：{detail}',
   'scan.notFound': '找不到这个文件',
   'scan.timeout': '扫描超时',
+  'scan.found': '已找到 {count} 份',
+  'scan.stopTitle': '停止扫描？',
+  'scan.stopBody':
+    '已经扫到的文档会留在队列里，但这个目录里没扫到的不会出现。之后可以点「恢复扫描」把这一行重新扫一遍。',
+  'scan.stopAction': '停止扫描',
+  'scan.stopped': '已停止扫描：队列里只有扫到的那部分',
   'footer.blocked.scanning': '正在扫描 {count} 个文件…',
   'footer.blocked.problem': '{count} 个文件还没扫描通过',
 } as const

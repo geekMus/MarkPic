@@ -451,6 +451,12 @@ export const en: Record<keyof typeof zh, string> = {
   'scan.failed': 'Scan failed: {detail}',
   'scan.notFound': "Can't find this file",
   'scan.timeout': 'Scan timed out',
+  'scan.found': 'found {count}',
+  'scan.stopTitle': 'Stop scanning?',
+  'scan.stopBody':
+    'Documents already scanned stay in the queue, but the rest of this folder will not appear. You can scan this row again later.',
+  'scan.stopAction': 'Stop scanning',
+  'scan.stopped': 'Scanning stopped — the queue only has what was found',
   'footer.blocked.scanning': 'Scanning {count} file(s)…',
   'footer.blocked.problem': '{count} file(s) have not passed scanning',
 }

@@ -7,6 +7,7 @@ import AppIcon from './components/AppIcon.vue'
 import AppRail from './components/AppRail.vue'
 import CheckPage from './components/CheckPage.vue'
 import CloseConfirmDialog from './components/CloseConfirmDialog.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
@@ -418,9 +419,25 @@ async function enqueue(paths: string[]): Promise<void> {
   void scanPaths(mode.value, added)
 }
 
-/** 卡片上的「取消扫描」/「恢复扫描」「重试」。 */
+/** 待确认「停止扫描」的那一行；null 表示没有待确认的操作。 */
+const scanStopId = ref<string | null>(null)
+
+/**
+ * 卡片上的「取消扫描」：先问一句再停。
+ *
+ * 拖进来的是一个目录时，停下意味着「这个目录里还有没扫到的」—— 这是用户事后
+ * 会追问的那句话，所以停下来之前先确认，停下来之后再说一遍。
+ */
 function handleCancelScan(id: string): void {
+  scanStopId.value = id
+}
+
+function confirmStopScan(): void {
+  const id = scanStopId.value
+  scanStopId.value = null
+  if (id === null) return
   cancelRowScan(id)
+  warning(t('scan.stopped'))
 }
 
 function handleRetryScan(id: string): void {
@@ -775,6 +792,16 @@ onBeforeUnmount(() => {
     <WhatsNewDialog v-if="whatsNewOpen" @close="whatsNewOpen = false" />
 
     <!-- 点叉号需要确认时：没有任务可选最小化或退出并勾「不再询问」，有任务只确认是否退出 -->
+    <ConfirmDialog
+      v-if="scanStopId !== null"
+      :title="t('scan.stopTitle')"
+      :body="t('scan.stopBody')"
+      :confirm-label="t('scan.stopAction')"
+      tone="danger"
+      @confirm="confirmStopScan"
+      @cancel="scanStopId = null"
+    />
+
     <CloseConfirmDialog
       v-if="closePrompt"
       :count="closePromptCount"

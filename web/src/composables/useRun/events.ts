@@ -10,7 +10,7 @@
  * 整个盖掉 —— 同一份数字两个算法，口径稍有出入就当场对不上。
  */
 import { ref } from 'vue'
-import type { RemoteMode, RunEvent, RunOp, RunSummary } from '../../types'
+import type { RemoteMode, RunEvent, RunOp, RunSummary, ScanEvent } from '../../types'
 import { t } from '../../i18n'
 import { useToasts } from '../useToasts'
 import { activePage, live, phase, runId, summary, withPage } from './page'
@@ -113,8 +113,11 @@ function applySummary(next: RunSummary | undefined): void {
  */
 export function onSignal(event: RunEvent): void {
   // 扫描事件不参和「一轮转换」：它有自己的 scanId、自己的卡片状态。
-  if (event.type === 'scan.file' || event.type === 'scan.done') {
-    onScanEvent(event)
+  // 按前缀路由而不是逐个列类型 —— 扫描事件会继续增加（进度、单个文件……），
+  // 漏一个就会像上次那样：事件到了页面、却没人处理。
+  if (event.type.startsWith('scan.')) {
+    // ScanEvent 就是 scan.* 这一族：前缀判过之后类型一定对得上。
+    onScanEvent(event as ScanEvent)
     return
   }
   const startedOp = event.type === 'run.started' ? event.mode : undefined

@@ -19,8 +19,10 @@ const props = withDefaults(
     error?: string
     /** 这一轮正在跑：这时不该再动扫描，取消/重试都灰着。 */
     busy?: boolean
+    /** 正在扫一个目录时，已经发现多少份文档（0 表示还没发现）。 */
+    found?: number
   }>(),
-  { error: '', busy: false },
+  { error: '', busy: false, found: 0 },
 )
 
 const emit = defineEmits<{ cancel: []; retry: [] }>()
@@ -65,6 +67,10 @@ const hint = computed(() => {
 <template>
   <span v-if="state !== 'ok' && state !== 'idle'" class="scan" :data-state="state">
     <StatusPill :label="t(label)" :tone="tone" :pulse="state === 'scanning'" compact />
+    <!-- 拖一整块盘时没有总数可报，只能报「已经找到多少」——这比一直转圈有用。 -->
+    <span v-if="state === 'scanning' && found > 0" class="scan__found">
+      {{ t('scan.found', { count: found }) }}
+    </span>
     <button
       v-if="action !== null"
       type="button"
@@ -87,6 +93,11 @@ const hint = computed(() => {
 }
 
 /* 一行小字按钮：扫描没通过的时候，卡面上唯一该点的东西就是它。 */
+.scan__found {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 .scan__act {
   padding: 0;
   border: 0;

@@ -614,6 +614,7 @@ function toggleExpanded(): void {
           :state="row.scan ?? 'idle'"
           :error="row.scanError"
           :busy="busy"
+          :found="row.scanFound ?? 0"
           @cancel="emit('cancel-scan', row.id)"
           @retry="emit('retry-scan', row.id)"
         />

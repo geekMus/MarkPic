@@ -209,6 +209,15 @@ export type RunFileInfo = {
  */
 export type ScanEvent =
   | {
+      type: 'scan.progress'
+      runId: string
+      /** 请求的那个路径（目录）。 */
+      path: string
+      /** 到这个时刻为止已经发现多少份文档、走过多少目录。 */
+      found?: number
+      dirs?: number
+    }
+  | {
       type: 'scan.file'
       runId: string
       path: string

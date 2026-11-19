@@ -1,9 +1,14 @@
 /**
  * 每张卡片自己的扫描：发请求、按 scanId 收事件、结批。
  *
- * 扫描不再是一次 await 十个文件串着走 —— Go 侧扫完一个推一条事件，这里一批一个 scanId，
- * 事件带着 scanId 和路径回来，所以「哪个结果贴回哪张卡片」不用猜。批可以同时有好几批：
- * 掐掉一份再重扫就又开一批，互不干扰，晚到的事件靠 scanBatch 认领过滤。
+ * 扫描是流式的：Go 侧边遍历边报，发现一份就推一条 scan.file，另外每 120ms 推一条
+ * scan.progress（已经找到多少份、走过多少目录）。所以：
+ *   - 拖进来的目录行只是「扫描期间的宿主」，文件一份份追加到队列末尾；
+ *   - 扫完之后宿主行被摘掉，队列里只剩真正的文档；
+ *   - 用户中途停下时，已经扫到的那些留在队列里，宿主行同样摘掉。
+ *
+ * 超时只按「多久没有任何动静」算（stall），不按「整批最多多久」：拖一整块盘本来
+ * 就要走很久，那不是超时。
  */
 import { markRaw } from 'vue'
 import { cancelScan as requestCancelScan, describeError, scanStart as requestScanStart } from '../../api'
@@ -20,131 +25,135 @@ export interface ScanBatch {
   id: string
   mode: RemoteMode
   paths: string[]
-  /** 兜底计时器：整批迟迟没有收尾事件时把它按超时结掉。 */
+  /** 兜底计时器：多久没有任何事件就认为这一批已经死了。 */
   timer: number | null
 }
 
-/**
- * 正在跑的扫描批次。
- *
- * 一批一个 scanId，Go 侧每扫完一个文件推一条 scan.file，事件里带着这个 scanId
- * 和文件路径 —— 所以「哪个结果贴回哪张卡片」不用猜。表里可以同时有多批：
- * 用户掐掉一份再点重新扫描，就又是一批，两批互不干扰。
- */
 export const scanBatches = new Map<string, ScanBatch>()
 export let scanSeq = 0
 
 /**
- * 整批扫描的兜底时限。
+ * 多久没有任何扫描事件就当这一批已经没了。
  *
- * Go 侧每个文件 20 秒封顶，这里再宽一点。之所以还要一层：后台进程可能压根没接上
- * 窗口（刚启动、WebView 还在加载），事件一条都送不到，界面不能因此永远点不了「开始」。
+ * 以前是「整批 26 秒上限」：拖一整块盘必然超时，界面上明明还在正常扫描，却被判成
+ * 超时。现在改成按「静默多久」算 —— 只要有进度就一直等下去，真正的死连接三十秒
+ * 就能发现。
  */
-export const SCAN_BATCH_TIMEOUT_MS = 26_000
+export const SCAN_STALL_MS = 30_000
+
+function touchBatch(batch: ScanBatch, state: ScanState, message?: string): void {
+  if (batch.timer !== null) window.clearTimeout(batch.timer)
+  batch.timer = window.setTimeout(() => {
+    batch.timer = null
+    finishBatch(batch, state, message)
+  }, SCAN_STALL_MS)
+}
 
 export function rowOfPage(mode: RemoteMode, path: string): RunRow | undefined {
   const key = pathKey(path)
   return pageRows(mode).find((row) => pathKey(row.path) === key)
 }
 
-/**
- * 把一份路径的扫描结果写到行上。
- *
- * 三种情况：
- *   - 结果里有路径完全相同的文件：那就是这一份文档，直接落数；
- *   - 一条结果都没有：路径不存在，或目录里没有一份能当成 Markdown 的文件；
- *   - 结果里有别的文件：说明拖进来的其实是个目录 —— 把这一行就地换成
- *     文件一张卡片、目录本身不留（见 expandDirectoryRow）。
- */
-export function writeScanResult(mode: RemoteMode, row: RunRow, files: readonly FileResult[]): void {
-  const key = pathKey(row.path)
-  const exact = files.find((file) => pathKey(file.path) === key)
-  if (exact) {
-    if (!row.result) row.result = markRaw(exact)
-    row.images = exact.images
-    row.total = exact.images
-    row.missing = false
-    return
-  }
+/** 这一页还有几行在扫（页头据此显示「停止扫描」）。 */
+export function pageScanningCount(mode: RemoteMode): number {
+  return pageRows(mode).filter((row) => (row.scan ?? 'idle') === 'scanning').length
+}
 
-  if (files.length === 0) {
-    row.missing = true
-    row.images = null
-    return
-  }
-
-  expandDirectoryRow(mode, row, files)
+/** 把一份路径的扫描结果写进它自己那一行（只用于「拖进来的就是这一份文件」）。 */
+function applyFileToRow(row: RunRow, file: FileResult): void {
+  row.result = markRaw(file)
+  row.images = file.images
+  row.total = file.images
+  row.missing = false
+  row.scan = file.status === 'failed' ? 'failed' : 'ok'
+  row.scanError = file.status === 'failed' ? file.error : undefined
+  row.scanBatch = undefined
 }
 
 /**
- * 把一个目录行就地展开成逐份文档的卡片。
+ * 把扫描发现的一份文档追加到队列末尾。
  *
- * 队列里一张卡片就该对应一份要处理的文档；目录只是用户拖进来的那个路径，
- * 真正要处理的是它展开出来的文件。展开只能发生在扫描结果回来的时候 ——
- * 只有那一刻才知道目录里到底有哪些文件（以及哪些算 Markdown）。
- *
- * 已经在队列里的文件不重复加：同一个文件只能有一张卡片。
+ * 追加而不是插在宿主行后面：一次拖进来可能是几万份，每插一次都要把后面整体挪一遍，
+ * 那是 O(n²)。宿主行留在原位、只显示进度，扫完再摘掉。
  */
-function expandDirectoryRow(mode: RemoteMode, row: RunRow, files: readonly FileResult[]): void {
+function appendScannedRow(mode: RemoteMode, file: FileResult): void {
   const page = pages[mode]
-  const index = page.rows.indexOf(row)
-  if (index < 0) return
+  const key = pathKey(file.path)
+  if (page.pathIndex.has(key)) return
 
-  const known = new Set(page.rows.map((item) => pathKey(item.path)))
-  known.delete(pathKey(row.path)) // 这一行马上要被换掉
-
-  const expanded: RunRow[] = []
-  for (const file of files) {
-    const key = pathKey(file.path)
-    if (known.has(key)) continue
-    known.add(key)
-    const fallback = splitPath(file.path)
-    expanded.push({
-      id: `local-${++page.localSeq}`,
-      path: file.path,
-      name: file.name || fallback.name,
-      dir: file.dir || fallback.dir,
-      images: file.images,
-      phase: 'queued',
-      uploaded: 0,
-      total: file.images,
-      // 扫描结果就是这一份的明细：展开行时逐图信息直接有出处。
-      result: markRaw(file),
-      scan: 'ok',
-    })
+  const fallback = splitPath(file.path)
+  const row: RunRow = {
+    id: 'local-' + ++page.localSeq,
+    path: file.path,
+    name: file.name || fallback.name,
+    dir: file.dir || fallback.dir,
+    images: file.images,
+    phase: 'queued',
+    uploaded: 0,
+    total: file.images,
+    // 扫描结果就是这一份的明细：展开行时逐图信息直接有出处。
+    result: markRaw(file),
+    scan: file.status === 'failed' ? 'failed' : 'ok',
+    scanError: file.status === 'failed' ? file.error : undefined,
   }
-
-  // 原地替换（不是换数组）：rows 就是这一页的数组引用，splice 才能让界面看到变化。
-  page.rows.splice(index, 1, ...expanded)
-  reindexPage(page)
+  page.rows.push(row)
+  page.rowIndex.set(row.id, page.rows.length - 1)
+  page.pathIndex.set(key, page.rows.length - 1)
   if (mode === activePage) seedImagesFromRows()
 }
 
-/** 收掉一批：清计时器、从表里摘掉，把没等到结果的行按 state 结掉。 */
+/**
+ * 收掉一批：清计时器、摘掉宿主行、把没等到结果的行结掉。
+ *
+ * 「宿主行」指用户拖进来的那个目录：它自己不是文档，扫完（或停下）就没有存在意义了 ——
+ * 文件已经各自成行。一份都没找到时留着它，好让用户知道这个目录里没有可处理的文档。
+ */
 export function finishBatch(batch: ScanBatch, state: ScanState, message?: string): void {
   if (batch.timer !== null) {
     window.clearTimeout(batch.timer)
     batch.timer = null
   }
   scanBatches.delete(batch.id)
+
+  const page = pages[batch.mode]
+  let removed = false
   for (const path of batch.paths) {
     const row = rowOfPage(batch.mode, path)
     if (!row) continue
-    if ((row.scan ?? 'idle') !== 'scanning') continue
-    if (row.scanBatch !== batch.id) continue // 已经重扫过：这一批管不着它了
-    row.scan = state
+    if (row.scanBatch !== undefined && row.scanBatch !== batch.id) continue
+    if ((row.scan ?? 'idle') !== 'scanning' && row.scan !== 'cancelled') continue
+
+    // 这一份是文件本身，结果早就落到行上了。
+    if (row.result) {
+      row.scan = 'ok'
+      row.scanBatch = undefined
+      continue
+    }
+
+    // 宿主行：扫到过东西就功成身退，队列里只留文档。
+    if ((row.scanFound ?? 0) > 0) {
+      const index = page.rows.indexOf(row)
+      if (index >= 0) {
+        page.rows.splice(index, 1)
+        removed = true
+      }
+      continue
+    }
+
+    // 一份都没有：留着这张卡片说明情况（目录里没有可处理的文档，或者刚开扫就被停掉）。
+    row.scan = state === 'cancelled' ? 'cancelled' : 'failed'
+    row.scanError = state === 'cancelled' ? undefined : (message ?? t('scan.notFound'))
     row.scanBatch = undefined
-    if (message) row.scanError = message
+    row.missing = state !== 'cancelled'
   }
+  if (removed) reindexPage(page)
   if (batch.mode === activePage) seedImagesFromRows()
 }
 
 /**
  * 开扫。
  *
- * 立刻返回（不等结果）：Go 侧现在是半个文件一个协程、按核数限流，扫完一个推一条
- * 事件回来。以前这里是 await 一次 preview，十个文件串着扫，界面整段冻住，
- * 卡片也只能等全部扫完才出现。
+ * 立刻返回（不等结果）：Go 侧边遍历边推事件，界面按事件一份份加卡片。
  */
 export async function scanPaths(mode: RemoteMode, paths: readonly string[]): Promise<void> {
   const list: string[] = []
@@ -157,7 +166,7 @@ export async function scanPaths(mode: RemoteMode, paths: readonly string[]): Pro
   }
   if (list.length === 0) return
 
-  const id = `scan-${Date.now().toString(36)}-${++scanSeq}`
+  const id = 'scan-' + Date.now().toString(36) + '-' + ++scanSeq
   const batch: ScanBatch = { id, mode, paths: list, timer: null }
   scanBatches.set(id, batch)
 
@@ -167,12 +176,11 @@ export async function scanPaths(mode: RemoteMode, paths: readonly string[]): Pro
     row.scan = 'scanning'
     row.scanError = undefined
     row.scanBatch = batch.id
+    row.scanFound = 0
+    row.scanDirs = 0
   }
 
-  batch.timer = window.setTimeout(() => {
-    batch.timer = null
-    finishBatch(batch, 'timeout', t('scan.timeout'))
-  }, SCAN_BATCH_TIMEOUT_MS)
+  touchBatch(batch, 'failed', t('scan.timeout'))
 
   try {
     await requestScanStart({ scanId: id, paths: list })
@@ -181,50 +189,47 @@ export async function scanPaths(mode: RemoteMode, paths: readonly string[]): Pro
   }
 }
 
-/** scan.file / scan.done 落到对应的卡片上。 */
+/** scan.progress / scan.file / scan.done 落到对应的卡片上。 */
 export function onScanEvent(event: ScanEvent): void {
   const batch = scanBatches.get(event.runId)
   if (!batch) return // 这一批已经被取消/换掉了，晚到的事件直接丢
 
   if (event.type === 'scan.done') {
-    // 正常情况下这时每行都已经有自己的结果；还停在「扫描中」的行说明事件丢了，
-    // 按超时结掉，别让「开始」永远灰着。
-    finishBatch(batch, event.cancelled ? 'cancelled' : 'timeout', t('scan.timeout'))
+    finishBatch(batch, event.cancelled ? 'cancelled' : 'ok')
     return
   }
 
-  const row = rowOfPage(batch.mode, event.path ?? '')
-  if (!row) return
-  if (row.scanBatch !== undefined && row.scanBatch !== batch.id) return // 上一批晚到的结果
+  // 有事件就说明还活着：把静默计时器往后推。
+  touchBatch(batch, 'failed', t('scan.timeout'))
 
-  if (event.cancelled) {
-    row.scan = 'cancelled'
-    row.scanError = undefined
-    row.scanBatch = undefined
-    row.images = null
-    return
-  }
-  if (event.timedOut) {
-    row.scan = 'timeout'
-    row.scanError = t('scan.timeout')
-    row.scanBatch = undefined
+  const host = rowOfPage(batch.mode, event.path ?? '')
+  if (!host) return
+  if (host.scanBatch !== undefined && host.scanBatch !== batch.id) return // 上一批晚到的结果
+
+  if (event.type === 'scan.progress') {
+    host.scanFound = event.found ?? 0
+    host.scanDirs = event.dirs ?? 0
     return
   }
 
   const files = event.scanned ?? []
   if (files.length === 0) {
-    row.scan = 'failed'
-    row.scanError = t('scan.notFound')
-    row.scanBatch = undefined
-    row.missing = true
+    host.scan = 'failed'
+    host.scanError = t('scan.notFound')
+    host.scanBatch = undefined
+    host.missing = true
     return
   }
 
-  writeScanResult(batch.mode, row, files)
-  row.scan = 'ok'
-  row.scanError = undefined
-  row.scanBatch = undefined
-  if (batch.mode === activePage) seedImagesFromRows()
+  // 拖进来的就是这个文件：结果落在它自己那一行。
+  if (files.length === 1 && pathKey(files[0].path) === pathKey(host.path)) {
+    applyFileToRow(host, files[0])
+    if (batch.mode === activePage) seedImagesFromRows()
+    return
+  }
+
+  // 拖进来的是目录：发现一份加一行，宿主行只负责显示进度。
+  for (const file of files) appendScannedRow(batch.mode, file)
 }
 
 /** 掐掉一批（整批或单个文件）。 */
@@ -236,23 +241,30 @@ export function requestBatchCancel(batch: ScanBatch, path?: string): void {
   )
 }
 
-/** 取消某一张卡片的扫描（卡片上的「取消扫描」）。 */
+/** 取消某一张卡片的扫描（卡片上的「取消扫描」，确认框之后调用）。 */
 export function cancelRowScan(id: string): void {
   const row = rows.value.find((item) => item.id === id)
   if (!row) return
   if ((row.scan ?? 'idle') !== 'scanning') return
 
-  row.scan = 'cancelled'
-  row.scanError = undefined
-  row.scanBatch = undefined
-  row.images = null
   const key = pathKey(row.path)
   for (const batch of scanBatches.values()) {
     if (batch.mode !== activePage) continue
     if (!batch.paths.some((path) => pathKey(path) === key)) continue
+    // 宿主行的收尾交给后端那条 scan.done：只有它知道这一批到这里为止发现了多少。
     requestBatchCancel(batch, row.path)
+    if (!row.result && (row.scanFound ?? 0) === 0) {
+      row.scan = 'cancelled'
+      row.scanBatch = undefined
+      row.images = null
+    }
     return
   }
+
+  row.scan = 'cancelled'
+  row.scanError = undefined
+  row.scanBatch = undefined
+  row.images = null
 }
 
 /** 重新扫一张卡片（取消/失败/超时之后）。 */

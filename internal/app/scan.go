@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -13,26 +15,34 @@ import (
 	"github.com/geekMus/markpic/internal/settings"
 )
 
-// 扫描（把一份 Markdown 读一遍、数清里面有几张图、哪些是远程地址）原来是同步的
-// preview：界面点一下、Go 在 UI 线程上把整批文件扫完才返回。十个文件就是十次串行
-// 读盘，慢的时候界面整段冻住，卡片也只能等全部扫完才出现。
+// 异步扫描。
 //
-// 现在是异步的 scan.start / scan.cancel：
-//   - start 立刻返回，每个文件一个 goroutine，并发度按机器核数给上限；
-//   - 每个请求路径扫完就推一条 scan.file，界面按路径把结果贴回自己那张卡片；
-//   - 单个路径有独立 context，可以单独取消，也可以整批取消；
-//   - 每个路径有 20 秒上限：某个网络盘上的文件卡住，也不会让「开始」永远点不了。
+// 一次扫描处理用户拖进来的每一个路径：
+//   - 目录用几个协程并行遍历，边走边把发现的文档送进扫描队列；
+//   - 文档由固定数量的协程并行解析，每份各自 20 秒上限；
+//   - 每发现一份就推一条 scan.file，滚动中每 120ms 推一条 scan.progress，
+//     界面因此既能一张张冒出卡片，又能看到「已经找到多少」；
+//   - 整批、单个路径都可以随时停：停下来的部分结果已经推出去了，界面保留它们。
+//
+// 以前是「一个路径一个 goroutine，走完才推一条结果，整条路径 20 秒封顶」：
+// 拖一整块盘必然超时，而且超时之前界面上只有「扫描中」，看不出任何进展。
 const (
-	// scanFileTimeout 是单个路径的扫描上限。扫描只读文件、不发网络请求，
-	// 正常文档是毫秒级的；给到 20 秒是留给网络盘和超大文档的余量。
+	// scanFileTimeout 是「解析单份文档」的上限，不是整个目录的上限。
+	// 一份文档读 20 秒还没读完，基本是网络盘或坏盘卡住了，报出来让用户重试。
 	scanFileTimeout = 20 * time.Second
-	// scanMinParallel / scanMaxParallel 夹住并发度：太少体现不出并发，
-	// 太多会让一堆 goroutine 抢同一块磁盘（反而更慢），也更容易吃满内存。
+	// scanProgressEvery 是进度事件的节流间隔。再密就是在刷界面了。
+	scanProgressEvery = 120 * time.Millisecond
+	// scanWalkWorkers 是遍历目录的并发度。
+	scanWalkWorkers = 8
+	// scanDocWorkers 是单个路径内并发解析文档的协程数；整批真正的上限由
+	// scanSession.docSlots 把关，免得一次拖六块盘把机器打满。
+	scanDocWorkers = 4
+	// scanMinParallel / scanMaxParallel 夹住「同时处理几个路径」。
 	scanMinParallel = 2
 	scanMaxParallel = 6
 )
 
-// scanParallelism 按机器核数给并发上限：一半核数，夹在 [2, 6]，且不超过路径数。
+// scanParallelism 按机器核数给同时处理的路径数。
 func scanParallelism(n int) int {
 	parallel := runtime.NumCPU() / 2
 	if parallel < scanMinParallel {
@@ -50,18 +60,32 @@ func scanParallelism(n int) int {
 	return parallel
 }
 
+// docSlotCount 是整批扫描里同时解析的文档数上限。
+func docSlotCount() int {
+	n := runtime.NumCPU()
+	if n < 2 {
+		n = 2
+	}
+	if n > 8 {
+		n = 8
+	}
+	return n
+}
+
 // scanSession 是一批扫描的句柄：整批一个 context，每个路径再挂一个自己的。
 type scanSession struct {
 	app    *App
 	scanID string
 	ctx    context.Context
 	cancel context.CancelFunc
+	// docSlots 限制整批同时解析的文档数：几块盘一起拖进来时，别让几百个协程
+	// 同时去读盘——机械盘那样只会更慢。
+	docSlots chan struct{}
 
 	mu    sync.Mutex
 	paths map[string]context.CancelFunc // 路径 → 该路径的取消函数
 }
 
-// stop 取消整批扫描。
 func (s *scanSession) stop() {
 	if s.cancel != nil {
 		s.cancel()
@@ -133,11 +157,12 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	session := &scanSession{
-		app:    a,
-		scanID: req.ScanID,
-		ctx:    ctx,
-		cancel: cancel,
-		paths:  make(map[string]context.CancelFunc, len(paths)),
+		app:      a,
+		scanID:   req.ScanID,
+		ctx:      ctx,
+		cancel:   cancel,
+		docSlots: make(chan struct{}, docSlotCount()),
+		paths:    make(map[string]context.CancelFunc, len(paths)),
 	}
 
 	a.mu.Lock()
@@ -156,18 +181,6 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 	go session.run(cfg, lang, paths)
 
 	return map[string]any{"scanId": req.ScanID, "paths": paths}, nil
-}
-
-// scanOne 是「一个请求路径」的扫描结果。
-//
-// 目录是一等公民：用户拖进来的是一个目录，就该有一条对应该目录的结果，里面带上
-// 它展开出来的文件。以前这里只回一串平铺的文件，界面只好拿路径前缀自己去猜
-// 「哪几个文件属于这个目录、加起来几张图」—— 展开规则在 Go 这边，界面不该重算。
-type scanOne struct {
-	path      string
-	files     []conv.FileResult
-	cancelled bool
-	timedOut  bool
 }
 
 func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string) {
@@ -191,7 +204,14 @@ func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string)
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			s.scanPath(cfg, lang, path, sem)
+			// 排队等名额时也要能被取消。
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-s.ctx.Done():
+				return
+			}
+			s.scanPath(cfg, lang, path)
 		}(path)
 	}
 
@@ -205,63 +225,149 @@ func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string)
 	s.app.emit(ev)
 }
 
-func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path string, sem chan struct{}) {
-	fileCtx, cancelFile := context.WithCancel(s.ctx)
-	s.register(path, cancelFile)
+// scanPath 处理一个请求路径：单文件直接扫，目录则边遍历边扫。
+func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path string) {
+	ctx, cancel := context.WithCancel(s.ctx)
+	s.register(path, cancel)
 	defer s.unregister(path)
-	defer cancelFile()
+	defer cancel()
 
-	result := scanOne{path: path}
-
-	// 排队等名额的时候也能被取消：十个文件、并发六个，剩下四个卡在排队，
-	// 用户点了取消不该等前面六个扫完才生效。
-	select {
-	case sem <- struct{}{}:
-		defer func() { <-sem }()
-	case <-fileCtx.Done():
-		result.cancelled = true
-		s.emitFile(result)
+	info, err := os.Stat(path)
+	if err != nil {
+		// 路径不存在/读不了：回一条空结果，界面把这张卡片标成「找不到」。
+		s.emitFile(path, nil)
 		return
 	}
 
-	done := make(chan []conv.FileResult, 1)
+	if !info.IsDir() {
+		if res, ok := s.scanDocument(ctx, cfg, lang, path); ok {
+			s.emitFile(path, []conv.FileResult{res})
+		}
+		return
+	}
+
+	skip := ""
+	if cfg.Output == settings.OutputDirectory {
+		skip = cfg.OutDir
+	}
+
+	docs := make(chan string, 128)
+	// 计数边遍历边涨：进度事件读的就是它，不必等整棵树走完。
+	var counts conv.WalkCounts
+	walkEnded := make(chan struct{})
+
 	go func() {
-		// 每个路径一个 Runner：Runner 内部带状态，多个文件共用一份会互相踩。
-		runner := conv.NewRunner(cfg, lang, "preview", nil).UsePreview()
-		files, _ := runner.RunCollect(fileCtx, []string{path})
-		done <- files
+		defer close(walkEnded)
+		conv.WalkDocuments(ctx, path, cfg.Suffix, skip, scanWalkWorkers, &counts, func(file string) bool {
+			select {
+			case docs <- file:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		})
+		close(docs)
+	}()
+
+	stopProgress := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(scanProgressEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopProgress:
+				return
+			case <-ticker.C:
+				s.app.emit(conv.Event{
+					Type:  conv.EventScanProgress,
+					RunID: s.scanID,
+					Path:  path,
+					Found: int(counts.Found.Load()),
+					Dirs:  int(counts.Dirs.Load()),
+				})
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	for i := 0; i < scanDocWorkers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for file := range docs {
+				select {
+				case s.docSlots <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
+				res, ok := s.scanDocument(ctx, cfg, lang, file)
+				<-s.docSlots
+				if !ok {
+					// 用户按了停止：已经在跑的这一份算白跑，不再往外报。
+					return
+				}
+				s.emitFile(path, []conv.FileResult{res})
+			}
+		}()
+	}
+	wg.Wait()
+	close(stopProgress)
+	<-walkEnded
+
+	// 收尾再报一次最终数字，界面不用等最后一个 tick。
+	s.app.emit(conv.Event{
+		Type:  conv.EventScanProgress,
+		RunID: s.scanID,
+		Path:  path,
+		Found: int(counts.Found.Load()),
+		Dirs:  int(counts.Dirs.Load()),
+	})
+}
+
+// scanDocument 解析一份文档，带单文件超时。
+//
+// 返回 ok=false 表示这一份被取消了（用户点了停止），调用方不该再往外报。
+func (s *scanSession) scanDocument(ctx context.Context, cfg settings.Settings, lang i18n.Lang, path string) (conv.FileResult, bool) {
+	// 每份文档一个 Runner：超时之后那个协程会被丢下不管，让它自己跑完，
+	// 复用同一个 Runner 会和后面那一份抢内部状态。
+	result := make(chan conv.FileResult, 1)
+	fileCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	go func() {
+		runner := conv.NewRunner(cfg, lang, "scan", nil).UsePreview()
+		result <- runner.ScanOne(fileCtx, path)
 	}()
 
 	timer := time.NewTimer(scanFileTimeout)
 	defer timer.Stop()
 
 	select {
-	case files := <-done:
-		result.files = files
-	case <-fileCtx.Done():
-		result.cancelled = true
-		cancelFile()
+	case res := <-result:
+		return res, true
+	case <-ctx.Done():
+		return conv.FileResult{}, false
 	case <-timer.C:
-		// 超时也把底层 context 掐掉，别让那个 goroutine 一直挂着。
-		result.timedOut = true
-		cancelFile()
+		cancel()
+		return conv.FileResult{
+			Path:   path,
+			Name:   filepath.Base(path),
+			Dir:    filepath.Dir(path),
+			Status: conv.FileFailed,
+			Error:  i18n.T(lang, i18n.KeyConvScanTimeout),
+		}, true
 	}
-
-	s.emitFile(result)
 }
 
-func (s *scanSession) emitFile(result scanOne) {
-	files := result.files
+func (s *scanSession) emitFile(path string, files []conv.FileResult) {
 	if files == nil {
 		files = []conv.FileResult{}
 	}
 	s.app.emit(conv.Event{
-		Type:      conv.EventScanFile,
-		RunID:     s.scanID,
-		Path:      result.path,
-		Scanned:   files,
-		Cancelled: result.cancelled,
-		TimedOut:  result.timedOut,
+		Type:    conv.EventScanFile,
+		RunID:   s.scanID,
+		Path:    path,
+		Scanned: files,
 	})
 }
 

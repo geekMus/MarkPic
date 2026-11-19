@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -330,6 +331,18 @@ func (r *Runner) takeDoc(path string, data []byte) *mdscan.Document {
 		return nil
 	}
 	return doc
+}
+
+// ScanOne 扫描单个文件：读盘、解析引用、逐张分类，不发任何网络请求。
+//
+// 异步扫描用它逐份处理目录里发现的文档。和 Run 的区别是它不碰整轮的状态机
+// （不派工、不写文件、不汇总），所以可以同时开好几个、各自处理各自的文件。
+func (r *Runner) ScanOne(ctx context.Context, path string) FileResult {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	return r.processFile(ctx, "", abs)
 }
 
 // beginRun 清空这一轮的累计汇总，并记下起跑时刻。

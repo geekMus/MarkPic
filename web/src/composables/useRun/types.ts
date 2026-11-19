@@ -45,6 +45,14 @@ export interface RunRow {
   /** 扫描没通过时给人看的一句话（超时、找不到文件、后台报错）。 */
   scanError?: string
   /**
+   * 这一行是「拖进来的目录」时的实时进度：已经发现多少份文档、走过多少目录。
+   *
+   * 拖一整块盘时没有总数可报，只能报「已经找到多少」；这里的数由 scan.progress
+   * 推上来，扫完这一行就摘掉了（文件已经各自成行）。
+   */
+  scanFound?: number
+  scanDirs?: number
+  /**
    * 这一行的扫描属于哪一批。
    *
    * 取消之后重扫会开新的一批：上一批的收尾事件（扫完了/超时了）不能把新一批
@@ -119,6 +127,7 @@ export const KNOWN_EVENT_TYPES = new Set<string>([
   'run.finished',
   'run.cancelled',
   'log',
+  'scan.progress',
   'scan.file',
   'scan.done',
 ])
