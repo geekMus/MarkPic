@@ -30,8 +30,6 @@ export interface QueuePage {
   phase: RunPhase
   summary: RunSummary | null
   runId: string | null
-  /** 最近一次从服务端快照接管过来的 runId（挡「重连把清空过的队列又填满」）。 */
-  lastAdoptedRunId: string | null
   live: LiveCounters
   lastReveal: string | null
   lastRevealIndex: number
@@ -49,7 +47,6 @@ function newPage(): QueuePage {
     phase: 'idle',
     summary: null,
     runId: null,
-    lastAdoptedRunId: null,
     live: emptyCounters(),
     lastReveal: null,
     lastRevealIndex: -1,
@@ -107,14 +104,6 @@ export let pathIndex = pages[activePage].pathIndex
 export const summary = ref<RunSummary | null>(pages[activePage].summary)
 export const runId = ref<string | null>(pages[activePage].runId)
 /**
- * 最近一次从服务端快照接管过来的 runId。
- *
- * 用来挡住「一轮已经结束、重连又把它变回界面」这种情况：结束时服务端还会留一份快照，
- * 供刚刚刷新的页面接一次；但同一个页面不该靠重连把清空过的队列重新填满。
- */
-export const adopted = { runId: pages[activePage].lastAdoptedRunId as string | null }
-
-/**
  * 运行中的统计用增量维护，不再「每来一条事件就把所有行重算一遍」。
  *
  * 旧实现把统计写成 computed：任一事件动了行它就失效，然后遍历上千行、并对每份结果
@@ -138,7 +127,6 @@ export function savePage(): void {
   page.phase = phase.value
   page.summary = summary.value
   page.runId = runId.value
-  page.lastAdoptedRunId = adopted.runId
   page.live = { ...live }
   page.lastReveal = lastReveal.value
   page.lastRevealIndex = revealIndex.value
@@ -156,7 +144,6 @@ export function loadPage(mode: RemoteMode): void {
   phase.value = page.phase
   summary.value = page.summary
   runId.value = page.runId
-  adopted.runId = page.lastAdoptedRunId
   lastReveal.value = page.lastReveal
   revealIndex.value = page.lastRevealIndex
   seq.local = page.localSeq

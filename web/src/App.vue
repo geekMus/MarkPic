@@ -19,6 +19,7 @@ import {
   pickFiles,
   pickFolder,
   revealPath,
+  setLang as pushLang,
 } from './api'
 import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
@@ -44,7 +45,14 @@ import { JOB_VIEWS, modeOfView, viewOfMode, type JobView, type RemoteMode, type 
 const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
 
 const { toasts, dismiss, warning, success, info } = useToasts()
-const { t } = useI18n()
+const { t, lang: uiLang } = useI18n()
+
+// 后端自己出文案（失败原因、提示），语言必须在启动时推一次、切换时再推一次。
+watch(uiLang, (next) => {
+  void pushLang(next).catch(() => {
+    // 后端没起来时推不进去：它回退到中文默认值，不该因此打断界面
+  })
+}, { immediate: true })
 const { resolved: theme, cycle: toggleTheme } = useTheme()
 // 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
 const { available: windowChrome, minimize, tray, quit, startResize } = useWindowControls()
@@ -62,7 +70,7 @@ const {
   rememberCloseAction,
   update: updateSettings,
   discard: discardSettings,
-  snapshot: settingsSnapshot,
+
 } = useSettings()
 
 const {
@@ -378,15 +386,6 @@ function writeQueues(): void {
 }
 
 /**
- * 这一轮要用的设置 = 面板里那份 + 当前菜单决定的远程图模式。
- * 模式不在表单里（它是菜单），所以用覆盖的方式塞进去：既不会让「未保存」变真，
- * 也不会被当成用户改过的设置写回文件。
- */
-function jobSettings() {
-  return settingsSnapshot({ remote: mode.value })
-}
-
-/**
  * 扫一遍某一页里还没扫过的行（切到这一页时顺手做，别让三页在启动时抢网络）。
  *
  * 不等结果：每份文件扫完会自己推事件回来，哪张卡片先扫通哪张先亮。
@@ -394,7 +393,7 @@ function jobSettings() {
 function scanPage(pageMode: RemoteMode): void {
   const paths = queuePagePendingPreview(pageMode)
   if (paths.length === 0) return
-  void scanPaths(pageMode, paths, settingsSnapshot({ remote: pageMode }))
+  void scanPaths(pageMode, paths)
 }
 
 /** 启动时把三页各自的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
@@ -416,7 +415,7 @@ async function enqueue(paths: string[]): Promise<void> {
   }
   rememberPaths(added)
   // 进队列就开始扫，但不等它：卡片先出来，扫完一份亮一份。
-  void scanPaths(mode.value, added, jobSettings())
+  void scanPaths(mode.value, added)
 }
 
 /** 卡片上的「取消扫描」/「恢复扫描」「重试」。 */
@@ -425,7 +424,7 @@ function handleCancelScan(id: string): void {
 }
 
 function handleRetryScan(id: string): void {
-  retryRowScan(id, jobSettings())
+  retryRowScan(id)
 }
 // 拖进窗口就等于加进队列；拦不住 drag 事件的话 WebView2 会把窗口导航到那个文件
 const { active: dropActive } = useFileDrop({
@@ -443,14 +442,11 @@ const { active: dropActive } = useFileDrop({
 
 function handleRun(): void {
   if (!canStart.value) return
-  void start(
-    rowViews.value.map((row) => row.path),
-    jobSettings(),
-  )
+  void start(rowViews.value.map((row) => row.path))
 }
 
 async function handleSaveSettings(): Promise<void> {
-  if (await saveSettings({ remote: mode.value })) await refreshHealth()
+  if (await saveSettings()) await refreshHealth()
 }
 
 /**

@@ -5,7 +5,7 @@
 // 都是 JSON 友好的普通结构体；事件（进度、单个文件完成）通过 sink 推给窗口。
 //
 // 这个文件只放「身份与状态」：Reply 信封、App 结构体与其构造、语言与事件出口。
-// 具体功能按主题分在 health.go / settings.go / runs.go / preview.go / dialog.go /
+// 具体功能按主题分在 health.go / settings.go / runs.go / scan.go / dialog.go /
 // update.go 里，bridge 方法表在 dispatch.go。
 package app
 
@@ -59,11 +59,12 @@ func internal(msg string) *fail { return &fail{code: "internal", msg: msg} }
 type App struct {
 	store *settings.Store
 
-	mu   sync.Mutex
-	runs map[string]context.CancelFunc
-	// current 按 runID 记着每一轮的快照。上传 / 检测 / 下载各能跑一轮，
-	// 所以这里不是「唯一的那一轮」，按 runID 分开存。
-	current map[string]*runSnapshot
+	mu sync.Mutex
+	// runs 是「正在跑的操作」：runID → 操作类型（上传 / 检测 / 下载）。
+	// 同一个操作只允许一轮，靠它判断。
+	runs map[string]string
+	// cancels 是每一轮的取消函数，按 runID 索引。
+	cancels map[string]context.CancelFunc
 	// scans 是在跑的扫描批次。扫描是异步的，界面靠 scanId 取消其中一批（或其中某个文件）。
 	scans map[string]*scanSession
 	// lang 是界面当前的语言：命令行的 Accept-Language 没了，改成前端启动时告诉 我们一次。
@@ -80,22 +81,12 @@ type App struct {
 	exeDir string
 }
 
-type runSnapshot struct {
-	runID string
-	// mode 是这一轮属于哪一页：ignore（上传）/ check / download。
-	mode    string
-	files   []conv.FileTask
-	results map[string]*conv.FileResult
-	summary *conv.Summary
-	done    bool
-}
-
 // New 建一个 App。exePath 是正在运行的程序，自动更新要替换的就是它。
 func New(store *settings.Store, exePath string) *App {
 	return &App{
 		store:   store,
-		runs:    make(map[string]context.CancelFunc),
-		current: make(map[string]*runSnapshot),
+		runs:    make(map[string]string),
+		cancels: make(map[string]context.CancelFunc),
 		scans:   make(map[string]*scanSession),
 		lang:    i18n.ZH,
 		upd: updateTracker{status: updateStatus{

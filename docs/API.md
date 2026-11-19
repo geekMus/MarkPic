@@ -40,7 +40,6 @@ Failures never reject the promise; the UI branches on `code` and shows `message`
 
 | method | params | returns |
 | --- | --- | --- |
-| `app.hello` | `{lang}` | version, data directory, language |
 | `i18n.set` | `{lang}` | `{lang}` |
 | `health` | — | PicGo reachability and similar status |
 | `settings.get` | — | current settings |
@@ -48,11 +47,9 @@ Failures never reject the promise; the UI branches on `code` and shows `message`
 | `settings.closeAction` | `{action}` | `{closeAction}`; only the close behaviour, leaving an unsaved draft alone |
 | `dialog.files` | — | `{paths}` |
 | `dialog.folder` | — | `{paths}` |
-| `preview` | `{paths, settings?}` | scan preview |
-| `scan.start` | `{scanId, paths, settings?}` | accepted; results arrive as `scan.file` events |
+| `scan.start` | `{scanId, paths}` | accepted; results arrive as `scan.file` events, one per requested path |
 | `scan.cancel` | `{scanId, path?}` | `{cancelled}`; with `path` only that file is cancelled |
-| `run.start` | `{paths, settings?}` | starts a conversion run; `mode` comes from the remote mode in settings |
-| `run.current` | `{mode?}` | the run this page already has, to reattach after a reload |
+| `run.start` | `{op, paths}` | starts a run; `op` is `upload` / `check` / `download` (not a setting) |
 | `run.cancel` | `{runId}` | `{ok}` |
 | `reveal` | `{path}` | `{ok}`; reveal in the file manager |
 | `open` | `{target}` | `{ok}`; open a file or folder |
@@ -70,14 +67,14 @@ never batched or delayed.
 | --- | --- |
 | `run.started` | `runId`, `mode`, `files` |
 | `file.started` | `runId`, `id` |
-| `file.progress` | `runId`, `id`, `uploaded`, `done`, `total`, `items` |
-| `file.finished` | `runId`, `id`, `result` |
+| `file.progress` | `runId`, `id`, `uploaded`, `done`, `total`, `items`, `summary` |
+| `file.finished` | `runId`, `id`, `result`, `summary` |
 | `run.cancelled` | `runId` |
 | `run.finished` | `runId`, `summary` |
 | `log` | `level`, `message` |
 | `scan.file` | `runId` (`scanId` when scanning), `path`, `scanned`, `cancelled`, `timedOut` |
 | `scan.done` | `runId` (`scanId` when scanning) |
 
-`mode` in `run.started` tells the three pages apart (upload / check / download); each
-page claims the run that belongs to it. After a page refresh, call `run.current` first
-to get the current snapshot, then keep receiving events.
+`mode` in `run.started` carries the operation name (`upload` / `check` / `download`); each
+page claims the run that belongs to it. `summary` on `file.progress` / `file.finished` is the
+run's running total, so the UI never recomputes counters of its own.

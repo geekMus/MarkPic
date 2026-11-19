@@ -122,6 +122,17 @@ type Runner struct {
 	// remoteCache 是跨运行的下载记录：上次已经下过、文件还在且大小对得上，
 	// 就不再打一次网络。为 nil 或路径为空时等于关掉。
 	remoteCache *remotecache.Cache
+
+	// runMu/runSum 是「这一轮到目前为止」的累计汇总：每处理完一个文件就并一次，
+	// 随 file.progress / file.finished 一起发出去。
+	//
+	// 为什么由后端算：界面要在跑动中显示「替换了几处、失效几张、失败几张」。
+	// 以前这些数由前端按事件自己加减（二十几个字段各来一遍），后端跑完又发一份
+	// 汇总把它整个盖掉 —— 同一份数字两个算法，口径一旦有一处不同就当场对不上。
+	// 现在只有一个算法，界面只负责显示。
+	runMu  sync.Mutex
+	runSum Summary
+	runAt  time.Time
 }
 
 // abortsAfterFailures 是「认定图床不可用」的连续失败张数。
@@ -319,6 +330,44 @@ func (r *Runner) takeDoc(path string, data []byte) *mdscan.Document {
 		return nil
 	}
 	return doc
+}
+
+// beginRun 清空这一轮的累计汇总，并记下起跑时刻。
+func (r *Runner) beginRun(at time.Time) {
+	r.runMu.Lock()
+	r.runSum = Summary{RunID: r.runID}
+	r.runAt = at
+	r.runMu.Unlock()
+}
+
+// absorbResult 把一个刚处理完的文件并进累计汇总，返回可以随事件发出去的快照。
+func (r *Runner) absorbResult(res *FileResult) *Summary {
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
+	addFileToSummary(&r.runSum, res)
+	return r.liveSummaryLocked()
+}
+
+// liveSummary 返回「到目前为止」的汇总快照（进度事件用）。
+func (r *Runner) liveSummary() *Summary {
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
+	return r.liveSummaryLocked()
+}
+
+// liveSummaryLocked 组装快照。调用方必须已持有 runMu。
+//
+// 「省下了几次」三个计数来自缓存与计数器，不在 addFileToSummary 里：
+// 它们算的是这一轮少发了几次请求，不是某个文件的处理结果。
+func (r *Runner) liveSummaryLocked() *Summary {
+	snap := r.runSum
+	snap.Reused = r.uploads.Hits()
+	snap.UploadRequests = int(r.sent.Load())
+	snap.RemoteReused = r.remoteCacheHits()
+	if !r.runAt.IsZero() {
+		snap.DurationMs = time.Since(r.runAt).Milliseconds()
+	}
+	return &snap
 }
 
 func (r *Runner) notify(ev Event) {

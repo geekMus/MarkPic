@@ -1,16 +1,14 @@
 import type {
-  CurrentRun,
   DialogResult,
   Health,
   OkResult,
-  PreviewResult,
-  RemoteMode,
+  RunOp,
   RunStartResult,
   ScanStartResult,
   Settings,
   UpdateStatus,
 } from './types'
-import { langHeader, t } from './i18n'
+import { t } from './i18n'
 
 /**
  * 界面与 Go 之间的通道。
@@ -40,20 +38,13 @@ declare global {
 
 /** 统一的 API 错误：保留服务端的错误码与服务端给的文案。 */
 export class ApiError extends Error {
-  readonly status: number
   readonly code: string
 
-  constructor(status: number, code: string, message: string) {
+  constructor(code: string, message: string) {
     super(message)
     this.name = 'ApiError'
-    this.status = status
     this.code = code
   }
-}
-
-/** 旧文案里会提到「本地服务」；现在没有服务了，保留这个函数只为兼容调用点。 */
-export function serviceOrigin(): string {
-  return 'MarkPic'
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -64,7 +55,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function toError(reply: Reply): ApiError {
   const code = reply.code ?? 'unknown'
   const message = (reply.message ?? '').trim()
-  return new ApiError(0, code, message || t('error.bridge'))
+  return new ApiError(code, message || t('error.bridge'))
 }
 
 /** 调一个 Go 侧方法，成功时返回 data。 */
@@ -72,13 +63,13 @@ async function call<T>(method: string, params: unknown = {}): Promise<T> {
   const bridge = window.markpic
   if (!bridge) {
     // 在浏览器里直接开 Vite 页面调试时没有 bridge，给一句能看懂的提示。
-    throw new ApiError(0, 'no-bridge', t('error.noBridge'))
+    throw new ApiError('no-bridge', t('error.noBridge'))
   }
   let reply: Reply
   try {
-    reply = await bridge(method, JSON.stringify({ ...(isRecord(params) ? params : {}), lang: langHeader() }))
+    reply = await bridge(method, JSON.stringify(isRecord(params) ? params : {}))
   } catch (error) {
-    throw new ApiError(0, 'bridge-failed', error instanceof Error ? error.message : String(error))
+    throw new ApiError('bridge-failed', error instanceof Error ? error.message : String(error))
   }
   if (!reply || !reply.ok) {
     throw toError(reply ?? { ok: false, code: 'empty', message: '' })
@@ -109,18 +100,13 @@ export function isDialogUnsupported(error: unknown): boolean {
   return error instanceof ApiError && error.code === 'unsupported'
 }
 
-/** 应用与数据目录的基本信息（语言由参数带上，Go 侧据此回本地化文案）。 */
-export type Hello = {
-  version: string
-  dataDir: string
-  dataNote: string
-  lang: string
-}
-
-export function hello(lang: string): Promise<Hello> {
-  return call<Hello>('app.hello', { lang })
-}
-
+/**
+ * 告诉后端界面现在用哪种语言。
+ *
+ * 后端回的文字（逐图失败原因、PicGo 提示、更新错误）由它自己出，所以语言得同步过去；
+ * 这是一条独立通道，不再随每次调用捎带 —— 以前 api.ts 给每个请求都塞一个 lang，
+ * 而后端从来没读过它，切到英文之后后台文案仍然是中文。
+ */
 export function setLang(lang: string): Promise<{ lang: string }> {
   return call<{ lang: string }>('i18n.set', { lang })
 }
@@ -133,7 +119,7 @@ export function getSettings(): Promise<Settings> {
   return call<Settings>('settings.get')
 }
 
-export function putSettings(settings: Partial<Settings>): Promise<Settings> {
+export function putSettings(settings: Settings): Promise<Settings> {
   return call<Settings>('settings.put', settings)
 }
 
@@ -154,20 +140,15 @@ export async function pickFolder(): Promise<string[]> {
   return data.paths
 }
 
-export function preview(paths: string[], settings?: Partial<Settings>): Promise<PreviewResult> {
-  return call<PreviewResult>('preview', { paths, settings })
-}
-
 /**
- * 让后端开扫一批文件。
+ * 让后端开扫一批路径。
  *
- * 回来的只是「已经收下了」：每个文件扫完会推一条 scan.file 事件回来。
+ * 回来的只是「已经收下了」：每个路径扫完会推一条 scan.file 事件回来。
  * scanId 由前端生成，取消和事件归属都靠它认。
  */
 export function scanStart(params: {
   scanId: string
   paths: string[]
-  settings?: Partial<Settings>
 }): Promise<ScanStartResult> {
   return call<ScanStartResult>('scan.start', params)
 }
@@ -177,17 +158,18 @@ export function cancelScan(params: { scanId: string; path?: string }): Promise<{
   return call<{ cancelled: boolean }>('scan.cancel', params)
 }
 
-export function startRun(paths: string[], settings?: Partial<Settings>): Promise<RunStartResult> {
-  return call<RunStartResult>('run.start', { paths, settings })
+/**
+ * 开始一轮转换。
+ *
+ * op 是用户点了什么（上传 / 检测 / 下载），不是设置：设置里那个 remote 说的是
+ * 「文档里已经写着的网络图片怎么办」，跟这一轮做什么无关。
+ */
+export function startRun(op: RunOp, paths: string[]): Promise<RunStartResult> {
+  return call<RunStartResult>('run.start', { op, paths })
 }
 
 export function cancelRun(runId: string): Promise<OkResult> {
   return call<OkResult>('run.cancel', { runId })
-}
-
-/** Go 侧那一页现在在跑哪一轮、已经出了哪些结果（界面重载后靠它接回来）。 */
-export function getCurrentRun(mode?: RemoteMode): Promise<CurrentRun> {
-  return call<CurrentRun>('run.current', mode === undefined ? {} : { mode })
 }
 
 export function revealPath(path: string): Promise<OkResult> {
@@ -198,20 +180,15 @@ export function openTarget(target: string): Promise<OkResult> {
   return call<OkResult>('open', { target })
 }
 
-/** 当前更新状态（不联网，读的是 Go 侧记住的那份）。 */
+/** 更新检查 / 安装 / 状态。 */
 export function getUpdateStatus(): Promise<UpdateStatus> {
   return call<UpdateStatus>('update.status')
 }
 
-/**
- * 检查更新。检查失败不会抛异常：Go 侧把原因写进 status.error，
- * 这样对话框可以把它当成一种状态展示，而不是一个红色的请求失败。
- */
 export function checkUpdate(): Promise<UpdateStatus> {
   return call<UpdateStatus>('update.check')
 }
 
-/** 下载、校验、替换并重启。之后用 getUpdateStatus 轮询进度。 */
 export function installUpdate(): Promise<UpdateStatus> {
   return call<UpdateStatus>('update.install')
 }

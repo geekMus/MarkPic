@@ -145,6 +145,7 @@ const (
 	KeyServerNoDialog          Key = "server.noDialog"
 	KeyServerNeedPaths         Key = "server.needPaths"
 	KeyServerBusy              Key = "server.busy"
+	KeyServerBadOp             Key = "server.badOp"
 	KeyServerMissingFilePath   Key = "server.missingFilePath"
 	KeyServerMissingPath       Key = "server.missingPath"
 	KeyServerBadJSON           Key = "server.badJSON"
@@ -574,6 +575,10 @@ var catalog = map[Key]entry{
 	KeyServerBusy: {
 		"这一页已经有一个任务在跑，等它结束或先取消再试",
 		"A task is already running on this page — wait for it to finish or cancel it first",
+	},
+	KeyServerBadOp: {
+		"不认识的操作：%s（只支持 upload / check / download）",
+		"Unknown operation: %s (expected upload, check or download)",
 	},
 	KeyServerMissingFilePath: {
 		"缺少文件路径",

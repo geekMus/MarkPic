@@ -10,63 +10,28 @@ import (
 
 // ---------- 设置 ----------
 
-// settingsPatch 是「只覆盖用户改动过的字段」的参数。
-// 不能用整个 Settings：前端漏发一个字段就会把用户已保存的设置悄悄重置成零值。
-type settingsPatch struct {
-	Endpoint    *string `json:"endpoint"`
-	Concurrency *int    `json:"concurrency"`
-	Retries     *int    `json:"retries"`
-	Output      *string `json:"output"`
-	Suffix      *string `json:"suffix"`
-	OutDir      *string `json:"outDir"`
-	Backup      *bool   `json:"backup"`
-	Reuse       *bool   `json:"reuseUploads"`
-	Remote      *string `json:"remote"`
-	RemoteDir   *string `json:"remoteDir"`
-	CloseAction *string `json:"closeAction"`
-	StartInTray *bool   `json:"startInTray"`
-}
-
-func (p *settingsPatch) apply(cfg *settings.Settings) {
-	if p == nil {
-		return
+// putSettings 把前端交上来的设置整份写下去。
+//
+// 前端持有完整的一份设置（草稿 + 已保存值），保存时交上来的一定是完整的：
+// 以前这里按「只覆盖发上来的字段」做增量，是因为要兼容「某次调用顺带改一个字段」
+// 的用法（把页面名当设置传上来）。现在操作类型走 start 的 op 参数，设置只有
+// 「读一份、改一改、整份存回去」这一条路，增量补丁那套（12 个指针字段 + 逐字段
+// 判空）就没有存在的理由了。
+func (a *App) putSettings(params json.RawMessage) (any, error) {
+	var incoming settings.Settings
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &incoming); err != nil {
+			return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerBadJSON))
+		}
 	}
-	if p.Endpoint != nil {
-		cfg.Endpoint = *p.Endpoint
+	cfg, err := a.configOf(&incoming)
+	if err != nil {
+		return nil, badRequest(err.Error())
 	}
-	if p.Concurrency != nil {
-		cfg.Concurrency = *p.Concurrency
+	if err := a.store.Save(cfg); err != nil {
+		return nil, internal(i18n.T(a.Lang(), i18n.KeyServerSaveFailed, err))
 	}
-	if p.Retries != nil {
-		cfg.Retries = *p.Retries
-	}
-	if p.Output != nil {
-		cfg.Output = *p.Output
-	}
-	if p.Suffix != nil {
-		cfg.Suffix = *p.Suffix
-	}
-	if p.OutDir != nil {
-		cfg.OutDir = *p.OutDir
-	}
-	if p.Backup != nil {
-		cfg.Backup = *p.Backup
-	}
-	if p.Reuse != nil {
-		cfg.ReuseUploads = *p.Reuse
-	}
-	if p.Remote != nil {
-		cfg.Remote = *p.Remote
-	}
-	if p.RemoteDir != nil {
-		cfg.RemoteDir = *p.RemoteDir
-	}
-	if p.CloseAction != nil {
-		cfg.CloseAction = *p.CloseAction
-	}
-	if p.StartInTray != nil {
-		cfg.StartInTray = *p.StartInTray
-	}
+	return a.store.Load(), nil
 }
 
 // setCloseAction 只改关闭行为。关窗时勾了「不再询问」的话，前端把这次选的动作存下来，
@@ -91,26 +56,15 @@ func (a *App) setCloseAction(params json.RawMessage) (any, error) {
 	return map[string]string{"closeAction": cfg.CloseAction}, nil
 }
 
-func (a *App) putSettings(params json.RawMessage) (any, error) {
-	var patch settingsPatch
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &patch); err != nil {
-			return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerBadJSON))
-		}
+// configOf 把交上来的一份设置规整成可用的运行参数。
+//
+// 校验只有这一处：前端那份「保存前先拦一下」的检查只是为了让用户马上看到问题，
+// 真正说了算的是这里（settings.Normalize）。
+func (a *App) configOf(incoming *settings.Settings) (settings.Settings, error) {
+	cfg := settings.Default()
+	if incoming != nil {
+		cfg = *incoming
 	}
-	cfg, err := a.configOf(&patch)
-	if err != nil {
-		return nil, badRequest(err.Error())
-	}
-	if err := a.store.Save(cfg); err != nil {
-		return nil, internal(i18n.T(a.Lang(), i18n.KeyServerSaveFailed, err))
-	}
-	return a.store.Load(), nil
-}
-
-func (a *App) configOf(patch *settingsPatch) (settings.Settings, error) {
-	cfg := a.store.Load()
-	patch.apply(&cfg)
 	// 调试构建整轮只扫描、不写文件；发布构建里这一位恒为 false。
 	// 它不是用户设置：界面没有开关，也不会从 settings.put 传上来。
 	cfg.DryRun = version.DebugMode()

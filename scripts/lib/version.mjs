@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs';
 import process from 'node:process';
 
 import { git, gitOrNull } from './proc.mjs';
@@ -55,9 +53,5 @@ export function resolveBuildVersion(explicit = '') {
 export function resolveCommit() {
   const text = gitOrNull(['rev-parse', '--short', 'HEAD']);
   return text ? text.trim() : 'none';
-}
-
-export function sha256(file) {
-  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 

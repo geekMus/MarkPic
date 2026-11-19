@@ -15,7 +15,7 @@
 #   - 清单不再写回 main（main 只接受来自 dev 的合并，CI 推不进去），而是作为 release
 #     附件上传；客户端读 releases/latest/download/version.json。
 #
-# 分层（与 PacPilot 的 workflow 同一套写法：每层一个 job，末尾写「阶段 N 小结」进 Job Summary）：
+# 分层（与 PacPilot 的 workflow 同一套写法：每层一个 job，小结统一放在最后的 report job）：
 #   阶段 1 prepare：算版本号、判断这次要不要发
 #   阶段 2 build  ：装依赖 → 构建前端 → Go 测试 → 编译 exe → 上传 artifact
 #   阶段 3 publish：生成更新说明 → 生成版本清单 → 建草稿 → 传 exe 与清单 → 发布
@@ -120,32 +120,6 @@ jobs:
           echo "产物名称：$ASSET"
           echo "发布判断：$REASON"
 
-      - name: 阶段 1 小结
-        if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-          VERSION: ${{ steps.version.outputs.version }}
-          ASSET: ${{ steps.version.outputs.asset }}
-          PUBLISH: ${{ steps.version.outputs.publish }}
-          REASON: ${{ steps.version.outputs.reason }}
-        shell: bash
-        run: |
-          {
-            echo "## 阶段 1：版本号与发布判断"
-            echo
-            echo "- **结果：** ${JOB_STATUS:-未知}"
-            echo "- **目标版本：** ${VERSION:+v}${VERSION:-未算出}"
-            echo "- **产物名称：** ${ASSET:-未确定}"
-            if [[ "${PUBLISH:-}" == "true" ]]; then
-              echo "- **发布决策：** 允许进入构建与发布阶段"
-            elif [[ "${PUBLISH:-}" == "false" ]]; then
-              echo "- **发布决策：** 本次只构建不发布（[no-release]）"
-            else
-              echo "- **发布决策：** 未能完成判断，请查看上方日志"
-            fi
-            echo "- **说明：** ${REASON:-阶段未产生判断结果，详见日志}"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   build:
     name: 构建安装包
     needs: prepare
@@ -244,50 +218,6 @@ jobs:
           path: bin/${{ needs.prepare.outputs.asset }}
           if-no-files-found: error
           retention-days: 1
-
-      - name: 阶段 2 小结
-        if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          ASSET: ${{ needs.prepare.outputs.asset }}
-          CHECKOUT: ${{ steps.checkout.outcome }}
-          GO: ${{ steps.setup-go.outcome }}
-          PNPM: ${{ steps.setup-pnpm.outcome }}
-          NODE: ${{ steps.setup-node.outcome }}
-          INSTALL: ${{ steps.install.outcome }}
-          WEB: ${{ steps.web.outcome }}
-          TESTS: ${{ steps.tests.outcome }}
-          BUILD: ${{ steps.build.outcome }}
-          VERIFY: ${{ steps.verify.outcome }}
-          UPLOAD: ${{ steps.upload.outcome }}
-          SIZE: ${{ steps.verify.outputs.size }}
-          SHA256: ${{ steps.verify.outputs.sha256 }}
-        shell: bash
-        run: |
-          {
-            echo "## 阶段 2：构建安装包"
-            echo
-            echo "- **结果：** ${JOB_STATUS:-未知}"
-            echo "- **目标版本：** ${VERSION:+v}${VERSION:-未确定}"
-            echo "- **产物名称：** ${ASSET:-未确定}"
-            echo "- **产物大小：** ${SIZE:-未生成} 字节"
-            echo "- **产物 SHA256：** ${SHA256:-未生成}"
-            echo
-            echo "### 步骤结果"
-            echo
-            echo "- **检出代码：** ${CHECKOUT:-未执行}"
-            echo "- **Go / pnpm / Node：** ${GO:-未执行} / ${PNPM:-未执行} / ${NODE:-未执行}"
-            echo "- **安装前端依赖：** ${INSTALL:-未执行}"
-            echo "- **构建前端：** ${WEB:-未执行}"
-            echo "- **Go 测试：** ${TESTS:-未执行}"
-            echo "- **编译 exe：** ${BUILD:-未执行}"
-            echo "- **校验产物 / 上传：** ${VERIFY:-未执行} / ${UPLOAD:-未执行}"
-            if [[ "${JOB_STATUS:-}" != "success" ]]; then
-              echo
-              echo "- **排查建议：** 在「步骤结果」里找出第一个非 success 的步骤，只看那一段日志；发布阶段不会执行。"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: 发布 Release
@@ -409,49 +339,6 @@ jobs:
           gh release upload "$TAG" "$RUNNER_TEMP/manifest/version.json" --clobber
           gh release edit "$TAG" --draft=false
           echo "已发布 $TAG（exe + version.json）"
-
-      - name: 阶段 3 小结
-        if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          ASSET: ${{ needs.prepare.outputs.asset }}
-          PREVIOUS: ${{ steps.notes.outputs.previous }}
-          FEATURES: ${{ steps.notes.outputs.features }}
-          IMPROVES: ${{ steps.notes.outputs.improves }}
-          FIXES: ${{ steps.notes.outputs.fixes }}
-          DOWNLOAD: ${{ steps.download.outcome }}
-          NOTES: ${{ steps.notes.outcome }}
-          MANIFEST: ${{ steps.manifest.outcome }}
-          RELEASE: ${{ steps.release.outcome }}
-          PUBLISH: ${{ steps.publish.outcome }}
-        shell: bash
-        run: |
-          {
-            echo "## 阶段 3：发布 Release"
-            echo
-            echo "- **结果：** ${JOB_STATUS:-未知}"
-            echo "- **版本 / 标签：** v${VERSION:-未确定} / ${TAG:-未确定}"
-            echo "- **产物：** ${ASSET:-未确定}"
-            echo "- **上一个 tag：** ${PREVIOUS:-未获取}"
-            echo "- **记录分组：** 新功能 ${FEATURES:-0} 项 / 改进 ${IMPROVES:-0} 项 / 修复 ${FIXES:-0} 项"
-            echo
-            echo "### 步骤结果"
-            echo
-            echo "- **下载安装包：** ${DOWNLOAD:-未执行}"
-            echo "- **生成更新说明：** ${NOTES:-未执行}"
-            echo "- **生成版本清单：** ${MANIFEST:-未执行}"
-            echo "- **建草稿 release：** ${RELEASE:-未执行}"
-            echo "- **上传并发布：** ${PUBLISH:-未执行}"
-            if [[ "${JOB_STATUS:-}" == "success" ]]; then
-              echo
-              echo "- **说明：** 客户端读的是 Release 附件 version.json（releases/latest/download/version.json），不再依赖 main 分支上的文件。"
-            else
-              echo
-              echo "- **注意：** 草稿 release 不会被客户端看到；修好之后重跑，或者去 Releases 页面把草稿删掉。"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
 
   report:
     name: 汇总结果

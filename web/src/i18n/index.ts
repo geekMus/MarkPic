@@ -47,19 +47,6 @@ function setLang(next: Lang): void {
   apply()
 }
 
-/** 当前语言，供 api.ts 之类的非组件代码使用。 */
-export function currentLang(): Lang {
-  return lang.value
-}
-
-/**
- * 每次请求都带上它：服务端返回的文字（逐图失败原因、PicGo 提示、更新错误等）
- * 也要跟着界面语言走。
- */
-export function langHeader(): string {
-  return lang.value === 'en' ? 'en' : 'zh-CN'
-}
-
 /** 取文案；{name} 会被 params 里的同名值替换。 */
 export function t(key: MessageKey, params?: Record<string, string | number>): string {
   const text = CATALOG[lang.value][key] ?? zh[key] ?? key

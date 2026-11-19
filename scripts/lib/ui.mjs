@@ -24,12 +24,4 @@ export const ui = {
   error(message) {
     console.error(paint(31, `错误：${message}`));
   },
-  blank() {
-    console.log('');
-  },
 };
-
-export function fail(message) {
-  ui.error(message);
-  process.exit(1);
-}

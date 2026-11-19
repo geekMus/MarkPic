@@ -163,11 +163,12 @@ func (r *Runner) runUnits(ctx context.Context, id string, docDir string, groups 
 				// 下游（app.Batcher、测试里的收集函数）都按「同一个文件的事件是顺序来的」写，
 				// 一旦并发进来，done 会倒退、Items 增量会在并发追加里丢掉。
 				r.notify(Event{
-					Type:  EventFileProgress,
-					ID:    id,
-					Done:  progress,
-					Total: total,
-					Items: patches,
+					Type:    EventFileProgress,
+					ID:      id,
+					Done:    progress,
+					Total:   total,
+					Items:   patches,
+					Summary: r.liveSummary(),
 				})
 				mu.Unlock()
 			}

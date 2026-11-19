@@ -53,7 +53,7 @@ for (const section of SECTIONS) {
 }
 
 /** 发版机器人自己写的提交、合并提交、纯版本号提交，都不进更新说明。 */
-export function shouldSkip(subject) {
+function shouldSkip(subject) {
   const text = String(subject || '').trim();
   if (!text) return true;
   if (/^merge\b/iu.test(text)) return true;
@@ -63,7 +63,7 @@ export function shouldSkip(subject) {
 }
 
 /** 一条提交主题 → { key, text }：按「前缀：正文」归类，前缀认不出就归到 DEFAULT_SECTION。 */
-export function classify(subject) {
+function classify(subject) {
   const cleaned = String(subject || '')
     .replace(/\s*\[[^\]]*\]\s*$/u, '')
     .trim();
@@ -75,7 +75,7 @@ export function classify(subject) {
 }
 
 /** git log 的「短 SHA \t 主题」文本 → 提交数组。 */
-export function parseGitLog(text) {
+function parseGitLog(text) {
   const commits = [];
   for (const line of String(text || '').split('\n')) {
     if (!line.trim()) continue;
@@ -89,7 +89,7 @@ export function parseGitLog(text) {
 }
 
 /** 提交数组 → { features: [...], improves: [...], ... }，每项带好正文和短 SHA。 */
-export function groupCommits(commits) {
+function groupCommits(commits) {
   const groups = {};
   for (const section of SECTIONS) groups[section.key] = [];
   for (const commit of commits) {
@@ -100,7 +100,7 @@ export function groupCommits(commits) {
   return groups;
 }
 
-export function countGroups(groups) {
+function countGroups(groups) {
   const counts = {};
   for (const section of SECTIONS) counts[section.key] = (groups[section.key] || []).length;
   counts.total = SECTIONS.reduce(function (sum, section) { return sum + counts[section.key]; }, 0);
@@ -108,7 +108,7 @@ export function countGroups(groups) {
 }
 
 /** 一句话摘要：写进 version.json 的 notes，程序里的「有新版本」对话框读的就是它。 */
-export function oneLineSummary(counts, isFirstRelease) {
+function oneLineSummary(counts, isFirstRelease) {
   if (isFirstRelease) return '首个版本。';
   const parts = [];
   if (counts.features) parts.push('新功能 ' + counts.features + ' 项');
@@ -126,7 +126,7 @@ function commitLink(repo, sha) {
 }
 
 /** 渲染成 GitHub Release 正文。 */
-export function renderNotes(options) {
+function renderNotes(options) {
   const groups = options.groups;
   const counts = countGroups(groups);
   const lines = [];

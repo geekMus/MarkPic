@@ -8,33 +8,12 @@ import { markRaw, shallowReactive } from 'vue'
 import type { FileResult, RemoteMode, RunFileInfo } from '../../types'
 import { t } from '../../i18n'
 import { activePage, eventIndex, lastReveal, live, pathIndex, revealIndex, rowIndex, rows } from './page'
+import { emptyCounters } from './types'
 import { pathKey } from './paths'
 import type { RunRow } from './types'
 
 export function liveReset(): void {
-  live.images = 0
-  live.uploaded = 0
-  live.reused = 0
-  live.uploadRequests = 0
-  live.failed = 0
-  live.ok = 0
-  live.partial = 0
-  live.failedFiles = 0
-  live.noImages = 0
-  live.localized = 0
-  live.localizedUnique = 0
-  live.remoteChecked = 0
-  live.remoteCheckedUnique = 0
-  live.remoteDead = 0
-  live.remoteDeadUnique = 0
-  live.remoteFailed = 0
-  live.remoteFailedUnique = 0
-  live.remoteUnsupported = 0
-  live.localMissing = 0
-  live.remoteKept = 0
-  live.filesChecked = 0
-  live.settled = 0
-  live.abortReason = ''
+  Object.assign(live, emptyCounters())
   lastReveal.value = null
   revealIndex.value = -1
 }
@@ -75,14 +54,6 @@ export function workUnitsIn(result: FileResult | null | undefined, mode: RemoteM
     seen.add(item.target.trim())
   }
   return seen.size
-}
-
-export function scoreStatus(status: FileResult['status'], sign: number): void {
-  if (status === 'ok') live.ok += sign
-  else if (status === 'partial') live.partial += sign
-  else if (status === 'failed') live.failedFiles += sign
-  else if (status === 'no-images') live.noImages += sign
-  else if (status === 'checked') live.filesChecked += sign
 }
 
 export function rowAt(id: string): RunRow | null {
@@ -153,61 +124,17 @@ export function rowFromResult(result: FileResult): RunRow {
  * 「图片总数」这一项要把该行原先的贡献换掉（排队时是预估、预检时是预检结果、
  * 完成后是真实结果），所以先减旧值再加新值。
  */
-/** 服务端会在结果里直接给出复用张数；老版本没有这个字段时就退回自己数明细。 */
-function reusedInResult(result: FileResult): number {
-  if (typeof result.reused === 'number') return result.reused
-  return result.items.filter(item => item.status === 'reused' || item.status === 'cached').length
-}
-
 export function absorbResult(row: RunRow, result: FileResult): void {
-  if (row.scored && row.result) {
-    live.images -= row.result.images
-    live.reused -= reusedInResult(row.result)
-    live.failed -= row.result.failed
-    live.localized -= row.result.localized ?? 0
-    live.localizedUnique -= row.result.localizedUnique ?? 0
-    live.remoteChecked -= row.result.checked ?? 0
-    live.remoteCheckedUnique -= row.result.checkedUnique ?? 0
-    live.remoteDead -= row.result.dead ?? 0
-    live.remoteDeadUnique -= row.result.deadUnique ?? 0
-    live.remoteFailed -= row.result.remoteFailed ?? 0
-    live.remoteFailedUnique -= row.result.remoteFailedUnique ?? 0
-    live.remoteUnsupported -= row.result.remoteUnsupported ?? 0
-    live.localMissing -= row.result.localMissing ?? 0
-  live.remoteKept -= row.result.remoteKept ?? 0
-    scoreStatus(row.result.status, -1)
-  } else {
-    live.images -= row.images ?? row.total
-  }
-
-  live.images += result.images
-  live.uploaded += result.uploaded - row.uploaded
-  live.reused += reusedInResult(result)
-  live.failed += result.failed
-  live.localized += result.localized ?? 0
-  live.localizedUnique += result.localizedUnique ?? 0
-  live.remoteChecked += result.checked ?? 0
-  live.remoteCheckedUnique += result.checkedUnique ?? 0
-  live.remoteDead += result.dead ?? 0
-  live.remoteDeadUnique += result.deadUnique ?? 0
-  live.remoteFailed += result.remoteFailed ?? 0
-  live.remoteFailedUnique += result.remoteFailedUnique ?? 0
-  live.remoteUnsupported += result.remoteUnsupported ?? 0
-  live.localMissing += result.localMissing ?? 0
-  live.remoteKept += result.remoteKept ?? 0
+  // 统计数字由后端随事件带回（event.summary），这里只管把结果落到行上。
   // 这一篇的活干完了：用结果里的明细重新数一遍单元。第一个 file.progress 之前
   // 的分母是按预览估算的，比真实值大的话会一直把总进度压低；一个单元都没有
   // （纯本地图/纯远程图）就该从分母里消失，不能把进度条永远钉在中间。
   row.workTotal = workUnitsIn(result, activePage)
   row.workDone = row.workTotal
-  scoreStatus(result.status, 1)
-  if (!row.scored && row.phase !== 'cancelled') live.settled += 1
 
   const index = rowIndex.get(row.id) ?? (row.serverId ? eventIndex.get(row.serverId) : undefined) ?? -1
   row.result = markRaw(result)
   row.liveItems = undefined
-  row.counted = undefined
-  row.scored = true
   row.phase = 'settled'
   row.uploaded = result.uploaded
   row.total = result.images
@@ -252,12 +179,10 @@ export function applyStarted(files: RunFileInfo[]): void {
       existing.missing = false
       // 上一轮的明细先留着：这一轮每跑完一个文件，事件会把结果换掉。
       // 立刻置空会让检测页/下载页在跑的过程中变成空白页（看着像崩了）。
-      existing.scored = false
       existing.scan = 'ok'
       existing.scanError = undefined
       existing.scanBatch = undefined
       existing.liveItems = undefined
-      existing.counted = undefined
       return existing
     }
     return {
@@ -283,7 +208,6 @@ export function applyStarted(files: RunFileInfo[]): void {
       uploaded: 0,
       total: row.images ?? 0,
       result: null,
-      scored: false,
       liveItems: undefined,
     }))
 
@@ -310,7 +234,6 @@ export function markUnsettledCancelled(): void {
   for (const row of rows.value) {
     if (row.phase !== 'settled') row.phase = 'cancelled'
   }
-  live.settled = rows.value.length
 }
 
 /**

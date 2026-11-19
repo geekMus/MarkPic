@@ -1,12 +1,12 @@
 /**
  * 顶栏、底栏要的那几个总数。
  *
- * 全是 computed：行自己的变化由行自己触发重渲染，这里只负责「一共几行、跑完几个、
- * 替换了几处」这类一眼要看到的数。
+ * 数字全部来自后端：每个事件都带着「这一轮到目前为止」的累计汇总，这里只把它拼成
+ * 界面的形状。前端不再自己数一遍 —— 跑动中和跑完后的口径因此不可能对不上。
  */
 import { computed } from 'vue'
 import type { RunRowView, RunStats } from './types'
-import { lastReveal, live, rows, summary } from './page'
+import { lastReveal, live, rows } from './page'
 
 /**
  * 传给列表的行数组。
@@ -18,69 +18,48 @@ export const rowViews = computed<RunRowView[]>(() => rows.value.slice())
 
 export const totalCount = computed(() => rows.value.length)
 
-export const completedCount = computed(() => live.settled)
+/**
+ * 队列里已经收工的行数（有结果，或被取消）。
+ *
+ * 不从后端的计数桶里拼：取消的文件不属于任何一个桶，拼出来的数会让进度条在取消后
+ * 停在中途；队列行的相位才是「这一行还会不会动」的准确答案。
+ */
+export const completedCount = computed(
+  () => rows.value.filter((row) => row.phase === 'settled' || row.phase === 'cancelled').length,
+)
 
-export const stats = computed<RunStats>(() => {
-  const finished = summary.value
-  if (finished) {
-    return {
-      files: finished.files,
-      // 跑完之后目录已经展开成一个个文件了，这里不再有「目录」这回事。
-      dirs: 0,
-      images: finished.images,
-      uploaded: finished.uploaded,
-      reused: finished.reused,
-      uploadRequests: finished.uploadRequests ?? 0,
-      failed: finished.failedImages,
-      ok: finished.ok,
-      partial: finished.partial,
-      failedFiles: finished.failed,
-      noImages: finished.noImages,
-      localized: finished.localized ?? 0,
-      localizedUnique: finished.localizedUnique ?? 0,
-      remoteChecked: finished.remoteChecked ?? 0,
-      remoteCheckedUnique: finished.remoteCheckedUnique ?? 0,
-      remoteDead: finished.remoteDead ?? 0,
-      remoteDeadUnique: finished.remoteDeadUnique ?? 0,
-      remoteFailed: finished.remoteFailed ?? 0,
-      remoteFailedUnique: finished.remoteFailedUnique ?? 0,
-      remoteUnsupported: finished.remoteUnsupported ?? 0,
-      localMissing: finished.localMissing ?? 0,
-      remoteKept: finished.remoteKept ?? 0,
-      filesChecked: finished.filesChecked ?? 0,
-      remoteReused: finished.remoteReused ?? 0,
-      abortReason: finished.abortReason ?? '',
-    }
-  }
-
-  return {
-    files: rows.value.length,
-    dirs: rows.value.reduce((n, row) => n + (row.isDir ? 1 : 0), 0),
-    images: live.images,
-    uploaded: live.uploaded,
-    reused: live.reused,
-    uploadRequests: live.uploadRequests,
-    failed: live.failed,
-    ok: live.ok,
-    partial: live.partial,
-    failedFiles: live.failedFiles,
-    noImages: live.noImages,
-    localized: live.localized,
-    localizedUnique: live.localizedUnique,
-    remoteChecked: live.remoteChecked,
-    remoteCheckedUnique: live.remoteCheckedUnique,
-    remoteDead: live.remoteDead,
-    remoteDeadUnique: live.remoteDeadUnique,
-    remoteFailed: live.remoteFailed,
-    remoteFailedUnique: live.remoteFailedUnique,
-    remoteUnsupported: live.remoteUnsupported,
-    localMissing: live.localMissing,
-    remoteKept: live.remoteKept,
-    filesChecked: live.filesChecked,
-    remoteReused: live.remoteReused,
-    abortReason: live.abortReason,
-  }
-})
+export const stats = computed<RunStats>(() => ({
+  // 队列里有几行就是几个文件：跑动中它不能变成「已经处理了几个」，
+  // 否则底栏的文件数会随着进度往上跳。开跑时目录会展开成一个个文件，
+  // 所以跑起来之后 dirs 自然回到 0。
+  files: rows.value.length,
+  dirs: rows.value.reduce((n, row) => n + (row.isDir ? 1 : 0), 0),
+  // 引用数是「队列里一共多少张」，不是「已经处理了几张」：底栏那行是读队列，
+  // 进度由页头的百分比和「替换 N」负责。
+  images: rows.value.reduce((n, row) => n + (row.images ?? row.total), 0),
+  uploaded: live.uploaded,
+  reused: live.reused,
+  uploadRequests: live.uploadRequests,
+  failed: live.failed,
+  ok: live.ok,
+  partial: live.partial,
+  failedFiles: live.failedFiles,
+  noImages: live.noImages,
+  localized: live.localized,
+  localizedUnique: live.localizedUnique,
+  remoteChecked: live.remoteChecked,
+  remoteCheckedUnique: live.remoteCheckedUnique,
+  remoteDead: live.remoteDead,
+  remoteDeadUnique: live.remoteDeadUnique,
+  remoteFailed: live.remoteFailed,
+  remoteFailedUnique: live.remoteFailedUnique,
+  remoteUnsupported: live.remoteUnsupported,
+  localMissing: live.localMissing,
+  remoteKept: live.remoteKept,
+  filesChecked: live.filesChecked,
+  remoteReused: live.remoteReused,
+  abortReason: live.abortReason,
+}))
 
 export const revealTarget = computed<string | null>(() => {
   if (lastReveal.value !== null) return lastReveal.value

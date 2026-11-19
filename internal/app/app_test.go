@@ -71,27 +71,13 @@ func dispatch[T any](t *testing.T, a *App, method string, params any) T {
 	return out
 }
 
-func TestHelloReportsBrandAndDataDir(t *testing.T) {
-	a := newTestApp(t)
-	hello := dispatch[struct {
-		Version string `json:"version"`
-		DataDir string `json:"dataDir"`
-		Lang    string `json:"lang"`
-	}](t, a, "app.hello", map[string]string{"lang": "en"})
-
-	if hello.DataDir == "" {
-		t.Fatal("app.hello 应该给出数据目录")
-	}
-	if hello.Lang != "en" {
-		t.Fatalf("app.hello 应该回设成 en，实际 %q", hello.Lang)
-	}
-	if hello.Version == "" {
-		t.Fatal("app.hello 应该给出版本号")
-	}
-}
-
 func TestHealthSaysMarkpic(t *testing.T) {
 	a := newTestApp(t)
+	// 语言只有 i18n.set 这一条通道（身份信息由 health 一并给出）。
+	dispatch[map[string]any](t, a, "i18n.set", map[string]any{"lang": "en"})
+	if got := a.Lang(); got != "en" {
+		t.Fatalf("i18n.set 应该把语言切成 en，实际 %q", got)
+	}
 	health := dispatch[struct {
 		App     string `json:"app"`
 		Version string `json:"version"`
@@ -106,27 +92,42 @@ func TestHealthSaysMarkpic(t *testing.T) {
 	}
 }
 
-// 设置是部分更新：只发的字段改，没发的保持原样。
-// 这条以前是 HTTP 接口的坑（整份覆盖会把没发的字段清零），换成 bridge 后必须还在。
-func TestSettingsPutOnlyChangesGivenFields(t *testing.T) {
+// 设置只有一条写入通道：读一份完整的、改完整份存回去。
+//
+// 以前这里是「只覆盖发上来的字段」，因为调用方会顺手把页面名塞进 settings 传上来。
+// 操作类型改走 run.start 的 op 参数之后，那条路没了，增量补丁也就没有意义：
+// 现在缺字段就是缺字段，由 settings.Normalize 补成默认值，而不是「保持上一次的值」。
+func TestSettingsRoundTripThroughStore(t *testing.T) {
 	a := newTestApp(t)
 	base := dispatch[settings.Settings](t, a, "settings.get", map[string]any{})
-	base.Concurrency = 32
-	dispatch[settings.Settings](t, a, "settings.put", base)
+	if base.Concurrency != settings.DefaultConcurrency {
+		t.Fatalf("第一次读到的应该是默认值，实际 %d", base.Concurrency)
+	}
 
-	patched := dispatch[settings.Settings](t, a, "settings.put", map[string]any{"retries": 4})
-	if patched.Retries != 4 {
-		t.Fatal("retries 应该被改成 4")
+	base.Concurrency = 32
+	base.Retries = 4
+	saved := dispatch[settings.Settings](t, a, "settings.put", base)
+	if saved.Concurrency != 32 || saved.Retries != 4 {
+		t.Fatalf("写回去的设置没生效：%+v", saved)
 	}
-	if patched.Concurrency != 32 {
-		t.Fatalf("没发的 concurreny 不该被清掉，实际 %d", patched.Concurrency)
+
+	// 再读一次：落盘的值真的被读回来了（不是内存里那一份）。
+	again := dispatch[settings.Settings](t, a, "settings.get", map[string]any{})
+	if again.Concurrency != 32 || again.Retries != 4 {
+		t.Fatalf("重新读回来的设置不对：%+v", again)
 	}
-	if patched.Endpoint != base.Endpoint {
-		t.Fatalf("没发的 endpoint 不该变：%q → %q", base.Endpoint, patched.Endpoint)
+
+	// 越界的值由后端规整，前端那份检查只是为了即时提示。
+	base.Concurrency = 9999
+	clamped := dispatch[settings.Settings](t, a, "settings.put", base)
+	if clamped.Concurrency != settings.MaxConcurrency {
+		t.Fatalf("并发数应该被夹到上限 %d，实际 %d", settings.MaxConcurrency, clamped.Concurrency)
 	}
 }
 
-func TestPreviewCountsImages(t *testing.T) {
+// 扫描按「请求的那个路径」回结果：拖进来一个目录就是一条目录结果，
+// 里面带着它展开出来的文件。界面不再需要拿路径前缀自己拼。
+func TestScanReportsEachRequestedPath(t *testing.T) {
 	a := newTestApp(t)
 	dir := t.TempDir()
 	doc := filepath.Join(dir, "doc.md")
@@ -135,18 +136,39 @@ func TestPreviewCountsImages(t *testing.T) {
 		t.Fatalf("写夹具失败：%v", err)
 	}
 
-	got := dispatch[struct {
-		Files []struct {
-			Path   string `json:"path"`
-			Images int    `json:"images"`
-		} `json:"files"`
-	}](t, a, "preview", map[string]any{"paths": []string{doc}})
-
-	if len(got.Files) != 1 {
-		t.Fatalf("应该只预检 1 个文件，实际 %d", len(got.Files))
+	type scanFileEvent struct {
+		Path    string            `json:"path"`
+		Scanned []conv.FileResult `json:"scanned"`
 	}
-	if got.Files[0].Images != 2 {
-		t.Fatalf("应该数出 2 张图，实际 %d", got.Files[0].Images)
+	got := make(chan scanFileEvent, 4)
+	a.SetSink(func(ev conv.Event) {
+		if ev.Type != conv.EventScanFile {
+			return
+		}
+		select {
+		case got <- scanFileEvent{Path: ev.Path, Scanned: ev.Scanned}:
+		default:
+		}
+	})
+
+	dispatch[map[string]any](t, a, "scan.start", map[string]any{
+		"scanId": "scan-count",
+		"paths":  []string{doc},
+	})
+
+	select {
+	case ev := <-got:
+		if ev.Path != doc {
+			t.Fatalf("scan.file 的 path 应该是请求的那个路径，实际 %q", ev.Path)
+		}
+		if len(ev.Scanned) != 1 {
+			t.Fatalf("应该只扫出 1 个文件，实际 %d", len(ev.Scanned))
+		}
+		if ev.Scanned[0].Images != 2 {
+			t.Fatalf("应该数出 2 张图，实际 %d", ev.Scanned[0].Images)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("5 秒内没等到 scan.file")
 	}
 }
 
@@ -196,7 +218,16 @@ func TestScanSessionLeavesTableWhenBatchEnds(t *testing.T) {
 	}
 }
 
-func TestRunStartReportsEventsAndSnapshot(t *testing.T) {
+// finalSummaryOf 取最后一条带汇总的事件：整轮的总结就挂在那里。
+func finalSummaryOf(t *testing.T, finals []*conv.Summary) *conv.Summary {
+	t.Helper()
+	if len(finals) == 0 {
+		return nil
+	}
+	return finals[len(finals)-1]
+}
+
+func TestRunStartReportsEventsAndSummary(t *testing.T) {
 	a := newTestApp(t)
 	withDebug(t)
 	dir := t.TempDir()
@@ -207,11 +238,15 @@ func TestRunStartReportsEventsAndSnapshot(t *testing.T) {
 
 	var mu sync.Mutex
 	var types []string
+	var finals []*conv.Summary
 	done := make(chan struct{})
 	var once sync.Once
 	a.SetSink(func(ev conv.Event) {
 		mu.Lock()
 		types = append(types, ev.Type)
+		if ev.Summary != nil {
+			finals = append(finals, ev.Summary)
+		}
 		mu.Unlock()
 		if ev.Type == conv.EventRunFinished || ev.Type == conv.EventRunCancelled {
 			once.Do(func() { close(done) })
@@ -221,8 +256,8 @@ func TestRunStartReportsEventsAndSnapshot(t *testing.T) {
 	start := dispatch[struct {
 		RunID string `json:"runId"`
 	}](t, a, "run.start", map[string]any{
-		"paths":    []string{doc},
-		"settings": map[string]any{"remote": "check"},
+		"op":    "check",
+		"paths": []string{doc},
 	})
 	if start.RunID == "" {
 		t.Fatal("run.start 应该给出 runId")
@@ -246,20 +281,12 @@ func TestRunStartReportsEventsAndSnapshot(t *testing.T) {
 		t.Fatalf("事件里没有 run.started：%v", types)
 	}
 
-	snap := dispatch[struct {
-		Running bool          `json:"running"`
-		Done    bool          `json:"done"`
-		RunID   string        `json:"runId"`
-		Summary *conv.Summary `json:"summary"`
-	}](t, a, "run.current", map[string]any{})
-	if snap.RunID != start.RunID {
-		t.Fatalf("快照里的 runId 对不上：%q / %q", snap.RunID, start.RunID)
-	}
-	if snap.Running || !snap.Done {
-		t.Fatalf("跑完之后快照应该是 done：running=%v done=%v", snap.Running, snap.Done)
-	}
-	if snap.Summary == nil || snap.Summary.Files != 1 {
-		t.Fatalf("快照里应该有一份汇总：%+v", snap.Summary)
+	// 汇总随事件走：跑完那一条带着整轮的 Summary，界面不需要另问一次。
+	mu.Lock()
+	finalSummary := finalSummaryOf(t, finals)
+	mu.Unlock()
+	if finalSummary == nil || finalSummary.Files != 1 {
+		t.Fatalf("终止事件里应该带一份汇总：%+v", finalSummary)
 	}
 
 	// 文档没被改写（调试模式）。
@@ -297,8 +324,8 @@ func TestRunCancelStopsTheRun(t *testing.T) {
 	start := dispatch[struct {
 		RunID string `json:"runId"`
 	}](t, a, "run.start", map[string]any{
-		"paths":    paths,
-		"settings": map[string]any{"remote": "check"},
+		"paths": paths,
+		"op":    "check",
 	})
 	dispatch[map[string]any](t, a, "run.cancel", map[string]any{"runId": start.RunID})
 
@@ -309,9 +336,11 @@ func TestRunCancelStopsTheRun(t *testing.T) {
 	}
 }
 
-// 三页各跑各的：同一页第二次启动要被挡住，不同页可以同时跑；
-// 跑完之后各自那份快照还得留在 run.current(mode) 里，切回页面才接得上。
-func TestRunsOnDifferentPagesRunInParallel(t *testing.T) {
+// 三个操作各跑各的：同一个操作第二次启动要被挡住，不同操作可以同时跑。
+//
+// 以前「哪一页」是靠 settings.remote 传上来的临时值表达的，于是同一页只能跑一轮
+// 这条规则长在了设置里；现在操作是 start 的 op 参数，规则也跟着变成「同一 op 一轮」。
+func TestRunsOfDifferentOpsRunInParallel(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
@@ -336,22 +365,32 @@ func TestRunsOnDifferentPagesRunInParallel(t *testing.T) {
 	}
 
 	a := newTestApp(t)
-	started := make(chan conv.Event, 4)
+	started := make(chan conv.Event, 8)
+	finished := make(chan conv.Event, 8)
 	a.SetSink(func(ev conv.Event) {
-		if ev.Type == conv.EventRunStarted {
-			started <- ev
+		switch ev.Type {
+		case conv.EventRunStarted:
+			select {
+			case started <- ev:
+			default:
+			}
+		case conv.EventRunFinished, conv.EventRunCancelled:
+			select {
+			case finished <- ev:
+			default:
+			}
 		}
 	})
-	waitStarted := func(mode string) conv.Event {
+	waitStarted := func(op string) conv.Event {
 		t.Helper()
 		select {
 		case ev := <-started:
-			if ev.Mode != mode {
-				t.Fatalf("run.started 的 mode 应该是 %q，实际 %q", mode, ev.Mode)
+			if ev.Mode != op {
+				t.Fatalf("run.started 的 mode 应该是 %q，实际 %q", op, ev.Mode)
 			}
 			return ev
 		case <-time.After(5 * time.Second):
-			t.Fatalf("没等到 %q 这一页的 run.started", mode)
+			t.Fatalf("没等到 %q 这一轮 run.started", op)
 			return conv.Event{}
 		}
 	}
@@ -359,75 +398,62 @@ func TestRunsOnDifferentPagesRunInParallel(t *testing.T) {
 	check := dispatch[struct {
 		RunID string `json:"runId"`
 	}](t, a, "run.start", map[string]any{
-		"paths":    []string{doc},
-		"settings": map[string]any{"remote": "check"},
+		"op":    "check",
+		"paths": []string{doc},
 	})
-	checkEvent := waitStarted("check")
-	if checkEvent.RunID != check.RunID {
-		t.Fatalf("run.started 的 runId 对不上：%q / %q", checkEvent.RunID, check.RunID)
+	if ev := waitStarted("check"); ev.RunID != check.RunID {
+		t.Fatalf("run.started 的 runId 对不上：%q / %q", ev.RunID, check.RunID)
 	}
 
 	raw, err := json.Marshal(map[string]any{
-		"paths":    []string{doc},
-		"settings": map[string]any{"remote": "check"},
+		"op":    "check",
+		"paths": []string{doc},
 	})
 	if err != nil {
 		t.Fatalf("编码参数失败：%v", err)
 	}
 	if reply := a.Dispatch("run.start", raw); reply.OK || reply.Code != "conflict" {
-		t.Fatalf("同一页第二次启动应该冲突，实际 ok=%v code=%q", reply.OK, reply.Code)
+		t.Fatalf("同一个操作第二次启动应该冲突，实际 ok=%v code=%q", reply.OK, reply.Code)
 	}
 
+	// 检测被慢服务器卡住；上传应该能独立跑完，并带回自己那份汇总。
 	upload := dispatch[struct {
 		RunID string `json:"runId"`
 	}](t, a, "run.start", map[string]any{
-		"paths":    []string{doc},
-		"settings": map[string]any{"remote": "ignore"},
+		"op":    "upload",
+		"paths": []string{doc},
 	})
-	uploadEvent := waitStarted("ignore")
-	if uploadEvent.RunID != upload.RunID {
-		t.Fatalf("上传页 runId 对不上：%q / %q", uploadEvent.RunID, upload.RunID)
+	if ev := waitStarted("upload"); ev.RunID != upload.RunID {
+		t.Fatalf("上传那一轮 runId 对不上：%q / %q", ev.RunID, upload.RunID)
 	}
 
-	// 检测那页被慢服务器卡住；上传页应该能独立跑完并留下自己的快照。
-	waitDone := func(mode string) currentRun {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			snap := dispatch[currentRun](t, a, "run.current", map[string]any{"mode": mode})
-			if snap.Done {
-				return snap
-			}
-			time.Sleep(10 * time.Millisecond)
+	select {
+	case ev := <-finished:
+		if ev.RunID != upload.RunID {
+			t.Fatalf("先跑完的应该是上传那一轮，实际 %q", ev.RunID)
 		}
-		t.Fatalf("%q 这一页没在 5 秒内跑完", mode)
-		return currentRun{}
-	}
-	uploadSnap := waitDone("ignore")
-	if uploadSnap.Mode != "ignore" {
-		t.Fatalf("上传页快照 mode 不对：%q", uploadSnap.Mode)
+		if ev.Summary == nil {
+			t.Fatal("跑完的事件里应该带汇总")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("上传那一轮没在 5 秒内跑完")
 	}
 
-	checkSnap := dispatch[currentRun](t, a, "run.current", map[string]any{"mode": "check"})
-	if !checkSnap.Running || checkSnap.Done {
-		t.Fatalf("检测页应该还在跑：running=%v done=%v", checkSnap.Running, checkSnap.Done)
+	if a.RunningCount() != 1 {
+		t.Fatalf("检测那一轮应该还在跑，实际在跑 %d 轮", a.RunningCount())
 	}
 
 	unblock()
-	finalCheck := waitDone("check")
-	if finalCheck.RunID != check.RunID {
-		t.Fatalf("检测页跑完后快照被换掉了：%q / %q", finalCheck.RunID, check.RunID)
-	}
-	if finalCheck.Mode != "check" {
-		t.Fatalf("检测页快照 mode 不对：%q", finalCheck.Mode)
-	}
-	if finalCheck.Summary == nil {
-		t.Fatal("检测页跑完后应该有汇总")
-	}
-
-	// 两份快照各自独立，不会因为另一页开跑而被清掉。
-	if again := dispatch[currentRun](t, a, "run.current", map[string]any{"mode": "ignore"}); again.RunID != upload.RunID {
-		t.Fatalf("上传页快照被换掉了：%q / %q", again.RunID, upload.RunID)
+	select {
+	case ev := <-finished:
+		if ev.RunID != check.RunID {
+			t.Fatalf("最后跑完的应该是检测那一轮，实际 %q", ev.RunID)
+		}
+		if ev.Summary == nil {
+			t.Fatal("检测那一轮跑完也该带汇总")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("检测那一轮没在 5 秒内跑完")
 	}
 }
 

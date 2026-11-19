@@ -48,8 +48,6 @@ export interface RunRow {
   result: FileResult | null
   /** 服务端为这次运行分配的 id（事件里的 id）。队列行的 id 由本地生成，两者都要能查到行。 */
   serverId?: string
-  /** 内部记账：这份结果是否已经算进 live 统计（预检结果只贡献图片数）。 */
-  scored?: boolean
   /** 这一行自己的扫描状态；只有 'ok' 的行才允许参与「开始」。 */
   scan?: ScanState
   /** 扫描没通过时给人看的一句话（超时、找不到文件、后台报错）。 */
@@ -79,13 +77,6 @@ export interface RunRow {
   workTotal?: number
   /** 这一篇已经处理完的单元数；文件完成时补齐，运行中由 file.progress 推进。 */
   workDone?: number
-  /**
-   * 这一轮已经计进页脚「替换」的明细下标。
-   *
-   * 卡片每处理完一处就换状态，页脚也该跟着走；按位置去重，进度事件重放不会
-   * 把数字算重。file.finished 会用结果校正一次，并清掉这份记账。
-   */
-  counted?: Set<number>
 }
 
 /** 列表拿到的行就带着结果。保留这个别名，免得每个组件都改一遍类型。 */

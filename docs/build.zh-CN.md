@@ -46,6 +46,7 @@
 | `tools/mockpicgo` | 假图床 |
 
 图标资源在 `assets/`；常规构建直接使用已提交的 `.ico` 和 `.syso`，不需要重新生成。
+万一 `.syso` 不在了，用 `go run github.com/akavel/rsrc@v1.2.1 -ico assets/icon-light.ico -o cmd/markpic/rsrc_windows_amd64.syso` 重新生成。
 
 ## 分支与发版
 

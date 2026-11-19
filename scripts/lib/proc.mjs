@@ -88,10 +88,6 @@ export function which(name) {
   return null;
 }
 
-export function looksLikeFile(value) {
-  return Boolean(value) && isFile(expandHome(value));
-}
-
 export function formatCommand(command, args = []) {
   const quote = (value) => {
     const text = String(value);
@@ -272,12 +268,4 @@ export async function stopProcess(child, graceMs = 2500) {
     delay(graceMs).then(() => false),
   ]);
   if (!exited) killTree(child, 'SIGKILL');
-}
-
-export function formatBytes(bytes) {
-  if (!Number.isFinite(bytes) || bytes < 0) return String(bytes);
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

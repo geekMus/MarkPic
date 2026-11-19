@@ -17,13 +17,13 @@ import (
 // preview：界面点一下、Go 在 UI 线程上把整批文件扫完才返回。十个文件就是十次串行
 // 读盘，慢的时候界面整段冻住，卡片也只能等全部扫完才出现。
 //
-// 现在拆成异步的 scan.start / scan.cancel：
+// 现在是异步的 scan.start / scan.cancel：
 //   - start 立刻返回，每个文件一个 goroutine，并发度按机器核数给上限；
-//   - 每个文件扫完就推一条 scan.file，界面按路径把结果贴回自己那张卡片；
-//   - 单个文件有独立 context，可以单独取消，也可以整批取消；
-//   - 每个文件有 20 秒上限：某个网络盘上的文件卡住，也不会让「开始」永远点不了。
+//   - 每个请求路径扫完就推一条 scan.file，界面按路径把结果贴回自己那张卡片；
+//   - 单个路径有独立 context，可以单独取消，也可以整批取消；
+//   - 每个路径有 20 秒上限：某个网络盘上的文件卡住，也不会让「开始」永远点不了。
 const (
-	// scanFileTimeout 是单个文件的扫描上限。扫描只读文件、不发网络请求，
+	// scanFileTimeout 是单个路径的扫描上限。扫描只读文件、不发网络请求，
 	// 正常文档是毫秒级的；给到 20 秒是留给网络盘和超大文档的余量。
 	scanFileTimeout = 20 * time.Second
 	// scanMinParallel / scanMaxParallel 夹住并发度：太少体现不出并发，
@@ -32,25 +32,25 @@ const (
 	scanMaxParallel = 6
 )
 
-// scanParallelism 按机器核数给并发上限：一半核数，夹在 [2, 6]，且不超过文件数。
-func scanParallelism(files int) int {
-	n := runtime.NumCPU() / 2
-	if n < scanMinParallel {
-		n = scanMinParallel
+// scanParallelism 按机器核数给并发上限：一半核数，夹在 [2, 6]，且不超过路径数。
+func scanParallelism(n int) int {
+	parallel := runtime.NumCPU() / 2
+	if parallel < scanMinParallel {
+		parallel = scanMinParallel
 	}
-	if n > scanMaxParallel {
-		n = scanMaxParallel
+	if parallel > scanMaxParallel {
+		parallel = scanMaxParallel
 	}
-	if files > 0 && files < n {
-		n = files
+	if n > 0 && n < parallel {
+		parallel = n
 	}
-	if n < 1 {
-		n = 1
+	if parallel < 1 {
+		parallel = 1
 	}
-	return n
+	return parallel
 }
 
-// scanSession 是一批扫描的句柄：整批一个 context，每个文件再挂一个自己的。
+// scanSession 是一批扫描的句柄：整批一个 context，每个路径再挂一个自己的。
 type scanSession struct {
 	app    *App
 	scanID string
@@ -58,7 +58,7 @@ type scanSession struct {
 	cancel context.CancelFunc
 
 	mu    sync.Mutex
-	files map[string]context.CancelFunc // 路径 → 该文件的取消函数
+	paths map[string]context.CancelFunc // 路径 → 该路径的取消函数
 }
 
 // stop 取消整批扫描。
@@ -68,11 +68,11 @@ func (s *scanSession) stop() {
 	}
 }
 
-// cancelFile 取消单个文件；文件不在这一批里就返回 false。
+// cancelFile 取消单个路径；路径不在这一批里就返回 false。
 func (s *scanSession) cancelFile(path string) bool {
 	key := scanPathKey(path)
 	s.mu.Lock()
-	cancel, ok := s.files[key]
+	cancel, ok := s.paths[key]
 	s.mu.Unlock()
 	if ok {
 		cancel()
@@ -82,13 +82,13 @@ func (s *scanSession) cancelFile(path string) bool {
 
 func (s *scanSession) register(path string, cancel context.CancelFunc) {
 	s.mu.Lock()
-	s.files[scanPathKey(path)] = cancel
+	s.paths[scanPathKey(path)] = cancel
 	s.mu.Unlock()
 }
 
 func (s *scanSession) unregister(path string) {
 	s.mu.Lock()
-	delete(s.files, scanPathKey(path))
+	delete(s.paths, scanPathKey(path))
 	s.mu.Unlock()
 }
 
@@ -98,9 +98,8 @@ func scanPathKey(path string) string {
 }
 
 type scanStartRequest struct {
-	ScanID   string         `json:"scanId"`
-	Paths    []string       `json:"paths"`
-	Settings *settingsPatch `json:"settings"`
+	ScanID string   `json:"scanId"`
+	Paths  []string `json:"paths"`
 }
 
 // startScan 立刻返回，真正的扫描在后台按并发度跑。
@@ -110,21 +109,25 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 		return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerBadJSON))
 	}
 	paths := make([]string, 0, len(req.Paths))
+	seen := make(map[string]bool, len(req.Paths))
 	for _, path := range req.Paths {
 		trimmed := strings.TrimSpace(path)
-		if trimmed != "" {
-			paths = append(paths, trimmed)
+		if trimmed == "" {
+			continue
 		}
+		key := scanPathKey(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		paths = append(paths, trimmed)
 	}
 	if len(paths) == 0 {
 		return nil, badRequest(i18n.T(a.Lang(), i18n.KeyServerNeedPaths))
 	}
 
-	cfg, err := a.configOf(req.Settings)
-	if err != nil {
-		return nil, badRequest(err.Error())
-	}
 	// 扫描只看不算：不写文件、不上传、不发远程探活（UsePreview 那条规矩）。
+	cfg := a.store.Load()
 	cfg.DryRun = true
 	lang := a.Lang()
 
@@ -134,7 +137,7 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 		scanID: req.ScanID,
 		ctx:    ctx,
 		cancel: cancel,
-		files:  make(map[string]context.CancelFunc, len(paths)),
+		paths:  make(map[string]context.CancelFunc, len(paths)),
 	}
 
 	a.mu.Lock()
@@ -151,27 +154,15 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 	a.mu.Unlock()
 
 	go session.run(cfg, lang, paths)
-	go session.reap()
 
 	return map[string]any{"scanId": req.ScanID, "paths": paths}, nil
 }
 
-// reap 在整批结束后把会话从表里摘掉（启动时登记过才需要摘）。
-func (s *scanSession) reap() {
-	if s.scanID == "" {
-		return
-	}
-	select {
-	case <-s.ctx.Done():
-	case <-time.After(60 * time.Second):
-	}
-	s.app.mu.Lock()
-	if s.app.scans[s.scanID] == s {
-		delete(s.app.scans, s.scanID)
-	}
-	s.app.mu.Unlock()
-}
-
+// scanOne 是「一个请求路径」的扫描结果。
+//
+// 目录是一等公民：用户拖进来的是一个目录，就该有一条对应该目录的结果，里面带上
+// 它展开出来的文件。以前这里只回一串平铺的文件，界面只好拿路径前缀自己去猜
+// 「哪几个文件属于这个目录、加起来几张图」—— 展开规则在 Go 这边，界面不该重算。
 type scanOne struct {
 	path      string
 	files     []conv.FileResult
@@ -180,10 +171,17 @@ type scanOne struct {
 }
 
 func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string) {
-	// 整批跑完就取消这一批的 context：reap 靠它把会话从表里摘掉。以前只有
-	// stop() 会取消，正常结束时 session 还要在 a.scans 里多留 60 秒，抱着
-	// paths、cancel 和 context 不放。
-	defer s.stop()
+	// 整批跑完就把会话从表里摘掉，别抱着 paths、cancel 和 context 不放。
+	defer func() {
+		if s.scanID != "" {
+			s.app.mu.Lock()
+			if s.app.scans[s.scanID] == s {
+				delete(s.app.scans, s.scanID)
+			}
+			s.app.mu.Unlock()
+		}
+		s.stop()
+	}()
 
 	parallel := scanParallelism(len(paths))
 	sem := make(chan struct{}, parallel)
@@ -193,7 +191,7 @@ func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string)
 		wg.Add(1)
 		go func(path string) {
 			defer wg.Done()
-			s.scanFile(cfg, lang, path, sem)
+			s.scanPath(cfg, lang, path, sem)
 		}(path)
 	}
 
@@ -207,7 +205,7 @@ func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string)
 	s.app.emit(ev)
 }
 
-func (s *scanSession) scanFile(cfg settings.Settings, lang i18n.Lang, path string, sem chan struct{}) {
+func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path string, sem chan struct{}) {
 	fileCtx, cancelFile := context.WithCancel(s.ctx)
 	s.register(path, cancelFile)
 	defer s.unregister(path)
@@ -228,7 +226,7 @@ func (s *scanSession) scanFile(cfg settings.Settings, lang i18n.Lang, path strin
 
 	done := make(chan []conv.FileResult, 1)
 	go func() {
-		// 每个文件一个 Runner：Runner 内部带状态，多个文件共用一份会互相踩。
+		// 每个路径一个 Runner：Runner 内部带状态，多个文件共用一份会互相踩。
 		runner := conv.NewRunner(cfg, lang, "preview", nil).UsePreview()
 		files, _ := runner.RunCollect(fileCtx, []string{path})
 		done <- files
@@ -294,7 +292,7 @@ func (a *App) cancelScan(params json.RawMessage) (any, error) {
 	return map[string]any{"cancelled": session.cancelFile(req.Path)}, nil
 }
 
-// emit 把事件交给窗口。和 track 一样：取 sink 要持锁，调用要放在锁外。
+// emit 把事件交给窗口。
 func (a *App) emit(ev conv.Event) {
 	a.mu.Lock()
 	sink := a.sink

@@ -7,7 +7,7 @@
  */
 import { markRaw } from 'vue'
 import { cancelScan as requestCancelScan, describeError, scanStart as requestScanStart } from '../../api'
-import type { FileResult, RemoteMode, ScanEvent, Settings } from '../../types'
+import type { FileResult, RemoteMode, ScanEvent } from '../../types'
 import { t } from '../../i18n'
 import { activePage, pageRows, rows } from './page'
 import { pathKey } from './paths'
@@ -110,11 +110,7 @@ export function finishBatch(batch: ScanBatch, state: ScanState, message?: string
  * 事件回来。以前这里是 await 一次 preview，十个文件串着扫，界面整段冻住，
  * 卡片也只能等全部扫完才出现。
  */
-export async function scanPaths(
-  mode: RemoteMode,
-  paths: readonly string[],
-  settings: Settings,
-): Promise<void> {
+export async function scanPaths(mode: RemoteMode, paths: readonly string[]): Promise<void> {
   const list: string[] = []
   const seen = new Set<string>()
   for (const raw of paths) {
@@ -143,7 +139,7 @@ export async function scanPaths(
   }, SCAN_BATCH_TIMEOUT_MS)
 
   try {
-    await requestScanStart({ scanId: id, paths: list, settings })
+    await requestScanStart({ scanId: id, paths: list })
   } catch (err) {
     finishBatch(batch, 'failed', describeError(err, t('scan.failed')))
   }
@@ -224,11 +220,11 @@ export function cancelRowScan(id: string): void {
 }
 
 /** 重新扫一张卡片（取消/失败/超时之后）。 */
-export function retryRowScan(id: string, settings: Settings): void {
+export function retryRowScan(id: string): void {
   const row = rows.value.find((item) => item.id === id)
   if (!row) return
   if ((row.scan ?? 'idle') === 'scanning') return
-  void scanPaths(activePage, [row.path], settings)
+  void scanPaths(activePage, [row.path])
 }
 
 /** 掐掉这一页所有还在跑的扫描（清空队列、离开这一页时兜底）。 */
@@ -244,7 +240,3 @@ export function cancelPageScans(): void {
   }
 }
 
-/** 这一页还有几行在扫（页头写「正在扫描 3/10」用）。 */
-export function pageScanningCount(mode: RemoteMode): number {
-  return pageRows(mode).filter((row) => (row.scan ?? 'idle') === 'scanning').length
-}

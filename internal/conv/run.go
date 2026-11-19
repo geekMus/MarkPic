@@ -11,6 +11,44 @@ import (
 	"github.com/geekMus/markpic/internal/textenc"
 )
 
+// addFileToSummary 把一个文件的结果并进一份汇总。
+//
+// 终局汇总（跑完）与中途快照（每处理完一个文件发一次）都走这里：两处各写一遍
+// switch 的话，以后加一个计数项就会漏掉其中一边，界面上的数和最后的报告对不上。
+func addFileToSummary(sum *Summary, res *FileResult) {
+	sum.Files++
+	sum.Images += res.Images
+	sum.Uploaded += res.Uploaded
+	sum.Localized += res.Localized
+	sum.LocalizedUnique += res.LocalizedUnique
+	sum.RemoteChecked += res.Checked
+	sum.RemoteCheckedUnique += res.CheckedUnique
+	sum.RemoteDead += res.Dead
+	sum.RemoteDeadUnique += res.DeadUnique
+	sum.RemoteFailed += res.RemoteFailed
+	sum.RemoteFailedUnique += res.RemoteFailedUnique
+	sum.RemoteUnsupported += res.RemoteUnsupported
+	sum.RemoteKept += res.RemoteKept
+	sum.LocalMissing += res.LocalMissing
+	sum.FailedImages += res.Failed
+	switch res.Status {
+	case FileOK:
+		sum.OK++
+	case FilePartial:
+		sum.Partial++
+	case FileNoImages:
+		sum.NoImages++
+	case FileFailed:
+		sum.Failed++
+	case FileCancelled:
+		// 取消的文件既不算成功也不算失败：界面自己会显示「已取消」。
+	case FilePreview:
+		sum.OK++
+	case FileChecked:
+		sum.FilesChecked++
+	}
+}
+
 // Run 执行整轮转换并返回汇总。
 func (r *Runner) Run(ctx context.Context, paths []string) Summary {
 	_, sum := r.RunCollect(ctx, paths)
@@ -102,6 +140,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	// 预检算出来的路径也就是真正会写出去的路径。
 	r.planOutputs(files)
 
+	r.beginRun(started)
 	r.notify(Event{Type: EventRunStarted, Mode: string(r.cfg.Remote), Files: tasks})
 
 	results := make([]FileResult, len(files))
@@ -125,7 +164,7 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 				r.notify(Event{Type: EventFileStarted, ID: task.ID})
 				res := r.processFile(ctx, task.ID, task.Path)
 				results[idx] = res
-				r.notify(Event{Type: EventFileFinished, ID: task.ID, Result: &res})
+				r.notify(Event{Type: EventFileFinished, ID: task.ID, Result: &res, Summary: r.absorbResult(&res)})
 			}
 		}()
 	}
@@ -139,38 +178,9 @@ func (r *Runner) RunCollect(ctx context.Context, paths []string) ([]FileResult, 
 	close(work)
 	wg.Wait()
 
-	for _, res := range results {
-		sum.Files++
-		sum.Images += res.Images
-		sum.Uploaded += res.Uploaded
-		sum.Localized += res.Localized
-		sum.LocalizedUnique += res.LocalizedUnique
-		sum.RemoteChecked += res.Checked
-		sum.RemoteCheckedUnique += res.CheckedUnique
-		sum.RemoteDead += res.Dead
-		sum.RemoteDeadUnique += res.DeadUnique
-		sum.RemoteFailed += res.RemoteFailed
-		sum.RemoteFailedUnique += res.RemoteFailedUnique
-		sum.RemoteUnsupported += res.RemoteUnsupported
-		sum.RemoteKept += res.RemoteKept
-		sum.LocalMissing += res.LocalMissing
-		sum.FailedImages += res.Failed
-		switch res.Status {
-		case FileOK:
-			sum.OK++
-		case FilePartial:
-			sum.Partial++
-		case FileNoImages:
-			sum.NoImages++
-		case FileFailed:
-			sum.Failed++
-		case FileCancelled:
-			// 取消的文件既不算成功也不算失败：界面自己会显示「已取消」。
-		case FilePreview:
-			sum.OK++
-		case FileChecked:
-			sum.FilesChecked++
-		}
+	// 终局汇总与中途快照共用 addFileToSummary：一处口径，两边不会漂。
+	for i := range results {
+		addFileToSummary(&sum, &results[i])
 	}
 	sum.DurationMs = time.Since(started).Milliseconds()
 	sum.Cancelled = ctx.Err() != nil
