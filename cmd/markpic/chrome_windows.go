@@ -21,6 +21,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"unsafe"
@@ -283,17 +284,34 @@ func initProcessIdentity() {
 // 暗色在后；枚举出来的 id 是整数、升序，所以 groups[0] 就是亮色，也是 exe
 // 自己显示在资源管理器里的那块。
 func themeIconGroup(dark bool) uintptr {
-	hInst, _, _ := procGetModuleHandle.Call(0)
-	if hInst == 0 {
-		return 0
-	}
-	var groups []uintptr
-	cb := syscall.NewCallback(func(_, _, name, _ uintptr) uintptr {
-		groups = append(groups, name)
-		return 1 // 全部收下，下面再按主题挑
+	return pickThemeIconGroup(iconGroups(), dark)
+}
+
+// iconGroups 把 exe 里的图标组枚举一次就记住。
+//
+// 以前每次调用都 EnumResourceNamesW + 新建一个 syscall.NewCallback：切一次主题要
+// 连着问三次（窗口图标、托盘图标、启动画面），而 NewCallback 的跳板是进程级、
+// 永不回收的 —— 每切一次主题就多留一块，资源顺序也不会再变化，没有重枚举的理由。
+var themeIcons struct {
+	once   sync.Once
+	groups []uintptr
+}
+
+func iconGroups() []uintptr {
+	themeIcons.once.Do(func() {
+		hInst, _, _ := procGetModuleHandle.Call(0)
+		if hInst == 0 {
+			return
+		}
+		var groups []uintptr
+		cb := syscall.NewCallback(func(_, _, name, _ uintptr) uintptr {
+			groups = append(groups, name)
+			return 1 // 全部收下，下面再按主题挑
+		})
+		procEnumResourceNames.Call(hInst, rtGroupIcon, cb, 0)
+		themeIcons.groups = groups
 	})
-	procEnumResourceNames.Call(hInst, rtGroupIcon, cb, 0)
-	return pickThemeIconGroup(groups, dark)
+	return themeIcons.groups
 }
 
 // pickThemeIconGroup 单独拆出来，便于用不依赖资源的单测钉住「亮色第一、暗色第二」。
@@ -325,15 +343,16 @@ func setWindowIcon(hwnd uintptr, dark bool) {
 	big, _, _ := procLoadImage.Call(hInst, group, imageIcon, iconCx, iconCy, lrShared)
 	small, _, _ := procLoadImage.Call(hInst, group, imageIcon, smCx, smCy, lrShared)
 
-	for slot, handle := range map[uintptr]uintptr{
-		iconBig:    big,
-		iconSmall:  small,
-		iconSmall2: small,
+	// 切片而不是 map：三个槽位的顺序无关紧要，但 map 每次都会分配、遍历顺序还不定。
+	for _, slot := range []struct{ kind, handle uintptr }{
+		{iconBig, big},
+		{iconSmall, small},
+		{iconSmall2, small},
 	} {
-		if handle == 0 {
+		if slot.handle == 0 {
 			continue
 		}
-		procSendMessage.Call(hwnd, wmSetIcon, slot, handle)
+		procSendMessage.Call(hwnd, wmSetIcon, slot.kind, slot.handle)
 	}
 }
 

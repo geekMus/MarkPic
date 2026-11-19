@@ -23,6 +23,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -253,13 +254,29 @@ func hideSnapOverlay(o *snapOverlay) {
 // snapDebug 把热区收到的消息记到文件里，用来现场核对「系统到底送来了
 // 哪些消息」。只有设了 MARKPIC_SNAP_DEBUG 才写：值是 1 写 %TEMP%\markpic-snap.log，
 // 也可以直接给一个路径。平时一个字节都不碰。
+//
+// 目标路径只在第一次调用时解析一次：这个函数挂在窗口过程上，鼠标一动就是几十条，
+// 每条都做一次 Getenv + 拼路径纯属白费（开着调试时尤其明显）。改环境变量需重启。
+var snapDebugPath struct {
+	once sync.Once
+	path string
+}
+
+func snapDebugTarget() string {
+	snapDebugPath.once.Do(func() {
+		path := os.Getenv("MARKPIC_SNAP_DEBUG")
+		if path == "1" {
+			path = filepath.Join(os.Getenv("TEMP"), "markpic-snap.log")
+		}
+		snapDebugPath.path = path
+	})
+	return snapDebugPath.path
+}
+
 func snapDebug(format string, args ...any) {
-	path := os.Getenv("MARKPIC_SNAP_DEBUG")
+	path := snapDebugTarget()
 	if path == "" {
 		return
-	}
-	if path == "1" {
-		path = filepath.Join(os.Getenv("TEMP"), "markpic-snap.log")
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {

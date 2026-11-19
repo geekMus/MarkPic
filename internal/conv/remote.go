@@ -670,6 +670,9 @@ func looksComplete(path string) bool {
 }
 
 // sameFile 逐字节比较两个文件。大小不同直接返回 false，省掉一次读盘。
+//
+// 分块比较而不是各自 os.ReadFile 再 bytes.Equal：两张 50 MB 的图那样比一次就是
+// 100 MB 的峰值内存，而这里真正需要的只是「这两串字节一不一样」。
 func sameFile(a, b string) (bool, error) {
 	sa, err := os.Stat(a)
 	if err != nil {
@@ -682,15 +685,38 @@ func sameFile(a, b string) (bool, error) {
 	if sa.Size() != sb.Size() {
 		return false, nil
 	}
-	da, err := os.ReadFile(a)
+
+	fa, err := os.Open(a)
 	if err != nil {
 		return false, err
 	}
-	db, err := os.ReadFile(b)
+	defer func() { _ = fa.Close() }()
+	fb, err := os.Open(b)
 	if err != nil {
 		return false, err
 	}
-	return bytes.Equal(da, db), nil
+	defer func() { _ = fb.Close() }()
+
+	const chunk = 64 << 10
+	bufA := make([]byte, chunk)
+	bufB := make([]byte, chunk)
+	for {
+		na, errA := io.ReadFull(fa, bufA)
+		nb, errB := io.ReadFull(fb, bufB)
+		if na != nb || !bytes.Equal(bufA[:na], bufB[:nb]) {
+			return false, nil
+		}
+		// 两边大小相同，所以「读到尾」也只会在同一次迭代里发生。
+		if errA == io.EOF || errA == io.ErrUnexpectedEOF {
+			return true, nil
+		}
+		if errA != nil {
+			return false, errA
+		}
+		if errB != nil {
+			return false, errB
+		}
+	}
 }
 
 // firstFileInPath 从 dir 往上找第一个「存在但不是目录」的那一层，返回它。

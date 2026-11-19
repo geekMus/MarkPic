@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/geekMus/markpic/internal/diskcache"
 )
 
 func TestLookupNeedsSameDirectory(t *testing.T) {
@@ -136,7 +138,7 @@ func TestDisabledCacheDoesNothing(t *testing.T) {
 // 太旧的记录在保存时被清掉（TTL 只用于清理，不参与命中判断）。
 func TestPruneDropsStaleEntries(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "remote-cache.json")
-	stale := file{Version: 1, Entries: map[string]entry{
+	stale := map[string]any{"version": 1, "entries": map[string]entry{
 		cacheKey("https://cdn.example.com/old.png", `C:\docs`): {
 			Name: "old.png", Size: 10, CachedAt: 1, UsedAt: 1,
 		},
@@ -168,7 +170,7 @@ func TestPruneKeepsMostRecentlyUsed(t *testing.T) {
 		key := string(rune('a'+i%26)) + string(rune('0'+i%10)) + itoa(i)
 		entries[key] = entry{Name: "x.png", Size: 1, UsedAt: int64(i)}
 	}
-	prune(entries, int64(maxEntries+100))
+	diskcache.PruneByUse(entries, maxEntries, func(e entry) int64 { return e.UsedAt })
 	if len(entries) != maxEntries {
 		t.Fatalf("应该裁到 %d 条，实际 %d", maxEntries, len(entries))
 	}

@@ -10,13 +10,11 @@
 package uploadcache
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/geekMus/markpic/internal/diskcache"
 )
 
 // maxEntries 是缓存条数上限，超出后按「最后使用时间」淘汰最旧的。
@@ -25,17 +23,14 @@ const maxEntries = 4000
 // TTL 是条目最长能用多久，超过就重新上传。
 const TTL = 30 * 24 * time.Hour
 
+// entry 的时间字段一律是 Unix 秒。早先是纳秒，两种单位混在一起最容易在
+// 「比较 / 排序 / 换算」上出错，统一成秒之后和下载缓存也对得上了。
 type entry struct {
 	URL      string `json:"url"`
 	Size     int64  `json:"size"`
 	ModTime  int64  `json:"mtime"`
 	CachedAt int64  `json:"cachedAt"`
 	UsedAt   int64  `json:"usedAt"`
-}
-
-type file struct {
-	Version int              `json:"version"`
-	Entries map[string]entry `json:"entries"`
 }
 
 // Cache 是一个上传结果缓存。路径为空时所有操作都是空转（等于关掉）。
@@ -50,26 +45,27 @@ type Cache struct {
 
 // Open 读取缓存文件；文件不存在或读坏了都从空缓存开始（大不了重传一遍）。
 func Open(path string) *Cache {
-	c := &Cache{path: path, entries: make(map[string]entry)}
-	if path == "" {
-		return c
+	c := &Cache{path: path}
+	entries, version := diskcache.Read[entry](path)
+	// 版本 1 存的是纳秒；就地换成秒，别让用户为一次改版白重传一轮。
+	if version == 1 {
+		for key, e := range entries {
+			e.CachedAt /= int64(time.Second)
+			e.UsedAt /= int64(time.Second)
+			entries[key] = e
+		}
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return c
+	if entries == nil {
+		entries = make(map[string]entry)
 	}
-	var f file
-	if err := json.Unmarshal(raw, &f); err != nil || f.Entries == nil {
-		return c
-	}
-	c.entries = f.Entries
+	c.entries = entries
 	return c
 }
 
 // Enabled 表示这个缓存是不是真的会落盘。
 func (c *Cache) Enabled() bool { return c != nil && c.path != "" }
 
-// key 把图床地址并进索引：换了图床就不该再复用旧地址。
+// cacheKey 把图床地址并进索引：换了图床就不该再复用旧地址。
 func cacheKey(endpoint, path string) string {
 	return strings.ToLower(strings.TrimRight(endpoint, "/")) + "\x00" + strings.ToLower(path)
 }
@@ -81,17 +77,19 @@ func (c *Cache) Lookup(endpoint, path string, size, mtime int64) (string, bool) 
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[cacheKey(endpoint, path)]
+	key := cacheKey(endpoint, path)
+	e, ok := c.entries[key]
 	if !ok || e.URL == "" || e.Size != size || e.ModTime != mtime {
 		return "", false
 	}
-	if now := time.Now(); now.Sub(time.Unix(0, e.CachedAt)) > TTL {
-		delete(c.entries, cacheKey(endpoint, path))
+	now := time.Now()
+	if now.Sub(time.Unix(e.CachedAt, 0)) > TTL {
+		delete(c.entries, key)
 		c.dirty = true
 		return "", false
 	}
-	e.UsedAt = time.Now().UnixNano()
-	c.entries[cacheKey(endpoint, path)] = e
+	e.UsedAt = now.Unix()
+	c.entries[key] = e
 	c.hits++
 	return e.URL, true
 }
@@ -101,7 +99,7 @@ func (c *Cache) Store(endpoint, path string, size, mtime int64, url string) {
 	if !c.Enabled() || url == "" {
 		return
 	}
-	now := time.Now().UnixNano()
+	now := time.Now().Unix()
 	c.mu.Lock()
 	c.entries[cacheKey(endpoint, path)] = entry{URL: url, Size: size, ModTime: mtime, CachedAt: now, UsedAt: now}
 	c.stores++
@@ -143,59 +141,19 @@ func (c *Cache) Save() error {
 		c.mu.Unlock()
 		return nil
 	}
-	merged := make(map[string]entry, len(c.entries))
-	if raw, err := os.ReadFile(c.path); err == nil {
-		var f file
-		if json.Unmarshal(raw, &f) == nil {
-			for k, v := range f.Entries {
-				merged[k] = v
-			}
-		}
-	}
-	for k, v := range c.entries {
-		merged[k] = v
-	}
-	pruned := prune(merged, maxEntries)
-	c.entries = pruned
-	c.dirty = false
 	path := c.path
+	entries := c.entries
 	c.mu.Unlock()
 
-	data, err := json.MarshalIndent(file{Version: 1, Entries: pruned}, "", "  ")
+	merged, err := diskcache.Save(path, entries, func(m map[string]entry) {
+		diskcache.PruneByUse(m, maxEntries, func(e entry) int64 { return e.UsedAt })
+	})
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
+	c.mu.Lock()
+	c.entries = merged
+	c.dirty = false
+	c.mu.Unlock()
 	return nil
-}
-
-// prune 在超过上限时按最后使用时间留下最近的 limit 条。
-func prune(in map[string]entry, limit int) map[string]entry {
-	if len(in) <= limit {
-		return in
-	}
-	type kv struct {
-		key string
-		at  int64
-	}
-	all := make([]kv, 0, len(in))
-	for k, v := range in {
-		all = append(all, kv{key: k, at: v.UsedAt})
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].at > all[j].at })
-	out := make(map[string]entry, limit)
-	for _, item := range all[:limit] {
-		out[item.key] = in[item.key]
-	}
-	return out
 }

@@ -73,7 +73,9 @@ func TestSaveMergesWhatIsAlreadyOnDisk(t *testing.T) {
 func TestExpiredEntryIsNotReused(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache.json")
 	old := time.Now().Add(-TTL - time.Hour).UnixNano()
-	raw, err := json.Marshal(file{Version: 1, Entries: map[string]entry{
+	// 版本 1 的缓存文件（时间字段是纳秒）：打开时应当换算成秒，
+	// 而不是把用户的老缓存当成坏的丢掉。
+	raw, err := json.Marshal(map[string]any{"version": 1, "entries": map[string]entry{
 		cacheKey("http://127.0.0.1:36677", `C:\pic\a.png`): {
 			URL: "https://cdn/a.png", Size: 100, ModTime: 7, CachedAt: old, UsedAt: old,
 		},
