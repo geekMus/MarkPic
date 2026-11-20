@@ -42,9 +42,10 @@ A document that needs none of this still stops by for a visit — it appears in 
 
 ### Big folders: streaming scan you can stop
 
-Dropping a whole drive or a cloud-sync root does not freeze the window. Documents are found
-and read while you watch: the folder row counts what has been found so far, cards appear as
-they are read, and six thousand files take a couple of seconds instead of a timeout dialog.
+Dropping a whole drive or a cloud-sync root does not freeze the window. The folder row counts
+what has been found so far and expands into the scan details; when the scan finishes it is
+replaced, in one pass, by a card per document. Six thousand files take a couple of seconds
+instead of a timeout dialog.
 
 ![Scanning a 6,000-file folder: the folder row shows 1,822 documents found so far](docs/images/en/scanning.png)
 
@@ -54,6 +55,14 @@ rest of that folder was not scanned.
 ### Settings: everything in one page, saved when you are done
 
 ![Settings page](docs/images/en/settings.png)
+
+### Light and dark
+
+Every screenshot on this page uses the light theme. MarkPic follows the system theme by
+default; **Settings → Theme** pins it to light or dark. The native title bar, the tray menu
+and the WebView background switch together, so resizing or repainting never flashes white.
+
+![Dark theme](docs/images/en/dark.png)
 
 ## Features
 

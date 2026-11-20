@@ -24,8 +24,9 @@ gets a card, so the queue always matches what is in the folder. Only binaries ar
 images, archives, executables, PDFs and Office files.
 
 A big folder (a whole drive, a cloud sync root) is scanned while you watch: the folder row
-shows how many documents have been found so far, and cards appear as they are read. Scanning
-has no overall time limit — only an inactivity watchdog — and you can stop it at any time;
+shows how many documents have been found so far and expands into the scan details. When the
+scan finishes — or you stop it — the row is replaced in one pass by a card per document.
+Scanning has no overall time limit, only an inactivity watchdog, and you can stop it at any time;
 after confirming, everything already found stays in the queue and the row tells you the rest
 of that folder was not scanned.
 

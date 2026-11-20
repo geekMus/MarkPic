@@ -469,8 +469,16 @@ const outputLabel = computed<MessageKey>(() =>
   props.row.result?.status === 'preview' ? 'row.output.planned' : 'row.output',
 )
 
-/** 有逐图明细才能展开：判据直接看结果里的 items，不再绕「缺文件」那一层推断。 */
-const canExpand = computed(() => (props.row.result?.items?.length ?? 0) > 0)
+/**
+ * 这一行是「正在扫的目录」：它自己不是文档，展开时该看的是扫描进度，不是图片明细。
+ * 扫完之后这一行要么退场（文件已各自成行），要么留着说明「一份都没找到」。
+ */
+const scanHost = computed(() => !props.row.result && (props.row.scan ?? 'idle') === 'scanning')
+
+/** 能展开的两种情形：有逐图明细，或者它是一张正在扫描的目录卡。 */
+const canExpand = computed(
+  () => scanHost.value || (props.row.result?.items?.length ?? 0) > 0,
+)
 
 /**
  * 逐图状态文字。下载模式里「failed」指的是下载不下来，
@@ -681,11 +689,23 @@ function toggleExpanded(): void {
       >
       <div v-if="expanded && canExpand" :id="detailsId" class="details selectable">
         <div class="details__inner">
-        <div class="details__head">
+        <!-- 正在扫的目录：展开看的是扫描本身，不是图片明细 -->
+        <div v-if="scanHost" class="scan-info">
+          <p class="scan-info__path mono" :title="row.path">{{ row.path }}</p>
+          <p class="scan-info__line">
+            <span class="scan-info__num">{{ row.scanFound ?? 0 }}</span>
+            {{ t('row.scan.found') }}
+            <span class="scan-info__sep" aria-hidden="true">·</span>
+            <span class="scan-info__num">{{ row.scanDirs ?? 0 }}</span>
+            {{ t('row.scan.dirs') }}
+          </p>
+          <p class="scan-info__hint">{{ t('row.scan.hint') }}</p>
+        </div>
+        <div v-if="!scanHost" class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
         </div>
       <ul
-        v-if="items.length > 0"
+        v-if="!scanHost && items.length > 0"
         ref="itemsEl"
         class="items"
         :class="{ 'items--scroll': bounded }"
@@ -715,7 +735,7 @@ function toggleExpanded(): void {
         />
       </ul>
 
-      <p v-else class="details__empty">{{ emptyDetailsText }}</p>
+      <p v-else-if="!scanHost" class="details__empty">{{ emptyDetailsText }}</p>
 
       <p v-if="row.result?.outputPath" class="details__out">
         <span>{{ t(outputLabel) }}</span>
@@ -1206,6 +1226,46 @@ function toggleExpanded(): void {
 .items__row[data-status='failed'] .items__result,
 .items__row[data-status='remote-bad'] .items__result {
   color: var(--bad);
+}
+
+.scan-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 14px;
+}
+
+.scan-info__path {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+  overflow-wrap: anywhere;
+}
+
+.scan-info__line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+}
+
+.scan-info__num {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.scan-info__sep {
+  color: var(--ink-3);
+}
+
+.scan-info__hint {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  line-height: 1.6;
 }
 
 .details__empty {

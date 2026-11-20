@@ -446,6 +446,9 @@ export const zh = {
   'scan.notFound': '找不到这个文件',
   'scan.timeout': '扫描超时',
   'scan.found': '已找到 {count} 份',
+  'row.scan.found': '份文档',
+  'row.scan.dirs': '个目录',
+  'row.scan.hint': '扫描结束后一次性铺开成卡片。随时可以停，已经扫到的会保留。',
   'scan.stopTitle': '停止扫描？',
   'scan.stopBody':
     '已经扫到的文档会留在队列里，但这个目录里没扫到的不会出现。之后可以点「恢复扫描」把这一行重新扫一遍。',
