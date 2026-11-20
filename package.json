@@ -1,6 +1,7 @@
 {
   "name": "markpic",
   "private": true,
+  "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/geekMus/MarkPic.git" },
   "description": "Markdown image manager: upload local images to your PicGo host, check or download the remote ones. No installer, no local server, no command line.",
   "//": "任务入口：Node 脚本跨平台，真正的依赖在 web/package.json；需要 Node 20.19+。",

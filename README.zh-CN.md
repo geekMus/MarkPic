@@ -5,6 +5,7 @@
 
 [![release](https://img.shields.io/github/v/release/geekMus/MarkPic?display_name=tag)](https://github.com/geekMus/MarkPic/releases)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%2B-0078D6)
+![license](https://img.shields.io/badge/license-MIT-blue)
 
 [English](README.md) | 简体中文
 
@@ -97,3 +98,9 @@ npm run build
 ```
 
 脚本、发布流程与目录结构见 [docs/build.zh-CN.md](docs/build.zh-CN.md)。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。随程序分发的第三方代码沿用各自的许可：
+[go-webview2](https://github.com/jchv/go-webview2)（MIT）与
+[golang.org/x/sys](https://pkg.go.dev/golang.org/x/sys)（BSD-3-Clause）。
