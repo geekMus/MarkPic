@@ -167,7 +167,7 @@ const countLabel = computed(() => {
   if (mode === 'ignore' && local !== null) {
     if (items.value.length === 0) return t('row.status.noImages')
     if (local === 0) return t('row.status.noLocal')
-    return t('row.count', { count: local })
+    return countText(local)
   }
   const images =
     loading.value && props.row.total > 0
@@ -176,8 +176,13 @@ const countLabel = computed(() => {
   if (images === null || images === undefined) {
     return props.row.missing ? '—' : t('row.count.pending')
   }
-  return t('row.count', { count: images })
+  return countText(images)
 })
+
+/** 英文里一张图是 "1 image"，不能写成 "1 images"。 */
+function countText(count: number): string {
+  return count === 1 ? t('row.count.one', { count }) : t('row.count', { count })
+}
 
 /**
  * 卡面只写最后一级目录名：整条 `D:\Projects\convert-md-picture\.tmp-scroll`

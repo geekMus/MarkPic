@@ -9,7 +9,7 @@ three jobs, and MarkPic rewrites the image links — or tells you which ones are
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-![The upload page: three documents in the queue, one expanded to show every rewritten link](docs/images/upload.png)
+![The upload page: three documents in the queue, one expanded to show every rewritten link](docs/images/en/upload.png)
 
 ## Three jobs
 
@@ -34,11 +34,11 @@ A document that needs none of this still stops by for a visit — it appears in 
 
 ### Check: which links are dead
 
-![Check page: 4 addresses, 2 open, 2 dead](docs/images/check.png)
+![Check page: 4 addresses, 2 open, 2 dead](docs/images/en/check.png)
 
 ### Download: remote images, brought home
 
-![Download page: 2 remote images fetched](docs/images/download.png)
+![Download page: 2 remote images fetched](docs/images/en/download.png)
 
 ### Big folders: streaming scan you can stop
 
@@ -46,14 +46,14 @@ Dropping a whole drive or a cloud-sync root does not freeze the window. Document
 and read while you watch: the folder row counts what has been found so far, cards appear as
 they are read, and six thousand files take a couple of seconds instead of a timeout dialog.
 
-![Scanning a 6,000-file folder: the folder row shows 1,822 documents found so far](docs/images/scanning.png)
+![Scanning a 6,000-file folder: the folder row shows 1,822 documents found so far](docs/images/en/scanning.png)
 
 Stop at any time — confirm once, keep everything already found, and the row tells you the
 rest of that folder was not scanned.
 
 ### Settings: everything in one page, saved when you are done
 
-![Settings page](docs/images/settings.png)
+![Settings page](docs/images/en/settings.png)
 
 ## Features
 

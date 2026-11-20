@@ -147,6 +147,7 @@ export const en: Record<keyof typeof zh, string> = {
   'row.status.uploadFailed': 'Upload failed',
   'row.status.pending': 'Pending',
   'row.count': '{count} images',
+  'row.count.one': '{count} image',
   'row.count.pending': 'Not counted',
   'row.reason.cancelled': 'Cancelled — the remaining images were left untouched',
   'row.reason.noFiles': 'No Markdown files under this path',

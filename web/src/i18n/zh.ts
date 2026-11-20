@@ -147,6 +147,7 @@ export const zh = {
   'row.status.uploadFailed': '上传失败',
   'row.status.pending': '待上传',
   'row.count': '{count} 张图',
+  'row.count.one': '{count} 张图',
   'row.count.pending': '待统计',
   'row.reason.cancelled': '已取消，未处理的图片保持原样',
   'row.reason.noFiles': '这个路径下没有 Markdown 文件',
