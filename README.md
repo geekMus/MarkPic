@@ -66,10 +66,10 @@ and the WebView background switch together, so resizing or repainting never flas
 
 ## Features
 
-- **Drop files, several files, or a folder.** A folder is scanned recursively. The extension
-  is not what decides: every text file counts (`.md`, `.txt`, `.log`, extension-less
-  notes), whether or not it has an image to upload. Images, archives and other binaries are
-  skipped.
+- **Drop files, several files, or a folder.** A folder is scanned recursively and **only
+  Markdown counts** (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdwn`). A document with no
+  image to upload still gets a card — even an empty one — so the queue always matches the
+  folder. `.txt`, code files, images and archives are ignored.
 - **Byte-faithful rewriting.** UTF-8 (with or without BOM), UTF-16 with BOM and the machine's
   ANSI code page all survive the round trip; apart from the rewritten addresses the file comes
   back identical.

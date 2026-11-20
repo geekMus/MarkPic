@@ -16,12 +16,12 @@
 - **Download** only touches remote images; local ones are left alone.
 
 Drop a single file, several files, or a whole folder. The path comes from the native
-drop target — WebView2 itself never exposes the local path of a dropped file. A folder
-is scanned recursively and immediately expanded into one card per document — you never
-see a folder card. **Every text file counts**: `.md`, `.txt`, `.log`, extension-less
-notes, whether or not it has an image to upload. A document with nothing to upload still
-gets a card, so the queue always matches what is in the folder. Only binaries are skipped:
-images, archives, executables, PDFs and Office files.
+drop target — WebView2 itself never exposes the local path of a dropped file. A folder is
+scanned recursively and **only Markdown counts** (`.md`, `.markdown`, `.mdown`, `.mkd`,
+`.mdwn`). A document with no images still gets a card, including an empty one, so the queue
+always matches the folder's Markdown files. `.txt`, code files, images and archives are
+ignored. While the scan runs, the folder itself is one card showing what has been found;
+when it ends the row is replaced in one pass by a card per document.
 
 A big folder (a whole drive, a cloud sync root) is scanned while you watch: the folder row
 shows how many documents have been found so far and expands into the scan details. When the

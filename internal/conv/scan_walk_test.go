@@ -40,17 +40,18 @@ func TestWalkDocumentsSkipsJunk(t *testing.T) {
 		return true
 	})
 
-	if len(found) != 3 {
-		t.Fatalf("应该找到 3 份文档，实际 %v", found)
+	// 只认 Markdown：b.txt 虽然存在，但不算文档。
+	if len(found) != 2 {
+		t.Fatalf("应该找到 2 份 Markdown，实际 %v", found)
 	}
-	want := map[string]bool{"a.md": true, "b.txt": true, "deep.md": true}
+	want := map[string]bool{"a.md": true, "deep.md": true}
 	for _, name := range found {
 		if !want[name] {
 			t.Fatalf("不该收 %q（%v）", name, found)
 		}
 	}
-	if got := counts.Found.Load(); got != 3 {
-		t.Fatalf("实时计数应该是 3，实际 %d", got)
+	if got := counts.Found.Load(); got != 2 {
+		t.Fatalf("实时计数应该是 2，实际 %d", got)
 	}
 	// 只有 sub 会被算进去：.git / node_modules 在计数之前就被跳掉了。
 	if got := counts.Dirs.Load(); got != 1 {
