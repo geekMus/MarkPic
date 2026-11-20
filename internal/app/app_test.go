@@ -594,7 +594,7 @@ func TestScanStreamsDocuments(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if len(files) != 6 {
-		t.Fatalf("应该逐份报出 6 个文件，实际 %d", len(files))
+		t.Fatalf("应该逐份报出 6 个文件，实际 %d：%v", len(files), files)
 	}
 	if progress == 0 {
 		t.Fatal("应该至少推一条 scan.progress")

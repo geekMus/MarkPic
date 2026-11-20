@@ -482,7 +482,8 @@ const scanHost = computed(() => !props.row.result && (props.row.scan ?? 'idle') 
  * 直接截字符而不是 CSS 省略：CSS 的 text-overflow 掐的是尾部，恰好掐掉有用的部分。
  */
 const scanCurrentLabel = computed(() => {
-  const path = (props.row.scanCurrent ?? '').trim()
+  // 文件比目录细一档：有正在解析的文档就先报它，还没开始解析时再退回目录。
+  const path = (props.row.scanFile || props.row.scanCurrent || '').trim()
   if (path === '') return ''
   return path.length > 72 ? '…' + path.slice(-72) : path
 })
@@ -713,7 +714,7 @@ function toggleExpanded(): void {
           </p>
           <p v-if="scanCurrentLabel !== ''" class="scan-info__line scan-info__line--current">
             <span class="scan-info__label">{{ t('row.scan.current') }}</span>
-            <span class="mono scan-info__path" :title="row.scanCurrent">{{ scanCurrentLabel }}</span>
+            <span class="mono scan-info__path" :title="row.scanFile || row.scanCurrent">{{ scanCurrentLabel }}</span>
           </p>
           <p class="scan-info__hint">{{ t('row.scan.hint') }}</p>
         </div>

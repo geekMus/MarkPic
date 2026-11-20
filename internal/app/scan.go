@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/geekMus/markpic/internal/conv"
@@ -36,7 +37,10 @@ const (
 	scanWalkWorkers = 8
 	// scanDocWorkers 是单个路径内并发解析文档的协程数；整批真正的上限由
 	// scanSession.docSlots 把关，免得一次拖六块盘把机器打满。
-	scanDocWorkers = 4
+	//
+	// 4 → 8：扫描是「读盘 + 解析」的混合负载，20 核机器上 4 条协程明显喂不满；
+	// 真正的并发上限仍然由 docSlots 卡着。
+	scanDocWorkers = 8
 	// scanMinParallel / scanMaxParallel 夹住「同时处理几个路径」。
 	scanMinParallel = 2
 	scanMaxParallel = 6
@@ -66,8 +70,10 @@ func docSlotCount() int {
 	if n < 2 {
 		n = 2
 	}
-	if n > 8 {
-		n = 8
+	// 上限 16：解析是短平快的 CPU + 读盘混合，超过核数太多只会互相抢盘；
+	// 原先的 8 在 20 核机器上把一半的核晾着。
+	if n > 16 {
+		n = 16
 	}
 	return n
 }
@@ -240,7 +246,7 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 	}
 
 	if !info.IsDir() {
-		if res, ok := s.scanDocument(ctx, cfg, lang, path); ok {
+		if res, ok, _ := s.scanDocument(conv.NewScanRunner(cfg, lang), ctx, lang, path); ok {
 			s.emitFile(path, []conv.FileResult{res})
 		}
 		return
@@ -254,6 +260,9 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 	docs := make(chan string, 128)
 	// 计数边遍历边涨：进度事件读的就是它，不必等整棵树走完。
 	var counts conv.WalkCounts
+	// currentFile 是此刻正在解析的那份文档：比目录更细一档，界面据此显示
+	// 「正在扫描 …\part03\sub01\note012.md」。
+	var currentFile atomic.Value // string
 	walkEnded := make(chan struct{})
 
 	go func() {
@@ -285,6 +294,7 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 					Found:   int(counts.Found.Load()),
 					Dirs:    int(counts.Dirs.Load()),
 					Current: counts.Current(),
+					File:    atomicString(&currentFile),
 				})
 			}
 		}
@@ -295,14 +305,22 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// 每个 worker 一条 Runner：扫描只读盘解析，不碰网络，
+			// 所以用不带 HTTP 连接池的扫描版（一万份文档就是一万个连接池的差距）。
+			runner := conv.NewScanRunner(cfg, lang)
 			for file := range docs {
 				select {
 				case s.docSlots <- struct{}{}:
 				case <-ctx.Done():
 					return
 				}
-				res, ok := s.scanDocument(ctx, cfg, lang, file)
+				currentFile.Store(file)
+				res, ok, poisoned := s.scanDocument(runner, ctx, lang, file)
 				<-s.docSlots
+				if poisoned {
+					// 超时那份被丢下了，它还在用这条 Runner：换一条新的继续。
+					runner = conv.NewScanRunner(cfg, lang)
+				}
 				if !ok {
 					// 用户按了停止：已经在跑的这一份算白跑，不再往外报。
 					return
@@ -323,21 +341,20 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 		Found:   int(counts.Found.Load()),
 		Dirs:    int(counts.Dirs.Load()),
 		Current: counts.Current(),
+		File:    atomicString(&currentFile),
 	})
 }
 
-// scanDocument 解析一份文档，带单文件超时。
+// scanDocument 用给定的 Runner 解析一份文档，带单文件超时。
 //
-// 返回 ok=false 表示这一份被取消了（用户点了停止），调用方不该再往外报。
-func (s *scanSession) scanDocument(ctx context.Context, cfg settings.Settings, lang i18n.Lang, path string) (conv.FileResult, bool) {
-	// 每份文档一个 Runner：超时之后那个协程会被丢下不管，让它自己跑完，
-	// 复用同一个 Runner 会和后面那一份抢内部状态。
+// 返回 ok=false 表示这一份被取消了（用户点了停止），调用方不该再往外报；
+// poisoned=true 表示这份超时了、协程被丢下仍在用 Runner，调用方必须换一条新的。
+func (s *scanSession) scanDocument(runner *conv.Runner, ctx context.Context, lang i18n.Lang, path string) (conv.FileResult, bool, bool) {
 	result := make(chan conv.FileResult, 1)
 	fileCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	go func() {
-		runner := conv.NewRunner(cfg, lang, "scan", nil).UsePreview()
 		result <- runner.ScanOne(fileCtx, path)
 	}()
 
@@ -346,9 +363,9 @@ func (s *scanSession) scanDocument(ctx context.Context, cfg settings.Settings, l
 
 	select {
 	case res := <-result:
-		return res, true
+		return res, true, false
 	case <-ctx.Done():
-		return conv.FileResult{}, false
+		return conv.FileResult{}, false, false
 	case <-timer.C:
 		cancel()
 		return conv.FileResult{
@@ -357,8 +374,16 @@ func (s *scanSession) scanDocument(ctx context.Context, cfg settings.Settings, l
 			Dir:    filepath.Dir(path),
 			Status: conv.FileFailed,
 			Error:  i18n.T(lang, i18n.KeyConvScanTimeout),
-		}, true
+		}, true, true
 	}
+}
+
+// atomicString 读 atomic.Value 里的字符串（还没存过就是空串）。
+func atomicString(v *atomic.Value) string {
+	if s, ok := v.Load().(string); ok {
+		return s
+	}
+	return ""
 }
 
 func (s *scanSession) emitFile(path string, files []conv.FileResult) {

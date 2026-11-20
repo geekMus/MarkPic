@@ -218,6 +218,8 @@ export type ScanEvent =
       dirs?: number
       /** 此刻正在读的那个目录，界面上写成「正在扫描 …」。 */
       current?: string
+      /** 此刻正在解析的那份文档（比目录更细一档）。 */
+      file?: string
     }
   | {
       type: 'scan.file'

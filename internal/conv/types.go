@@ -200,6 +200,8 @@ type Event struct {
 	Dirs  int `json:"dirs,omitempty"`
 	// Current 是此刻正在读的目录，界面上写成「正在扫描 D:\…」。
 	Current string `json:"current,omitempty"`
+	// File 是此刻正在解析的那份文档（比目录更细一档）。
+	File string `json:"file,omitempty"`
 }
 
 // 事件类型。

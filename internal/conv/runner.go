@@ -301,6 +301,30 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 	}
 }
 
+// NewScanRunner 造一个「只扫描」的 Runner：不建任何网络客户端。
+//
+// 扫描一份文档只需要读盘、解码、解析引用、分类；picgo 与 remoteimg 的客户端
+// 各自带着一条 HTTP 连接池，在扫描里纯属浪费 —— 之前每份文档造一个，一万份文档
+// 就是一万个连接池，实测占掉扫描时间的一大半。
+//
+// 用它的地方必须保持 previewOnly（这里已经设好）：扫描永远走不到网络分支，
+// 真走过去 client / remote 都是 nil。
+func NewScanRunner(cfg settings.Settings, lang i18n.Lang) *Runner {
+	if lang == "" {
+		lang = i18n.ZH
+	}
+	return &Runner{
+		cfg:         cfg,
+		lang:        lang,
+		previewOnly: true,
+		stamps:      make(map[string]stamp),
+		scanDocs:    make(map[string]*mdscan.Document),
+		// 预扫也要算一遍输出路径（界面上写「计划输出到 …」），用到这两张表。
+		outPlan: make(map[string]string),
+		usedOut: make(map[string]bool),
+	}
+}
+
 // rememberDoc 记下预扫结果，供正式处理时复用。
 func (r *Runner) rememberDoc(path string, doc *mdscan.Document) {
 	r.scanMu.Lock()

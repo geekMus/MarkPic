@@ -218,6 +218,7 @@ export function onScanEvent(event: ScanEvent): void {
     host.scanFound = event.found ?? 0
     host.scanDirs = event.dirs ?? 0
     if (event.current !== undefined) host.scanCurrent = event.current
+    if (event.file !== undefined) host.scanFile = event.file
     return
   }
 
