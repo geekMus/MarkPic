@@ -279,11 +279,12 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 				return
 			case <-ticker.C:
 				s.app.emit(conv.Event{
-					Type:  conv.EventScanProgress,
-					RunID: s.scanID,
-					Path:  path,
-					Found: int(counts.Found.Load()),
-					Dirs:  int(counts.Dirs.Load()),
+					Type:    conv.EventScanProgress,
+					RunID:   s.scanID,
+					Path:    path,
+					Found:   int(counts.Found.Load()),
+					Dirs:    int(counts.Dirs.Load()),
+					Current: counts.Current(),
 				})
 			}
 		}
@@ -316,11 +317,12 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 
 	// 收尾再报一次最终数字，界面不用等最后一个 tick。
 	s.app.emit(conv.Event{
-		Type:  conv.EventScanProgress,
-		RunID: s.scanID,
-		Path:  path,
-		Found: int(counts.Found.Load()),
-		Dirs:  int(counts.Dirs.Load()),
+		Type:    conv.EventScanProgress,
+		RunID:   s.scanID,
+		Path:    path,
+		Found:   int(counts.Found.Load()),
+		Dirs:    int(counts.Dirs.Load()),
+		Current: counts.Current(),
 	})
 }
 

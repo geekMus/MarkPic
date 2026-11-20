@@ -216,6 +216,8 @@ export type ScanEvent =
       /** 到这个时刻为止已经发现多少份文档、走过多少目录。 */
       found?: number
       dirs?: number
+      /** 此刻正在读的那个目录，界面上写成「正在扫描 …」。 */
+      current?: string
     }
   | {
       type: 'scan.file'

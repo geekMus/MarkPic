@@ -16,6 +16,22 @@ import (
 type WalkCounts struct {
 	Found atomic.Int64
 	Dirs  atomic.Int64
+	// current 是「此刻正在读的那个目录」。拖动一块盘时，用户最想知道的就是
+	// 「现在走到哪儿了」——只报「已找到 N 份」看不出还在不在动。
+	// 并行遍历下它只是「最近一个开工的目录」，不是严格顺序，作为进度提示足够。
+	current atomic.Value // string
+}
+
+func (c *WalkCounts) setCurrent(dir string) {
+	c.current.Store(dir)
+}
+
+// Current 返回最近开始读取的目录（还没开始走时是空串）。
+func (c *WalkCounts) Current() string {
+	if v, ok := c.current.Load().(string); ok {
+		return v
+	}
+	return ""
 }
 
 // WalkDocuments 递归遍历一个目录，把「能当文档处理」的文件逐个交给 yield。
@@ -83,6 +99,7 @@ func WalkDocuments(ctx context.Context, root, suffix, skipDir string, workers in
 				case <-ctx.Done():
 					return
 				case dir := <-queue:
+					counts.setCurrent(dir)
 					entries, err := os.ReadDir(dir)
 					if err == nil {
 						for _, entry := range entries {

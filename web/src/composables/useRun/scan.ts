@@ -217,6 +217,7 @@ export function onScanEvent(event: ScanEvent): void {
   if (event.type === 'scan.progress') {
     host.scanFound = event.found ?? 0
     host.scanDirs = event.dirs ?? 0
+    if (event.current !== undefined) host.scanCurrent = event.current
     return
   }
 

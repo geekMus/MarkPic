@@ -43,9 +43,10 @@ A document that needs none of this still stops by for a visit — it appears in 
 ### Big folders: streaming scan you can stop
 
 Dropping a whole drive or a cloud-sync root does not freeze the window. The folder row counts
-what has been found so far and expands into the scan details; when the scan finishes it is
-replaced, in one pass, by a card per document. Six thousand files take a couple of seconds
-instead of a timeout dialog.
+what has been found so far and expands into live scan details — how many documents and folders
+so far, and the directory being read right now. When the scan finishes it is replaced, in one
+pass, by a card per document. Six thousand files take a couple of seconds instead of a timeout
+dialog.
 
 ![Scanning a 6,000-file folder: the folder row shows 1,822 documents found so far](docs/images/en/scanning.png)
 

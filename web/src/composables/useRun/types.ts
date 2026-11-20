@@ -52,6 +52,8 @@ export interface RunRow {
    */
   scanFound?: number
   scanDirs?: number
+  /** 扫描中此刻正在读的目录（目录卡展开时显示，随事件刷新）。 */
+  scanCurrent?: string
   /**
    * 这一行的扫描属于哪一批。
    *

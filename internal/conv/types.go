@@ -198,6 +198,8 @@ type Event struct {
 	// 走过了多少目录。拖一整块盘时没有总数可报，只能报「已经找到多少」。
 	Found int `json:"found,omitempty"`
 	Dirs  int `json:"dirs,omitempty"`
+	// Current 是此刻正在读的目录，界面上写成「正在扫描 D:\…」。
+	Current string `json:"current,omitempty"`
 }
 
 // 事件类型。

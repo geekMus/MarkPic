@@ -475,6 +475,18 @@ const outputLabel = computed<MessageKey>(() =>
  */
 const scanHost = computed(() => !props.row.result && (props.row.scan ?? 'idle') === 'scanning')
 
+/**
+ * 「正在扫描」的那一行路径：留尾部、掐头部。
+ *
+ * 深目录的路径长度很容易把一行撑爆，而真正能告诉用户「走到哪儿了」的是尾部。
+ * 直接截字符而不是 CSS 省略：CSS 的 text-overflow 掐的是尾部，恰好掐掉有用的部分。
+ */
+const scanCurrentLabel = computed(() => {
+  const path = (props.row.scanCurrent ?? '').trim()
+  if (path === '') return ''
+  return path.length > 72 ? '…' + path.slice(-72) : path
+})
+
 /** 能展开的两种情形：有逐图明细，或者它是一张正在扫描的目录卡。 */
 const canExpand = computed(
   () => scanHost.value || (props.row.result?.items?.length ?? 0) > 0,
@@ -698,6 +710,10 @@ function toggleExpanded(): void {
             <span class="scan-info__sep" aria-hidden="true">·</span>
             <span class="scan-info__num">{{ row.scanDirs ?? 0 }}</span>
             {{ t('row.scan.dirs') }}
+          </p>
+          <p v-if="scanCurrentLabel !== ''" class="scan-info__line scan-info__line--current">
+            <span class="scan-info__label">{{ t('row.scan.current') }}</span>
+            <span class="mono scan-info__path" :title="row.scanCurrent">{{ scanCurrentLabel }}</span>
           </p>
           <p class="scan-info__hint">{{ t('row.scan.hint') }}</p>
         </div>
@@ -1281,6 +1297,25 @@ function toggleExpanded(): void {
 
 .scan-info__sep {
   color: var(--ink-3);
+}
+
+.scan-info__line--current {
+  min-width: 0;
+  align-items: center;
+}
+
+.scan-info__label {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+}
+
+.scan-info__path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+  white-space: nowrap;
 }
 
 .scan-info__hint {

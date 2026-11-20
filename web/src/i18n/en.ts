@@ -455,6 +455,7 @@ export const en: Record<keyof typeof zh, string> = {
   'scan.timeout': 'Scan timed out',
   'scan.found': 'found {count}',
   'row.scan.found': 'documents found',
+  'row.scan.current': 'Scanning',
   'row.scan.dirs': 'folders walked',
   'row.scan.hint': 'Cards appear once the scan finishes. You can stop at any time — what has been found is kept.',
   'scan.stopTitle': 'Stop scanning?',
