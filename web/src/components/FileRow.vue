@@ -839,10 +839,10 @@ function toggleExpanded(): void {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
-  padding: 14px 6px 14px 18px;
+  padding: 14px 10px 14px 18px;
   border: 0;
   background: none;
   color: inherit;
@@ -924,18 +924,23 @@ function toggleExpanded(): void {
 }
 
 /* 图片数做成一枚小胶囊：纯数字在卡片右边太轻，立不住 */
+/* 卡片右侧是一排同高的「小件」：胶囊、查看详情、图标按钮都是 24px，
+   一律垂直居中。以前胶囊 23px、文字 18px、图标 24px 混在一起，右边看着发毛。 */
 .item__count {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--line);
+  height: 24px;
+  padding: 0 9px;
+  /* 不用描边：一颗软底胶囊和旁边的幽灵按钮同高同圆角，一排看过去才是一行；
+     描边会把「徽标」和「按钮」分成两种物件，视觉上就错位了。 */
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
-  background: var(--panel);
+  background: var(--panel-2);
   color: var(--ink-2);
   font-size: var(--fs-1);
-  line-height: 1.5;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -966,6 +971,8 @@ function toggleExpanded(): void {
 .item__status {
   display: flex;
   flex: none;
+  align-items: center;
+  height: 24px;
 }
 
 /* 「查看详情」本身就是一个动作词，比「未处理」这种半截状态诚实 */
@@ -973,28 +980,43 @@ function toggleExpanded(): void {
   color: var(--ink-2);
 }
 
+/* 「查看详情」做成同高的幽灵按钮：和胶囊、图标按钮共用一条基线与一圈圆角，
+   是卡片上仅次于标题的第二个可点区域。 */
 .item__more {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  transition: color 140ms var(--ease-out);
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
   color: var(--ink-3);
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
+  line-height: 1;
   white-space: nowrap;
-  transition: color var(--t-fast) var(--ease);
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+/* 展开之后把「查看详情」换成同一颗胶囊的样子：位置不动，只换文案与箭头方向 */
+.card__head[aria-expanded='true'] .item__more {
+  background: var(--panel-2);
+  color: var(--ink-2);
 }
 
 .card__head:hover .item__more,
 .card__head:focus-visible .item__more {
   color: var(--ink-2);
+  background: var(--panel-2);
 }
 
 .item__chev {
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   transition: transform var(--t-base) var(--ease);
 }
 
@@ -1135,8 +1157,8 @@ function toggleExpanded(): void {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
-  padding-right: 10px;
+  gap: 4px;
+  padding-right: 12px;
 }
 
 /* 手不放在卡上时不显示：一列十张卡、张张挂两个按钮，比什么都吵 */

@@ -5,7 +5,7 @@ import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView, ScanState } from '../composables/useRun'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
@@ -313,7 +313,7 @@ const emptyHint = computed<MessageKey>(() => {
         @retry-scan="emit('retry-scan', group.id)"
       >
         <template #badges>
-          <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
+          <span class="badge">{{ t(plural('check.group.count', group.list.length), { count: group.list.length }) }}</span>
           <span v-if="group.ok > 0" class="badge badge--ok">
             {{ t('check.group.ok', { count: group.ok }) }}
           </span>

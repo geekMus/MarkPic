@@ -47,6 +47,18 @@ function setLang(next: Lang): void {
   apply()
 }
 
+/**
+ * 取单复数正确的 key：count 为 1 且词典里有 `<key>.one` 时用那一条。
+ *
+ * 英文里「1 images」一眼就是没做完的样子；中文两条文案相同，纯属占位。
+ * 所有计数文案都走这里，不要在调用点上各写一遍。
+ */
+export function plural(key: MessageKey, count: number): MessageKey {
+  if (count !== 1) return key
+  const one = `${key}.one` as MessageKey
+  return one in zh ? one : key
+}
+
 /** 取文案；{name} 会被 params 里的同名值替换。 */
 export function t(key: MessageKey, params?: Record<string, string | number>): string {
   const text = CATALOG[lang.value][key] ?? zh[key] ?? key

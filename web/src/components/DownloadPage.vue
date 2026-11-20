@@ -5,7 +5,7 @@ import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
@@ -227,7 +227,7 @@ const band = computed(() => {
         @retry-scan="emit('retry-scan', group.row.id)"
       >
         <template #badges>
-          <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span class="badge">{{ t(plural('row.count', group.items.length), { count: group.items.length }) }}</span>
           <span v-if="group.saved > 0" class="badge badge--ok">
             {{ t('download.group.saved', { count: group.saved }) }}
           </span>

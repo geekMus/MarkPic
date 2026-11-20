@@ -4,7 +4,7 @@ import AppIcon from './AppIcon.vue'
 import type { IconName } from './AppIcon.vue'
 import EmptyState from './EmptyState.vue'
 import PageHead from './PageHead.vue'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 
 /**
@@ -89,7 +89,7 @@ const { t } = useI18n()
         <span v-if="index > 0" class="report__sep" aria-hidden="true">·</span>
         <span class="report__stat" :class="`report__stat--${cell.tone}`">
           <AnimatedNumber :value="cell.count" />
-          <span class="report__lbl">{{ t(cell.key) }}</span>
+          <span class="report__lbl">{{ t(plural(cell.key, cell.count)) }}</span>
         </span>
       </template>
     </p>
