@@ -5,7 +5,7 @@ import ScanBadge from './ScanBadge.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileResult, ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
-import { useI18n, type MessageKey } from '../i18n'
+import { plural, useI18n, type MessageKey } from '../i18n'
 import { redactUrl } from '../composables/useDeadLinks'
 import { describeError, openTarget } from '../api'
 import { useToasts } from '../composables/useToasts'
@@ -36,6 +36,8 @@ const emit = defineEmits<{
   /** 这张卡自己的扫描：取消 / 恢复（重试）。 */
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  /** 扫描卡片：把发现到的文件铺成文件卡片。 */
+  'confirm-import': [id: string]
   /** 卡片正在做高度动画：外面的虚拟列表这段时间先别重新量行高。 */
   animating: [active: boolean]
 }>()
@@ -160,6 +162,11 @@ const emptyCard = computed(
 const scanOk = computed(() => (props.row.scan ?? 'idle') === 'ok')
 
 const countLabel = computed(() => {
+  // 扫描卡片数的是「发现了几份 Markdown」，不是图片。
+  if (props.row.scanCard) {
+    const found = props.row.scanFiles?.length ?? props.row.scanFound ?? 0
+    return t(plural('row.count.found', found), { count: found })
+  }
   const mode = props.remoteMode ?? 'ignore'
   // 跑动中报的是这一轮的张数：上一轮留下的「7 张图」挂在「运行中 0/1」
   // 旁边，只会让人以为已经在处理那 7 张。
@@ -473,7 +480,16 @@ const outputLabel = computed<MessageKey>(() =>
  * 这一行是「正在扫的目录」：它自己不是文档，展开时该看的是扫描进度，不是图片明细。
  * 扫完之后这一行要么退场（文件已各自成行），要么留着说明「一份都没找到」。
  */
-const scanHost = computed(() => !props.row.result && (props.row.scan ?? 'idle') === 'scanning')
+const scanHost = computed(
+  () =>
+    props.row.scanCard === true ||
+    (!props.row.result && (props.row.scan ?? 'idle') === 'scanning'),
+)
+
+/** 扫描卡片已经扫完、手上也有文件：这时才允许「确认导入」。 */
+const scanCardReady = computed(
+  () => props.row.scanCard === true && (props.row.scan ?? 'idle') === 'ok' && (props.row.scanFiles?.length ?? 0) > 0,
+)
 
 /**
  * 「正在扫描」的那一行路径：留尾部、掐头部。
@@ -635,6 +651,16 @@ function toggleExpanded(): void {
 
       <!-- 打开、定位与移除放在卡面上：要删一张卡，不该先展开它 -->
       <span class="card__tools">
+        <!-- 扫描卡片扫完之后，卡面上唯一该点的就是它：把发现的文件铺进队列 -->
+        <button
+          v-if="scanCardReady"
+          type="button"
+          class="btn btn--primary btn--sm card__import"
+          :disabled="busy"
+          @click.stop="emit('confirm-import', row.id)"
+        >
+          {{ t('row.scan.confirm') }}
+        </button>
         <!-- 扫描没通过时卡片上唯一该点的是「取消扫描」/「恢复扫描」 -->
         <ScanBadge
           :state="row.scan ?? 'idle'"
@@ -707,16 +733,19 @@ function toggleExpanded(): void {
           <p class="scan-info__path mono" :title="row.path">{{ row.path }}</p>
           <p class="scan-info__line">
             <span class="scan-info__num">{{ row.scanFound ?? 0 }}</span>
-            {{ t('row.scan.found') }}
+            {{ t(plural('row.scan.found', row.scanFound ?? 0)) }}
             <span class="scan-info__sep" aria-hidden="true">·</span>
             <span class="scan-info__num">{{ row.scanDirs ?? 0 }}</span>
-            {{ t('row.scan.dirs') }}
+            {{ t(plural('row.scan.dirs', row.scanDirs ?? 0)) }}
           </p>
-          <p v-if="scanCurrentLabel !== ''" class="scan-info__line scan-info__line--current">
+          <p
+            v-if="scanCurrentLabel !== '' && (row.scan ?? 'idle') === 'scanning'"
+            class="scan-info__line scan-info__line--current"
+          >
             <span class="scan-info__label">{{ t('row.scan.current') }}</span>
             <span class="mono scan-info__path" :title="row.scanFile || row.scanCurrent">{{ scanCurrentLabel }}</span>
           </p>
-          <p class="scan-info__hint">{{ t('row.scan.hint') }}</p>
+          <p class="scan-info__hint">{{ t(scanCardReady ? 'row.scan.ready' : 'row.scan.hint') }}</p>
         </div>
         <div v-if="!scanHost" class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
@@ -1188,6 +1217,10 @@ function toggleExpanded(): void {
 .item--open .card__tools .icon-btn,
 .card__tools:focus-within .icon-btn {
   opacity: 1;
+}
+
+.card__import {
+  margin-right: 6px;
 }
 
 .card__drop:hover {

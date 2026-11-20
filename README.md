@@ -40,18 +40,17 @@ A document that needs none of this still stops by for a visit — it appears in 
 
 ![Download page: 2 remote images fetched](docs/images/en/download.png)
 
-### Big folders: streaming scan you can stop
+### Folders: find the Markdown first, import when ready
 
-Dropping a whole drive or a cloud-sync root does not freeze the window. The folder row counts
-what has been found so far and expands into live scan details — how many documents and folders
-so far, and the exact file being read right now. When the scan finishes it is replaced, in one
-pass, by a card per document. Ten thousand files take well under a second instead of a timeout
-dialog.
+Dropping a folder or a whole drive gives you one **scan card**. It only looks for Markdown
+files — it never opens them — so it is fast and completely predictable. The card counts what
+it has found, shows the exact file being walked, and can be stopped at any time.
 
-![Scanning a 6,000-file folder: the folder row shows 1,822 documents found so far](docs/images/en/scanning.png)
+When the scan finishes, click **Import**: the card is replaced by one card per document, and
+the image counts are filled in afterwards. That second pass is throttled to what the machine
+can handle — never ten thousand scans at once.
 
-Stop at any time — confirm once, keep everything already found, and the row tells you the
-rest of that folder was not scanned.
+![A folder has been scanned: 3 documents found, ready to import](docs/images/en/scanning.png)
 
 ### Settings: everything in one page, saved when you are done
 
@@ -67,10 +66,14 @@ and the WebView background switch together, so resizing or repainting never flas
 
 ## Features
 
-- **Drop files, several files, or a folder.** A folder is scanned recursively and **only
-  Markdown counts** (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdwn`). A document with no
-  image to upload still gets a card — even an empty one — so the queue always matches the
-  folder. `.txt`, code files, images and archives are ignored.
+- **Drop files, several files, or a folder.** A single file becomes a file card right away.
+  A folder or drive becomes a scan card that only finds Markdown (`.md`, `.markdown`,
+  `.mdown`, `.mkd`, `.mdwn`); click **Import** to turn what it found into file cards. A
+  document with no images still gets a card — even an empty one — so the queue always matches
+  the folder. `.txt`, code files, images and archives are ignored.
+- **Fresh every launch.** Closing and reopening the app always starts on the first page with
+  an empty queue. Switching between Upload, Check and Download inside a running session keeps
+  each page's queue and results.
 - **Byte-faithful rewriting.** UTF-8 (with or without BOM), UTF-16 with BOM and the machine's
   ANSI code page all survive the round trip; apart from the rewritten addresses the file comes
   back identical.

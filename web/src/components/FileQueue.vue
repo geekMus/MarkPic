@@ -13,7 +13,7 @@ import {
   formatBrokenReport,
 } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 
 const props = defineProps<{
   rows: RunRowView[]
@@ -44,6 +44,7 @@ const emit = defineEmits<{
   clear: []
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  'confirm-import': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -368,7 +369,7 @@ function onScroll(): void {
     >
       <template #badge>
         <span v-if="rows.length > 0" class="queue__count num">
-          {{ t('queue.count', { count: rows.length }) }}
+          {{ t(plural('queue.count', rows.length), { count: rows.length }) }}
         </span>
         <span v-if="busy && showFileProgress" class="queue__progress num" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}
@@ -495,6 +496,7 @@ function onScroll(): void {
           @select="emit('select', $event)"
           @cancel-scan="emit('cancel-scan', $event)"
           @retry-scan="emit('retry-scan', $event)"
+          @confirm-import="emit('confirm-import', $event)"
           @animating="onRowAnimating"
         />
         <li

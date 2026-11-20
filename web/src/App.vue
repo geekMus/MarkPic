@@ -26,10 +26,8 @@ import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
 import {
   cancelRowScan,
-  currentQueuePage,
-  queuePagePaths,
+  confirmImport,
   queuePagePendingPreview,
-  restoreQueuePage,
   retryRowScan,
   scanPaths,
   setQueuePage,
@@ -95,21 +93,9 @@ const {
 // 主视图 = 侧边栏上的菜单项。左边三项是作业视图（共用一条队列，区别只在远程图
 // 怎么处理），右边两项是表单页（结果写到哪 / 怎么跑）。设置不再占用弹窗。
 //
-// 关掉再打开要回到上次停留的那一页：队列本来就是按页存的，回来时接着看。
-const VIEW_KEY = 'markpic.view'
-const SAVED_VIEWS: readonly View[] = [...JOB_VIEWS, 'settings']
-
-function readView(): View {
-  try {
-    const raw = window.localStorage.getItem(VIEW_KEY)
-    if (raw !== null && (SAVED_VIEWS as readonly string[]).includes(raw)) return raw as View
-  } catch {
-    /* 存不了就当没存过 */
-  }
-  return 'convert'
-}
-
-const view = ref<View>(readView())
+// 每次启动都从第一个功能开始：不记住上次停在哪一页，也不恢复上一次的队列。
+// 程序没关的时候，三页之间照常来回切 —— 那是内存里的状态，不落盘。
+const view = ref<View>('convert')
 
 /** 作业视图对应的远程图处理方式；表单页没有这个属性。 */
 function jobModeOf(next: View): RemoteMode | null {
@@ -130,16 +116,9 @@ const isFormView = computed(() => !isJobView.value)
  * 切菜单 = 换一页：转换里的文件、结果、进度留在转换，下载那一页还是它自己的样子；
  * 切回来接着看。跑着的那一轮不跟着画面走，它留在开始它的那一页上。
  */
-const JOB_MODES: readonly RemoteMode[] = ['ignore', 'download', 'check']
-
 watch(
   view,
   (next) => {
-    try {
-      localStorage.setItem(VIEW_KEY, next)
-    } catch {
-      /* 存不下不影响切换 */
-    }
     const nextMode = jobModeOf(next)
     if (nextMode === null) return
     setQueuePage(nextMode)
@@ -346,44 +325,6 @@ function rememberPaths(paths: string[]): void {
   }
 }
 
-/* 队列本身也记一份：关掉程序再打开，昨天拖进来的东西还在。
-   三页各记各的（转换 / 检测 / 下载），只记路径不记结果 —— 结果要重新扫一遍才算数。 */
-const QUEUE_KEY = 'markpic.queue' // 老版本只存一条队列，读一次当转换那一页的
-const QUEUES_KEY = 'markpic.queues'
-
-function strings(raw: unknown): string[] {
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
-}
-
-function readQueues(): Partial<Record<RemoteMode, string[]>> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(QUEUES_KEY) ?? 'null') as unknown
-    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-      const out: Partial<Record<RemoteMode, string[]>> = {}
-      for (const pageMode of JOB_MODES) {
-        out[pageMode] = strings((raw as Record<string, unknown>)[pageMode])
-      }
-      return out
-    }
-  } catch {
-    /* 存档坏了就当没有，下面再试老键 */
-  }
-  try {
-    const legacy = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null') as unknown
-    return { ignore: strings(legacy) }
-  } catch {
-    return {}
-  }
-}
-
-function writeQueues(): void {
-  try {
-    localStorage.setItem(QUEUES_KEY, JSON.stringify(queuePagePaths()))
-  } catch {
-    /* 存不下就算了，别为了记住路径把转换拦下来 */
-  }
-}
-
 /**
  * 扫一遍某一页里还没扫过的行（切到这一页时顺手做，别让三页在启动时抢网络）。
  *
@@ -395,17 +336,6 @@ function scanPage(pageMode: RemoteMode): void {
   void scanPaths(pageMode, paths)
 }
 
-/** 启动时把三页各自的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
-async function restoreQueue(): Promise<void> {
-  const saved = readQueues()
-  for (const pageMode of JOB_MODES) {
-    const paths = saved[pageMode] ?? []
-    if (paths.length === 0 || isRunBusy(pageMode)) continue
-    restoreQueuePage(pageMode, paths)
-  }
-  if (!isRunBusy(mode.value)) scanPage(currentQueuePage())
-}
-
 async function enqueue(paths: string[]): Promise<void> {
   const added = addPaths(paths)
   if (added.length === 0) {
@@ -413,8 +343,9 @@ async function enqueue(paths: string[]): Promise<void> {
     return
   }
   rememberPaths(added)
-  // 进队列就开始扫，但不等它：卡片先出来，扫完一份亮一份。
-  void scanPaths(mode.value, added)
+  // 先「发现」：拖进来的可能是文件（直接成一张文件卡），也可能是文件夹/盘
+  // （先出扫描卡片，等用户确认导入再铺文件卡片）。
+  void scanPaths(mode.value, added, true)
 }
 
 /** 待确认「停止扫描」的那一行；null 表示没有待确认的操作。 */
@@ -440,6 +371,17 @@ function confirmStopScan(): void {
 
 function handleRetryScan(id: string): void {
   retryRowScan(id)
+}
+
+/**
+ * 扫描卡片上的「确认导入」：把发现的文件铺成文件卡片，并开始统计图片数。
+ *
+ * 文件是一次性交给后端的：路径池与文档槽在后端按机器能力限流，前端不需要
+ * 自己算「同时开几个扫描」。
+ */
+function handleConfirmImport(id: string): void {
+  const count = confirmImport(mode.value, id)
+  if (count > 0) success(t('toast.imported', { count }))
 }
 // 拖进窗口就等于加进队列；拦不住 drag 事件的话 WebView2 会把窗口导航到那个文件
 const { active: dropActive } = useFileDrop({
@@ -584,12 +526,6 @@ onMounted(() => {
   // 后端点叉号时调用；浏览器预览里没有这个函数，弹窗也就不会出现。
   closeBridge.__markpicCloseRequest = handleCloseRequest
   connect()
-  // 队列记在本地；加进来/清掉时同步写一次
-  watch(
-    () => [view.value, ...rowViews.value.map((row) => row.path)],
-    () => writeQueues(),
-  )
-  window.setTimeout(() => void restoreQueue(), 700)
   // 首屏要这两份数据：拿到（或失败）再让原生窗口露面，别把半张空架子推给人。
   void revealWindowWhenReady(Promise.allSettled([refreshHealth(), loadSettings()]))
   window.addEventListener('keydown', handleKeydown)
@@ -669,6 +605,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <CheckPage
             v-else-if="view === 'check'"
@@ -685,6 +622,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <DownloadPage
             v-else-if="view === 'download'"
@@ -701,6 +639,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <OptionsPanel
             v-else

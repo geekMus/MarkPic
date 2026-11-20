@@ -149,6 +149,8 @@ export async function pickFolder(): Promise<string[]> {
 export function scanStart(params: {
   scanId: string
   paths: string[]
+  /** true = 只发现 Markdown（文件夹卡片）；false = 逐份统计图片数（文件卡片）。 */
+  discover?: boolean
 }): Promise<ScanStartResult> {
   return call<ScanStartResult>('scan.start', params)
 }

@@ -273,6 +273,10 @@
   padding-right: 2px;
 }
 
+.group-card__import {
+  margin-right: 6px;
+}
+
 .group-card__tools .icon-btn {
   opacity: 0;
   transition: opacity 140ms var(--ease);

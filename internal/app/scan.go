@@ -42,13 +42,16 @@ const (
 	// 真正的并发上限仍然由 docSlots 卡着。
 	scanDocWorkers = 8
 	// scanMinParallel / scanMaxParallel 夹住「同时处理几个路径」。
+	//
+	// 上限 16（原来 6）：确认导入之后，一个路径就是一份文件，六条协程喂不满
+	// 一台 20 核的机器；真正的解析并发仍由 docSlots 二次限制。
 	scanMinParallel = 2
-	scanMaxParallel = 6
+	scanMaxParallel = 16
 )
 
 // scanParallelism 按机器核数给同时处理的路径数。
 func scanParallelism(n int) int {
-	parallel := runtime.NumCPU() / 2
+	parallel := runtime.NumCPU()
 	if parallel < scanMinParallel {
 		parallel = scanMinParallel
 	}
@@ -87,6 +90,9 @@ type scanSession struct {
 	// docSlots 限制整批同时解析的文档数：几块盘一起拖进来时，别让几百个协程
 	// 同时去读盘——机械盘那样只会更慢。
 	docSlots chan struct{}
+
+	// discover 为真：只走目录、数 Markdown，不解析内容（文件夹卡片那一档）。
+	discover bool
 
 	mu    sync.Mutex
 	paths map[string]context.CancelFunc // 路径 → 该路径的取消函数
@@ -130,6 +136,10 @@ func scanPathKey(path string) string {
 type scanStartRequest struct {
 	ScanID string   `json:"scanId"`
 	Paths  []string `json:"paths"`
+	// Discover 为真时只「发现」Markdown 文件，不解析内容：
+	// 文件夹卡片的扫描就这一档 —— 里面有没有图片、有几张，等用户确认导入之后
+	// 再由逐份文档的扫描去数。
+	Discover bool `json:"discover"`
 }
 
 // startScan 立刻返回，真正的扫描在后台按并发度跑。
@@ -168,6 +178,7 @@ func (a *App) startScan(params json.RawMessage) (any, error) {
 		ctx:      ctx,
 		cancel:   cancel,
 		docSlots: make(chan struct{}, docSlotCount()),
+		discover: req.Discover,
 		paths:    make(map[string]context.CancelFunc, len(paths)),
 	}
 
@@ -202,25 +213,35 @@ func (s *scanSession) run(cfg settings.Settings, lang i18n.Lang, paths []string)
 		s.stop()
 	}()
 
-	parallel := scanParallelism(len(paths))
-	sem := make(chan struct{}, parallel)
 	var wg sync.WaitGroup
 
-	for _, path := range paths {
+	// 固定数量的 worker 从一个路径队列里取活：以前是「一个路径一个 goroutine」，
+	// 用户确认导入一万个文件卡片时就是一万个协程在抢。并发上限按机器核数给，
+	// 真正的文档解析再受 docSlots 二次限制。
+	workers := scanParallelism(len(paths))
+	work := make(chan string)
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(path string) {
+		go func() {
 			defer wg.Done()
-			// 排队等名额时也要能被取消。
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-s.ctx.Done():
-				return
+			for path := range work {
+				if s.ctx.Err() != nil {
+					return
+				}
+				s.scanPath(cfg, lang, path)
 			}
-			s.scanPath(cfg, lang, path)
-		}(path)
+		}()
 	}
-
+	for _, path := range paths {
+		select {
+		case work <- path:
+		case <-s.ctx.Done():
+		}
+		if s.ctx.Err() != nil {
+			break
+		}
+	}
+	close(work)
 	wg.Wait()
 
 	// 整批结束（或被取消）时推一条收尾事件：界面靠它把「还在扫」的看门狗停掉。
@@ -237,6 +258,11 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 	s.register(path, cancel)
 	defer s.unregister(path)
 	defer cancel()
+
+	if s.discover {
+		s.discoverPath(ctx, cfg, path)
+		return
+	}
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -287,15 +313,7 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 			case <-stopProgress:
 				return
 			case <-ticker.C:
-				s.app.emit(conv.Event{
-					Type:    conv.EventScanProgress,
-					RunID:   s.scanID,
-					Path:    path,
-					Found:   int(counts.Found.Load()),
-					Dirs:    int(counts.Dirs.Load()),
-					Current: counts.Current(),
-					File:    atomicString(&currentFile),
-				})
+				s.emitProgress(path, &counts, &currentFile)
 			}
 		}
 	}()
@@ -334,15 +352,113 @@ func (s *scanSession) scanPath(cfg settings.Settings, lang i18n.Lang, path strin
 	<-walkEnded
 
 	// 收尾再报一次最终数字，界面不用等最后一个 tick。
-	s.app.emit(conv.Event{
+	s.emitProgress(path, &counts, &currentFile)
+}
+
+// discoverBatchSize 是「发现」时一批推回多少份文件。
+//
+// 一份一条事件的话，六万份 Markdown 就是六万条事件：攒批队列、JSON 序列化、
+// 界面逐条处理都吃不消；六十四份一批，事件数直接少两个数量级。
+const discoverBatchSize = 64
+
+// shallowDoc 是「发现了这份 Markdown」的最小描述：不解析内容、不数图片。
+func shallowDoc(path string) conv.FileResult {
+	return conv.FileResult{
+		Path:   path,
+		Name:   filepath.Base(path),
+		Dir:    filepath.Dir(path),
+		Status: conv.FilePreview,
+	}
+}
+
+// discoverPath 只发现 Markdown 文件，不解析内容。
+//
+// 文件夹卡片要回答的是「这里面有多少份 Markdown」；至于每份里有没有图片、
+// 几张图，等用户点「确认导入」、文件卡片真的进队列之后再去数 —— 那一步才受
+// 并发上限约束。所以这一档只有遍历 + 计数。
+func (s *scanSession) discoverPath(ctx context.Context, cfg settings.Settings, path string) {
+	info, err := os.Stat(path)
+	if err != nil {
+		s.emitFile(path, nil)
+		return
+	}
+	if !info.IsDir() {
+		abs, aerr := filepath.Abs(path)
+		if aerr != nil {
+			abs = path
+		}
+		s.emitFile(path, []conv.FileResult{shallowDoc(abs)})
+		return
+	}
+
+	skip := ""
+	if cfg.Output == settings.OutputDirectory {
+		skip = cfg.OutDir
+	}
+
+	var counts conv.WalkCounts
+	var currentFile atomic.Value // string
+	docs := make(chan string, 256)
+	go func() {
+		defer close(docs)
+		conv.WalkDocuments(ctx, path, cfg.Suffix, skip, scanWalkWorkers, &counts, func(file string) bool {
+			select {
+			case docs <- file:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		})
+	}()
+
+	stopProgress := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(scanProgressEvery)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopProgress:
+				return
+			case <-ticker.C:
+				s.emitProgress(path, &counts, &currentFile)
+			}
+		}
+	}()
+
+	batch := make([]conv.FileResult, 0, discoverBatchSize)
+	for file := range docs {
+		abs, aerr := filepath.Abs(file)
+		if aerr != nil {
+			abs = file
+		}
+		currentFile.Store(abs)
+		batch = append(batch, shallowDoc(abs))
+		if len(batch) >= discoverBatchSize {
+			s.emitFile(path, batch)
+			batch = make([]conv.FileResult, 0, discoverBatchSize)
+		}
+	}
+	if len(batch) > 0 {
+		s.emitFile(path, batch)
+	}
+	close(stopProgress)
+	s.emitProgress(path, &counts, &currentFile)
+}
+
+// emitProgress 推一条进度事件：扫描（逐份解析）与发现（只遍历）共用。
+func (s *scanSession) emitProgress(path string, counts *conv.WalkCounts, file *atomic.Value) {
+	ev := conv.Event{
 		Type:    conv.EventScanProgress,
 		RunID:   s.scanID,
 		Path:    path,
 		Found:   int(counts.Found.Load()),
 		Dirs:    int(counts.Dirs.Load()),
 		Current: counts.Current(),
-		File:    atomicString(&currentFile),
-	})
+	}
+	if file != nil {
+		ev.File = atomicString(file)
+	}
+	s.app.emit(ev)
 }
 
 // scanDocument 用给定的 Runner 解析一份文档，带单文件超时。

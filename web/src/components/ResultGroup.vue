@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ScanBadge from './ScanBadge.vue'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import { shortDir } from './shortDir'
 import type { ScanState } from '../composables/useRun'
 
@@ -29,6 +29,10 @@ const props = defineProps<{
   tone: 'neutral' | 'warning' | 'danger'
   /** 正文里有没有可展开的行；没有就不放「查看详情」。 */
   expandable: boolean
+  /** 这是一张「扫描卡片」（拖进来的是文件夹/盘）：卡头写发现了几份，扫完给「确认导入」。 */
+  scanCard?: boolean
+  /** 扫描卡片已经发现的 Markdown 份数。 */
+  scanFound?: number
 }>()
 
 const emit = defineEmits<{
@@ -40,6 +44,8 @@ const emit = defineEmits<{
   /** 这张卡自己的扫描：取消 / 恢复（重试）。 */
   'cancel-scan': []
   'retry-scan': []
+  /** 扫描卡片：把发现到的文件铺成文件卡片。 */
+  'confirm-import': []
 }>()
 
 const { t } = useI18n()
@@ -70,6 +76,10 @@ function toggle(): void {
         <span class="group-card__sub mono" :title="props.dir">{{ shortDir(props.dir) }}</span>
       </span>
       <span class="group-card__badges">
+        <!-- 扫描卡片数的是「发现了几份 Markdown」，不是地址 -->
+        <span v-if="props.scanCard" class="badge">
+          {{ t(plural('row.count.found', props.scanFound ?? 0), { count: props.scanFound ?? 0 }) }}
+        </span>
         <!-- 还没扫通：卡上说的是扫描本身，不是「0 条」 -->
         <ScanBadge
           v-if="props.scan !== 'ok'"
@@ -93,6 +103,15 @@ function toggle(): void {
       </span>
       <!-- 打开、定位、移除：和上传页的卡头同一组，不必先展开才够得着 -->
       <span class="group-card__tools" @keydown.stop>
+        <button
+          v-if="props.scanCard && props.scan === 'ok' && (props.scanFound ?? 0) > 0"
+          type="button"
+          class="btn btn--primary btn--sm group-card__import"
+          :disabled="props.busy"
+          @click.stop="emit('confirm-import')"
+        >
+          {{ t('row.scan.confirm') }}
+        </button>
         <button
           type="button"
           class="icon-btn icon-btn--sm"

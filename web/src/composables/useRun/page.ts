@@ -11,9 +11,8 @@
  */
 import { reactive, ref } from 'vue'
 import type { RemoteMode, RunSummary } from '../../types'
-import { pathKey, splitPath } from './paths'
 import type { LiveCounters, RunPhase, RunRow } from './types'
-import { emptyCounters, PAGES } from './types'
+import { emptyCounters } from './types'
 
 /**
  * 一个作业页的全部可变状态。
@@ -167,14 +166,6 @@ export function currentQueuePage(): RemoteMode {
   return activePage
 }
 
-/** 三页各自的路径清单（持久化用）；调用前会把当前页写回 pages。 */
-export function queuePagePaths(): Record<RemoteMode, string[]> {
-  savePage()
-  const out = {} as Record<RemoteMode, string[]>
-  for (const mode of PAGES) out[mode] = pages[mode].rows.map((row) => row.path)
-  return out
-}
-
 /** 这一页上次滚到哪儿了。 */
 /** 这一页里还没预检过的行（`images === null` 的那批）：切到这一页时再扫。 */
 export function queuePagePendingPreview(mode: RemoteMode): string[] {
@@ -194,47 +185,6 @@ export function queuePageScroll(mode: RemoteMode): number {
 /** 记下这一页的滚动位置（切页/卸载前调）。 */
 export function rememberQueueScroll(mode: RemoteMode, top: number): void {
   pages[mode].scrollTop = top
-}
-
-/**
- * 把上次记着的路径接回某一页（启动时用）。
- *
- * 只造行、不预检 —— 预检要发网络/磁盘请求，交给调用方按页去做。返回真正新增的路径。
- */
-export function restoreQueuePage(mode: RemoteMode, saved: readonly string[]): string[] {
-  if (mode === activePage) savePage()
-  const page = pages[mode]
-  if (page.rows.length > 0 || page.phase !== 'idle') return []
-
-  const known = new Set<string>()
-  const added: string[] = []
-  for (const raw of saved) {
-    const path = raw.trim().replace(/^"(.*)"$/, '$1').trim()
-    if (path === '') continue
-    const key = pathKey(path)
-    if (key === '' || known.has(key)) continue
-    known.add(key)
-    added.push(path)
-    const { name, dir } = splitPath(path)
-    page.rows.push({
-      id: pageLocalId(mode),
-      path,
-      name,
-      dir,
-      images: null,
-      phase: 'queued',
-      uploaded: 0,
-      total: 0,
-      result: null,
-    })
-  }
-  page.rowIndex = new Map(page.rows.map((row, index) => [row.id, index]))
-  if (mode === activePage) {
-    rows.value = page.rows
-    rowIndex = page.rowIndex
-    seq.local = page.localSeq
-  }
-  return added
 }
 
 /** 取某一页的行数组。当前页先写回 pages，保证读到的就是界面上的那批对象。 */

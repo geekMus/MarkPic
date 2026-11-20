@@ -38,6 +38,7 @@ const emit = defineEmits<{
   /** 卡片自己的扫描：取消这一份 / 恢复（重试）。 */
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  'confirm-import': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -216,6 +217,9 @@ const band = computed(() => {
         :name="group.row.name"
         :dir="group.row.dir"
         :scan="group.row.scan ?? 'idle'"
+        :scan-card="group.row.scanCard === true"
+        :scan-found="group.row.scanFound ?? 0"
+        @confirm-import="emit('confirm-import', group.row.id)"
         :scan-error="group.row.scanError"
         :busy="busy"
         :tone="group.failed > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
