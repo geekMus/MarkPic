@@ -44,11 +44,12 @@ A document that needs none of this still stops by for a visit — it appears in 
 
 Dropping a folder or a whole drive gives you one **scan card**. It only looks for Markdown
 files — it never opens them — so it is fast and completely predictable. The card counts what
-it has found, shows the exact file being walked, and can be stopped at any time.
+it has found, shows the directory being walked and how long it has been running, and can be
+stopped at any time. When it finishes, expand the card to see the Markdown files it found.
 
-When the scan finishes, click **Import**: the card is replaced by one card per document, and
-the image counts are filled in afterwards. That second pass is throttled to what the machine
-can handle — never ten thousand scans at once.
+Click **Import** on that card: it is replaced by one card per document, and the image counts
+are filled in afterwards. That second pass is throttled to what the machine can handle — never
+ten thousand scans at once.
 
 ![A folder has been scanned: 3 documents found, ready to import](docs/images/en/scanning.png)
 

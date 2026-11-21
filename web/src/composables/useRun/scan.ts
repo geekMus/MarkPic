@@ -59,6 +59,7 @@ function applyFileToRow(row: RunRow, file: FileResult): void {
   row.scan = file.status === 'failed' ? 'failed' : 'ok'
   row.scanError = file.status === 'failed' ? file.error : undefined
   row.scanBatch = undefined
+  row.scanFiles = undefined
 }
 
 /** 发现档：把「这是一份文档」记到行上，图片数留空（还没数）。 */
@@ -71,6 +72,7 @@ function markAsFileCard(row: RunRow, file: FileResult): void {
   row.result = null
   row.scan = 'idle'
   row.scanBatch = undefined
+  row.scanFiles = undefined
 }
 
 /**
@@ -127,7 +129,11 @@ export function finishBatch(batch: ScanBatch, state: ScanState, message?: string
 
     // 发现档：留卡片、挂结果。
     if (batch.discover) {
-      const found = batch.found.get(pathKey(path)) ?? []
+      // 目录遍历的顺序随并发和文件系统而变；清单按路径排一遍，用户看到的顺序
+      // 才稳定，确认导入后铺出来的卡片也按这个顺序排。
+      const found = [...(batch.found.get(pathKey(path)) ?? [])].sort((a, b) =>
+        a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' }),
+      )
       row.scanBatch = undefined
       row.scanCard = true
       row.scanFiles = found
@@ -197,6 +203,9 @@ export async function scanPaths(mode: RemoteMode, paths: readonly string[], disc
     row.scanBatch = batch.id
     row.scanFound = 0
     row.scanDirs = 0
+    row.scanStartedAt = Date.now()
+    // 重扫一张扫描卡片：上一轮的文件清单先撤掉，免得旧结果冒充这一轮。
+    if (row.scanCard) row.scanFiles = undefined
   }
 
   touchBatch(batch, 'failed', t('scan.timeout'))
@@ -263,7 +272,11 @@ export function onScanEvent(event: ScanEvent): void {
     bucket.push(file)
   }
   batch.found.set(key, bucket)
-  if (batch.discover) host.scanFound = bucket.length
+  if (batch.discover) {
+    host.scanFound = bucket.length
+    // 边发现边铺清单：扫一块大盘要几分钟，用户能先看到已经找到哪些文件。
+    host.scanFiles = bucket.slice()
+  }
 }
 
 /**

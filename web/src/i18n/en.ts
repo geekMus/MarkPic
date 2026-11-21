@@ -460,6 +460,8 @@ export const en: Record<keyof typeof zh, string> = {
   'row.scan.current': 'Scanning',
   'row.scan.confirm': 'Import',
   'row.scan.ready': 'Done — click Import to add these files to the queue',
+  'row.scan.elapsed': 'scanning for {seconds}s',
+  'row.scan.more': '{count} more not listed',
   'row.count.found': '{count} files',
   'row.count.found.one': '{count} file',
   'toast.imported': 'Imported {count} documents — counting images',
@@ -473,4 +475,7 @@ export const en: Record<keyof typeof zh, string> = {
   'scan.stopped': 'Scanning stopped — the queue only has what was found',
   'footer.blocked.scanning': 'Scanning {count} file(s)…',
   'footer.blocked.problem': '{count} file(s) have not passed scanning',
+  'footer.blocked.import': 'Click Import on the folder card to turn it into file cards first',
+  'footer.folders': '{count} folders waiting to be imported',
+  'footer.folders.one': '{count} folder waiting to be imported',
 }

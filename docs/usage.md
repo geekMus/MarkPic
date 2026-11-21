@@ -19,9 +19,9 @@ Drop a single file, several files, or a whole folder. The path comes from the na
 drop target — WebView2 itself never exposes the local path of a dropped file. A single file
 becomes a file card right away. A folder or drive becomes one **scan card** that only finds
 Markdown (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdwn`) without opening anything; it
-counts what it found and shows the file being walked. When it ends, click **Import** to turn
-those files into cards, and their image counts are filled in afterwards with a concurrency
-limit taken from the machine. A document with no images still gets a card, including an empty
+counts what it found, shows the directory being walked and the elapsed time; when it ends,
+expand the card to see the list of Markdown files it found. Click **Import** on that card to turn those files into cards; their image
+counts are filled in afterwards with a concurrency limit taken from the machine. A document with no images still gets a card, including an empty
 one. `.txt`, code files, images and archives are ignored.
 
 A big folder (a whole drive, a cloud sync root) is scanned while you watch: the folder row

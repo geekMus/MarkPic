@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import ReportShell from './ReportShell.vue'
 import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
-import type { ImageItem } from '../types'
+import type { FileResult, ImageItem } from '../types'
 import type { RunRowView, ScanState } from '../composables/useRun'
 import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
@@ -131,6 +131,8 @@ interface DocGroup {
   scanCard: boolean
   /** 扫描卡片发现到的 Markdown 份数。 */
   scanFound: number
+  /** 扫描卡片发现到的文件清单。 */
+  scanFiles: FileResult[]
 }
 
 /** 一行地址在某一篇文档里的位置：同一个地址在同篇里重复引用时，行号收在一起。 */
@@ -188,6 +190,7 @@ const groups = computed<DocGroup[]>(() => {
       scanError: row.scanError,
       scanCard: row.scanCard === true,
       scanFound: row.scanFound ?? 0,
+      scanFiles: row.scanFiles ?? [],
     })
   }
   const rank = (group: DocGroup): number => (group.scan === 'ok' ? 0 : 1)
@@ -311,6 +314,8 @@ const emptyHint = computed<MessageKey>(() => {
         :scan="group.scan"
         :scan-card="group.scanCard"
         :scan-found="group.scanFound"
+        :scan-files="group.scanFiles"
+        :scan-root="group.path"
         @confirm-import="emit('confirm-import', group.id)"
         :scan-error="group.scanError"
         :busy="busy"

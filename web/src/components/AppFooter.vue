@@ -7,6 +7,13 @@ import { useI18n, type MessageKey } from '../i18n'
 const props = defineProps<{
   stats: RunStats
   phase: RunPhase
+  /**
+   * 队列里还有几张「文件夹 / 盘」扫描卡片等着确认导入。
+   *
+   * 它们不算任务（不参与开始、不参与计数），但用户必须知道它们还在那儿 ——
+   * 否则「队列里有 3 行，底栏却说 0 个文件」看着像丢了东西。
+   */
+  pendingFolders?: number
   /** 远程图模式：调试构建 + 下载模式下，「没动的远程图」是这一轮没去下，不是按策略保留。 */
   remoteMode?: 'ignore' | 'check' | 'download'
   busy: boolean
@@ -62,9 +69,18 @@ function countText(key: MessageKey, count: number): string {
 /** 状态栏读数：文件数、引用数，跑完之后追加替换与失败计数。 */
 const parts = computed<Part[]>(() => {
   const stats = props.stats
+  const folders = props.pendingFolders ?? 0
+  // 队列里只剩文件夹卡片：既不是「空队列」，也不该说「0 个文件」——直接讲清楚
+  // 它们还等着确认导入。
+  if (stats.files === 0 && folders > 0) {
+    const list: Part[] = [{ text: countText('footer.folders', folders), tone: 'plain' }]
+    if (props.busyElsewhere) list.push({ text: props.busyElsewhere, tone: 'warn' })
+    return list
+  }
   if (stats.files === 0) return [{ text: t('footer.queueEmpty'), tone: 'plain' }]
 
   const list: Part[] = [{ text: countText('footer.files', stats.files), tone: 'plain' }]
+  if (folders > 0) list.push({ text: countText('footer.folders', folders), tone: 'plain' })
   if (props.busyElsewhere) list.push({ text: props.busyElsewhere, tone: 'warn' })
   list.push(
     stats.images > 0

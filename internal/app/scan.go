@@ -34,7 +34,10 @@ const (
 	// scanProgressEvery 是进度事件的节流间隔。再密就是在刷界面了。
 	scanProgressEvery = 120 * time.Millisecond
 	// scanWalkWorkers 是遍历目录的并发度。
-	scanWalkWorkers = 8
+	//
+	// 8 → 16：读目录是纯 IO，20 核机器上 8 条协程喂不满；拖整块盘时大头就是
+	// 「走很多层目录」，多开几条能明显缩短。
+	scanWalkWorkers = 16
 	// scanDocWorkers 是单个路径内并发解析文档的协程数；整批真正的上限由
 	// scanSession.docSlots 把关，免得一次拖六块盘把机器打满。
 	//
@@ -397,7 +400,8 @@ func (s *scanSession) discoverPath(ctx context.Context, cfg settings.Settings, p
 	}
 
 	var counts conv.WalkCounts
-	var currentFile atomic.Value // string
+	// 发现阶段读的是目录：进度里只报目录，不报刚发现的那份文件 ——
+	// 「正在扫描 xxx.md」会让人以为在读这份文档，其实它只是刚被找到。
 	docs := make(chan string, 256)
 	go func() {
 		defer close(docs)
@@ -420,7 +424,7 @@ func (s *scanSession) discoverPath(ctx context.Context, cfg settings.Settings, p
 			case <-stopProgress:
 				return
 			case <-ticker.C:
-				s.emitProgress(path, &counts, &currentFile)
+				s.emitProgress(path, &counts, nil)
 			}
 		}
 	}()
@@ -431,7 +435,6 @@ func (s *scanSession) discoverPath(ctx context.Context, cfg settings.Settings, p
 		if aerr != nil {
 			abs = file
 		}
-		currentFile.Store(abs)
 		batch = append(batch, shallowDoc(abs))
 		if len(batch) >= discoverBatchSize {
 			s.emitFile(path, batch)
@@ -442,7 +445,7 @@ func (s *scanSession) discoverPath(ctx context.Context, cfg settings.Settings, p
 		s.emitFile(path, batch)
 	}
 	close(stopProgress)
-	s.emitProgress(path, &counts, &currentFile)
+	s.emitProgress(path, &counts, nil)
 }
 
 // emitProgress 推一条进度事件：扫描（逐份解析）与发现（只遍历）共用。

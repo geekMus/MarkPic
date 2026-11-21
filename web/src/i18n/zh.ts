@@ -455,6 +455,8 @@ export const zh = {
   'row.scan.current': '正在扫描',
   'row.scan.confirm': '确认导入',
   'row.scan.ready': '扫完了：点「确认导入」把发现的文件加进队列',
+  'row.scan.elapsed': '已扫描 {seconds} 秒',
+  'row.scan.more': '另有 {count} 份未列出',
   'row.count.found': '{count} 份',
   'row.count.found.one': '{count} 份',
   'toast.imported': '已导入 {count} 份文档，正在统计图片',
@@ -468,4 +470,7 @@ export const zh = {
   'scan.stopped': '已停止扫描：队列里只有扫到的那部分',
   'footer.blocked.scanning': '正在扫描 {count} 个文件…',
   'footer.blocked.problem': '{count} 个文件还没扫描通过',
+  'footer.blocked.import': '先点文件夹卡片上的「确认导入」，把它拆成文件卡片',
+  'footer.folders': '{count} 个文件夹待导入',
+  'footer.folders.one': '{count} 个文件夹待导入',
 } as const

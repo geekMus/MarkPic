@@ -277,6 +277,18 @@
   margin-right: 6px;
 }
 
+/* 扫描卡片的文件清单：只在展开后的折叠区里出现。
+   外层不留内边距（否则收起时 0fr 的格子里还会露出那点空白），
+   内边距加在清单根元素上，收起来时跟着一起被裁掉。 */
+.group-card__scan {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group-card__scan-list {
+  padding: 4px 14px 10px;
+}
+
 .group-card__tools .icon-btn {
   opacity: 0;
   transition: opacity 140ms var(--ease);
@@ -325,4 +337,56 @@
 
 .group-card__fold--open {
   grid-template-rows: 1fr;
+}
+
+/* 窗口窄的时候，扫描卡头右侧的徽标/按钮会把文档名挤没：只让扫描卡片换行，
+   名字至少留 160px，按钮组掉到下一行靠右。上传页的 FileRow 用同一套做法。 */
+@media (max-width: 820px) {
+  .group-card__head--scan {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .group-card__head--scan .group-card__text {
+    min-width: 160px;
+  }
+
+  .group-card__head--scan .group-card__badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .group-card__head--scan .group-card__tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
+}
+
+/* 再窄一档：所有卡片都折成两行（名字一行，徽标与按钮一行），否则 270px 的卡
+   连文档名都放不下。 */
+@media (max-width: 620px) {
+  .group-card__head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .group-card__head .group-card__text {
+    min-width: 160px;
+  }
+
+  .group-card__head .group-card__badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .group-card__head .group-card__tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
 }

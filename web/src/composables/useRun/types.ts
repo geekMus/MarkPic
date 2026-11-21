@@ -63,6 +63,8 @@ export interface RunRow {
   scanCard?: boolean
   /** 扫描卡片发现到的 Markdown（发现档结束时填一次）。 */
   scanFiles?: FileResult[]
+  /** 这一行开始扫描的时刻（毫秒），用来在卡上显示已用时间。 */
+  scanStartedAt?: number
   /**
    * 这一行的扫描属于哪一批。
    *

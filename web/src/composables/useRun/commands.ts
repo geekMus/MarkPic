@@ -28,6 +28,8 @@ const { danger, warning } = useToasts()
 /** 把每一行恢复到「还没跑」的样子（行对象原地改，不重建数组）。 */
 export function resetRowsForRun(): void {
   for (const row of rows.value) {
+    // 文件夹 / 盘扫描卡片不是这一轮的任务：它还没确认导入，不该被画成「排队中」。
+    if (row.scanCard === true) continue
     row.phase = 'queued'
     row.uploaded = 0
     row.liveItems = undefined

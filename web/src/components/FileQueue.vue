@@ -342,6 +342,9 @@ const window_ = computed(() => {
 
 const visibleRows = computed(() => filteredRows.value.slice(window_.value.start, window_.value.end))
 
+/** 队列里还有几张文件夹 / 盘扫描卡片等着确认导入（它们不算任务）。 */
+const folderCount = computed(() => Math.max(0, props.rows.length - props.total))
+
 watch(
   () => props.rows.length,
   async () => {
@@ -368,8 +371,12 @@ function onScroll(): void {
       :progress="lineProgress"
     >
       <template #badge>
-        <span v-if="rows.length > 0" class="queue__count num">
-          {{ t(plural('queue.count', rows.length), { count: rows.length }) }}
+        <!-- 只数文件卡片：文件夹 / 盘还不是任务，单独写一句「待导入」 -->
+        <span v-if="total > 0" class="queue__count num">
+          {{ t(plural('queue.count', total), { count: total }) }}
+        </span>
+        <span v-if="folderCount > 0" class="queue__count num">
+          {{ t(plural('footer.folders', folderCount), { count: folderCount }) }}
         </span>
         <span v-if="busy && showFileProgress" class="queue__progress num" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}

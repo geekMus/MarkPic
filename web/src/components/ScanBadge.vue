@@ -87,8 +87,9 @@ const hint = computed(() => {
 <style scoped>
 .scan {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   white-space: nowrap;
 }
 

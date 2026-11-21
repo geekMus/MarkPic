@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ScanBadge from './ScanBadge.vue'
+import ScanFileList from './ScanFileList.vue'
 import { plural, useI18n } from '../i18n'
 import { shortDir } from './shortDir'
 import type { ScanState } from '../composables/useRun'
+import type { FileResult } from '../types'
 
 /**
  * 一张「文档卡」的外壳：卡头（文档名、目录、结论徽标、打开/定位/移除）、
@@ -33,6 +35,10 @@ const props = defineProps<{
   scanCard?: boolean
   /** 扫描卡片已经发现的 Markdown 份数。 */
   scanFound?: number
+  /** 扫描卡片发现到的文件清单（发现档只带路径，还没有图片数）。 */
+  scanFiles?: FileResult[]
+  /** 扫描的根（文件夹 / 盘）：清单里只写它下面那一段。 */
+  scanRoot?: string
 }>()
 
 const emit = defineEmits<{
@@ -52,7 +58,16 @@ const { t } = useI18n()
 
 const open = ref(false)
 
+/**
+ * 能不能展开：地址表非空，或者这是一张「有文件清单的扫描卡片」。
+ * 扫描卡片的清单只在展开后看，收起时卡片保持一行的高度。
+ */
+const canExpand = computed(
+  () => props.expandable || (props.scanCard === true && (props.scanFiles?.length ?? 0) > 0),
+)
+
 function toggle(): void {
+  if (!canExpand.value) return
   open.value = !open.value
 }
 </script>
@@ -61,6 +76,7 @@ function toggle(): void {
   <section class="group-card">
     <header
       class="group-card__head group-card__head--fold"
+      :class="{ 'group-card__head--scan': props.scanCard }"
       role="button"
       tabindex="0"
       :aria-expanded="open"
@@ -89,12 +105,13 @@ function toggle(): void {
           @cancel="emit('cancel-scan')"
           @retry="emit('retry-scan')"
         />
-        <template v-else>
+        <!-- 扫描卡片没有地址/图片可数：只写发现了几份，别把正文的徽标也挂上来 -->
+        <template v-else-if="!props.scanCard">
           <slot name="badges" />
         </template>
       </span>
       <span
-        v-if="props.expandable"
+        v-if="canExpand"
         class="group-card__more"
         :class="{ 'group-card__more--on': open }"
       >
@@ -145,6 +162,10 @@ function toggle(): void {
     <!-- 跑动中整张卡一条进度轨：卡头数字说逐图结论，这条说整篇走到哪了 -->
     <slot name="rail" />
     <div class="group-card__fold" :class="{ 'group-card__fold--open': open }">
+      <!-- 扫描卡片的文件清单只在展开后出现 -->
+      <div v-if="props.scanCard && (props.scanFiles?.length ?? 0) > 0" class="group-card__scan">
+        <ScanFileList class="group-card__scan-list" :files="props.scanFiles ?? []" :root="props.scanRoot" />
+      </div>
       <slot />
     </div>
   </section>

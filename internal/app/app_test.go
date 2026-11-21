@@ -601,6 +601,71 @@ func TestScanStreamsDocuments(t *testing.T) {
 	}
 }
 
+// 拖一整块盘时「发现」阶段必须能走完。
+//
+// 这是用户报的那次「卡在 D: 43 份、CPU 不涨」：遍历器在宽目录树上死锁，数字不再
+// 变化、进度心跳还在刷，卡片永远停在「扫描中」。这里用 16×40 的目录树把旧实现
+// 那 512 的队列填满，验证 scan.done 一定会到、且文件一份不少。
+func TestScanDiscoverWideTreeFinishes(t *testing.T) {
+	a := newTestApp(t)
+	root := t.TempDir()
+	const wideA, wideB = 16, 40
+	for i := 0; i < wideA; i++ {
+		dir := filepath.Join(root, fmt.Sprintf("a%02d", i))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("建目录失败：%v", err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("# a\n"), 0o644); err != nil {
+			t.Fatalf("写夹具失败：%v", err)
+		}
+		for j := 0; j < wideB; j++ {
+			sub := filepath.Join(dir, fmt.Sprintf("b%02d", j))
+			if err := os.MkdirAll(sub, 0o755); err != nil {
+				t.Fatalf("建目录失败：%v", err)
+			}
+			if err := os.WriteFile(filepath.Join(sub, "b.md"), []byte("# b\n"), 0o644); err != nil {
+				t.Fatalf("写夹具失败：%v", err)
+			}
+		}
+	}
+
+	var mu sync.Mutex
+	found := 0
+	done := make(chan struct{})
+	var once sync.Once
+	a.SetSink(func(ev conv.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch ev.Type {
+		case conv.EventScanFile:
+			found += len(ev.Scanned)
+		case conv.EventScanDone:
+			once.Do(func() { close(done) })
+		}
+	})
+
+	dispatch[map[string]any](t, a, "scan.start", map[string]any{
+		"scanId":   "wide",
+		"paths":    []string{root},
+		"discover": true,
+	})
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		mu.Lock()
+		got := found
+		mu.Unlock()
+		t.Fatalf("发现阶段卡住了：只报了 %d 份文档", got)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if want := wideA + wideA*wideB; found != want {
+		t.Fatalf("应该发现 %d 份文档，实际 %d", want, found)
+	}
+}
+
 // 停止扫描：已经在跑的那一份丢掉，但收尾事件必须到达且带 cancelled。
 func TestScanCancelStopsEarly(t *testing.T) {
 	a := newTestApp(t)

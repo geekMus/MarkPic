@@ -2,9 +2,12 @@ package conv
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // 遍历要把文档挑出来，同时跳过 .git / node_modules / 上一轮的产物。
@@ -75,6 +78,54 @@ func TestWalkDocumentsStopsWhenYieldSaysNo(t *testing.T) {
 
 	if visited != 1 {
 		t.Fatalf("喊停之后不该再回调，实际 %d 次", visited)
+	}
+}
+
+// 宽目录树曾经会把遍历彻底卡死。
+//
+// 旧实现用容量 512 的 channel 派发子目录，worker 既是消费者又是生产者：16 个
+// worker 同时往满队列里塞目录时全部阻塞，再没有谁去取任务，整棵树就此停住。
+// 界面上的表现是「已找到 N 份」不再变化、CPU 归零，但进度事件还在刷（那是另一个
+// goroutine），于是卡片永远停在「扫描中」——拖一整块盘时必现。
+func TestWalkDocumentsWideTreeFinishes(t *testing.T) {
+	root := t.TempDir()
+	// 16 × 40 = 640 个子目录：超过旧实现那 512 的队列容量，必定把它填满。
+	const wideA, wideB = 16, 40
+	for a := 0; a < wideA; a++ {
+		da := filepath.Join(root, fmt.Sprintf("a%02d", a))
+		if err := os.MkdirAll(da, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeTemp(t, da, "a.md", []byte("# a\n"))
+		for b := 0; b < wideB; b++ {
+			db := filepath.Join(da, fmt.Sprintf("b%02d", b))
+			if err := os.MkdirAll(db, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeTemp(t, db, "b.md", []byte("# b\n"))
+		}
+	}
+
+	var counts WalkCounts
+	var found atomic.Int64
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		WalkDocuments(context.Background(), root, ".converted", "", 16, &counts, func(string) bool {
+			found.Add(1)
+			return true
+		})
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("遍历卡住了：找到 %d 份、走过 %d 个目录之后不再前进", counts.Found.Load(), counts.Dirs.Load())
+	}
+
+	// 每个 a 目录一份 + 每个 b 目录一份。
+	if want := int64(wideA + wideA*wideB); found.Load() != want {
+		t.Fatalf("应该找到 %d 份，实际 %d", want, found.Load())
 	}
 }
 

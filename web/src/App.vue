@@ -81,6 +81,8 @@ const {
   isRunBusy,
   totalCount,
   completedCount,
+  taskRows,
+  scanCardCount,
   connect,
   disconnect,
   addPaths,
@@ -146,7 +148,8 @@ const jobBusy = computed(() => isRunBusy(mode.value))
 const jobProgress = computed(() => {
   let done = 0
   let total = 0
-  for (const row of rowViews.value) {
+  // 只按任务行算：文件夹卡片还没数图，混进分母会让进度条永远差一截。
+  for (const row of taskRows.value) {
     const units = row.workTotal ?? 0
     if (units <= 0) continue
     total += units
@@ -261,22 +264,33 @@ const debug = computed(() => health.value?.debug === true)
  * 这些行参与不了这一轮 —— 图片数和远程地址都是跑之前就要算清的东西，
  * 带着一份没扫通的文件去跑，只会跑到一半才发现数不对。
  */
-const scanBlocked = computed(() => rowViews.value.filter((row) => (row.scan ?? 'idle') !== 'ok'))
+const scanBlocked = computed(() => taskRows.value.filter((row) => (row.scan ?? 'idle') !== 'ok'))
 
 /** 正在扫的行数：底栏据此说「正在扫描 2 个文件…」，而不是干灰着按钮。 */
 const scanningCount = computed(
-  () => rowViews.value.filter((row) => (row.scan ?? 'idle') === 'scanning').length,
+  () => taskRows.value.filter((row) => (row.scan ?? 'idle') === 'scanning').length,
 )
 
-// 全都扫通了才允许开始。强行点击也进不来：handleRun 还要再判一次 canStart。
+/**
+ * 能不能开始：**只有文件卡片才算任务**。
+ *
+ * 扫描卡片（文件夹 / 盘）不算 —— 它还没有被「确认导入」拆成一份份文档，用户也没
+ * 表达过要处理里面哪些文件。以前这里只看「队列里有几行」，于是一张扫完的文件夹卡片
+ * 就让「开始上传」亮着，点下去却什么也跑不了。
+ *
+ * 强行点击也进不来：handleRun 还要再判一次 canStart。
+ */
 const canStart = computed(
-  () => !isRunBusy(mode.value) && rowViews.value.length > 0 && scanBlocked.value.length === 0,
+  () => !isRunBusy(mode.value) && taskRows.value.length > 0 && scanBlocked.value.length === 0,
 )
 
 /** 按钮为什么是灰的：给底栏一句话，别让人对着禁用按钮猜。 */
 const startHint = computed(() => {
   if (isRunBusy(mode.value)) return ''
-  if (rowViews.value.length === 0) return ''
+  if (taskRows.value.length === 0) {
+    // 队列里只有文件夹 / 盘：说清楚要先「确认导入」，别让人以为程序没反应。
+    return scanCardCount.value > 0 ? t('footer.blocked.import') : ''
+  }
   if (scanningCount.value > 0) return t('footer.blocked.scanning', { count: scanningCount.value })
   if (scanBlocked.value.length > 0) return t('footer.blocked.problem', { count: scanBlocked.value.length })
   return ''
@@ -397,9 +411,15 @@ const { active: dropActive } = useFileDrop({
   },
 })
 
+/**
+ * 开跑：只把**文件卡片**的路径交给后端。
+ *
+ * 文件夹 / 盘留在队列里不动 —— 它们要先「确认导入」变成一张张文件卡片，才谈得上
+ * 上传 / 检测 / 下载。这条规矩对三个作业页一视同仁。
+ */
 function handleRun(): void {
   if (!canStart.value) return
-  void start(rowViews.value.map((row) => row.path))
+  void start(taskRows.value.map((row) => row.path))
 }
 
 async function handleSaveSettings(): Promise<void> {
@@ -661,6 +681,7 @@ onBeforeUnmount(() => {
 
         <AppFooter
           v-if="isJobView"
+          :pending-folders="scanCardCount"
           :busy-elsewhere="runningElsewhere"
           :blocked-hint="startHint"
           :stats="stats"
