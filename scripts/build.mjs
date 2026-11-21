@@ -9,7 +9,6 @@ import { defaultExe, repoRoot } from './lib/paths.mjs';
 import { ui } from './lib/ui.mjs';
 import {
   buildGo,
-  ensureIconResource,
   resolveGo,
   runGoTest,
   targetGoarch,
@@ -26,7 +25,6 @@ const HELP = `
 前端产物 internal/ui/dist 是 go:embed 的输入，不进版本库。
 
 选项：
-  --web            兼容旧用法；现在默认就会构建前端
   --no-web         跳过前端构建，直接编 Go（要求 internal/ui/dist 已存在）
   --test           编译前跑一遍 go test ./...
   --debug          编成调试模式（只扫描，不写文件、不上传）
@@ -42,7 +40,6 @@ function parseCli(argv) {
     allowPositionals: false,
     strict: true,
     options: {
-      web: { type: 'boolean', default: false },
       'no-web': { type: 'boolean', default: false },
       test: { type: 'boolean', default: false },
       debug: { type: 'boolean', default: false },
@@ -56,7 +53,7 @@ function parseCli(argv) {
 }
 
 /**
- * 供其它脚本复用：不解析命令行，只做「前端 → 测试 → 图标 → 编译 → 版本信息」。
+ * 供其它脚本复用：不解析命令行，只做「前端 → 测试 → 编译 → 版本信息」。
  */
 export function buildProject(options = {}) {
   const go = options.go || resolveGo(options.goHint ?? '');
@@ -80,8 +77,6 @@ export function buildProject(options = {}) {
     ui.step('跑 Go 测试');
     runGoTest(go);
   }
-
-  ensureIconResource(go, target);
 
   ui.step(`编译 exe（${target}/${targetGoarch()}）`);
   ui.detail(`版本 ${version}，提交 ${commit}`);

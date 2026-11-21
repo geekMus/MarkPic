@@ -47,7 +47,8 @@ Run from the repository root:
 | `tools/mockpicgo` | fake image host |
 
 Icons live in `assets/`. Normal builds reuse the committed `.ico` and `.syso` files, so
-they are not regenerated.
+they are not regenerated. If the `.syso` is ever absent, regenerate it with
+`go run github.com/akavel/rsrc@v1.2.1 -ico assets/icon-light.ico -o cmd/markpic/rsrc_windows_amd64.syso`.
 
 ## Branches and releases
 

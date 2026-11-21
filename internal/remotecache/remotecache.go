@@ -7,14 +7,12 @@
 package remotecache
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/geekMus/markpic/internal/diskcache"
 	"github.com/geekMus/markpic/internal/remoteimg"
 )
 
@@ -43,11 +41,6 @@ type entry struct {
 	CachedAt int64 `json:"cachedAt"`
 	// UsedAt 是最后一次命中的时刻（Unix 秒），清理时按它淘汰。
 	UsedAt int64 `json:"usedAt"`
-}
-
-type file struct {
-	Version int              `json:"version"`
-	Entries map[string]entry `json:"entries"`
 }
 
 // Cache 是一份下载记录。零值不可用，用 Open 造。
@@ -98,19 +91,10 @@ func dirOfKey(key string) string {
 // Open 读入缓存文件。文件不存在或读坏了都返回一个空缓存（不是错误：
 // 缓存丢了只意味着这次要重新下载）。
 func Open(path string) *Cache {
-	c := &Cache{path: path, entries: make(map[string]entry)}
-	if path == "" {
-		return c
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return c
-	}
-	var f file
-	if err := json.Unmarshal(raw, &f); err != nil {
-		return c
-	}
-	for k, v := range f.Entries {
+	c := &Cache{path: path}
+	entries, _ := diskcache.Read[entry](path)
+	c.entries = make(map[string]entry, len(entries))
+	for k, v := range entries {
 		if v.Name != "" {
 			c.entries[k] = v
 		}
@@ -164,12 +148,13 @@ func (c *Cache) Lookup(rawURL, dir string) (name string, size int64, ok bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, found := c.entries[cacheKey(rawURL, dir)]
+	key := cacheKey(rawURL, dir)
+	e, found := c.entries[key]
 	if !found || e.Name == "" {
 		return "", 0, false
 	}
 	e.UsedAt = time.Now().Unix()
-	c.entries[cacheKey(rawURL, dir)] = e
+	c.entries[key] = e
 	return e.Name, e.Size, true
 }
 
@@ -257,61 +242,27 @@ func (c *Cache) Save() error {
 		c.mu.Unlock()
 		return nil
 	}
-	merged := make(map[string]entry, len(c.entries))
-	if raw, err := os.ReadFile(c.path); err == nil {
-		var f file
-		if json.Unmarshal(raw, &f) == nil {
-			for k, v := range f.Entries {
-				merged[k] = v
-			}
-		}
-	}
-	now := time.Now().Unix()
-	for k, v := range c.entries {
-		merged[k] = v
-	}
-	prune(merged, now)
-	c.entries = merged
-	// 合并进来的条目（别的进程写的）也要能被 Owner 反查到。
-	c.reindex()
-	c.dirty = false
+	path := c.path
+	entries := c.entries
 	c.mu.Unlock()
 
-	raw, err := json.MarshalIndent(file{Version: 1, Entries: merged}, "", "  ")
+	now := time.Now().Unix()
+	merged, err := diskcache.Save(path, entries, func(m map[string]entry) {
+		cutoff := now - int64(TTL/time.Second)
+		for k, v := range m {
+			if v.UsedAt < cutoff {
+				delete(m, k)
+			}
+		}
+		diskcache.PruneByUse(m, maxEntries, func(e entry) int64 { return e.UsedAt })
+	})
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
-		return err
-	}
-	tmp := c.path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, c.path)
-}
-
-// prune 丢掉太旧的记录，并保证不超过 maxEntries（按最后使用时间留最近的）。
-func prune(entries map[string]entry, now int64) {
-	cutoff := now - int64(TTL/time.Second)
-	for k, v := range entries {
-		if v.UsedAt < cutoff {
-			delete(entries, k)
-		}
-	}
-	if len(entries) <= maxEntries {
-		return
-	}
-	type kv struct {
-		key    string
-		usedAt int64
-	}
-	all := make([]kv, 0, len(entries))
-	for k, v := range entries {
-		all = append(all, kv{key: k, usedAt: v.UsedAt})
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].usedAt < all[j].usedAt })
-	for i := 0; i < len(all)-maxEntries; i++ {
-		delete(entries, all[i].key)
-	}
+	c.mu.Lock()
+	c.entries = merged
+	c.reindex() // 合并进来的条目（别的进程写的）也要能被 Owner 反查到。
+	c.dirty = false
+	c.mu.Unlock()
+	return nil
 }

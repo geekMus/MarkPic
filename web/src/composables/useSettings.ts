@@ -172,22 +172,14 @@ function discard(): void {
   adopt(baseline.value)
 }
 
-/** 供发起转换 / 预览时使用的稳定快照。
- *  override 用来盖住草稿里的值：远程图现在由菜单决定（转换 / 检测 / 下载），
- *  那不是表单里的改动，不该让草稿变脏。
- */
-function snapshot(override?: Partial<Settings>): Settings {
-  return normalize({ ...draft, ...override })
-}
-
-async function save(override?: Partial<Settings>): Promise<boolean> {
+async function save(): Promise<boolean> {
   if (saving.value) return false
   if (!loaded.value) {
     warning(t('error.settingsNotLoaded'))
     return false
   }
 
-  const merged = { ...draft, ...override }
+  const merged = { ...draft }
   const endpoint = merged.endpoint.trim()
   // 只有真要上传时才非得有 PicGo 地址：只检测 / 只下载远程图、以及调试构建都不上传，
   // 这时候拦住「保存」纯属添乱（服务端本来也会把空地址回落成默认值）。
@@ -249,7 +241,6 @@ export function useSettings() {
     rememberCloseAction,
     update,
     discard,
-    snapshot,
     outputModes: OUTPUT_MODES,
   }
 }

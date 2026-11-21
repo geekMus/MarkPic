@@ -31,6 +31,7 @@ withDefaults(
   color: var(--ink-3);
   font-size: var(--fs-1);
   font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
 }
 

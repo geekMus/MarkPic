@@ -36,7 +36,6 @@ const reply = await window.markpic(
 
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
-| `app.hello` | `{lang}` | 版本、数据目录、语言 |
 | `i18n.set` | `{lang}` | `{lang}` |
 | `health` | — | PicGo 连通性等状态 |
 | `settings.get` | — | 当前设置 |
@@ -44,11 +43,9 @@ const reply = await window.markpic(
 | `settings.closeAction` | `{action}` | `{closeAction}`；只改关闭行为，不碰未保存的设置草稿 |
 | `dialog.files` | — | `{paths}` |
 | `dialog.folder` | — | `{paths}` |
-| `preview` | `{paths, settings?}` | 扫描预览 |
-| `scan.start` | `{scanId, paths, settings?}` | 已受理；结果通过 `scan.file` 推送 |
+| `scan.start` | `{scanId, paths}` | 已受理；每个请求路径各推一条 `scan.file` |
 | `scan.cancel` | `{scanId, path?}` | `{cancelled}`；带 `path` 只取消那一份 |
-| `run.start` | `{paths, settings?}` | 启动一轮转换；`mode` 由设置里的远程模式决定 |
-| `run.current` | `{mode?}` | 该页当前那一轮的快照，用于界面重载后接回 |
+| `run.start` | `{op, paths}` | 启动一轮；`op` 是 `upload` / `check` / `download`（不是设置项） |
 | `run.cancel` | `{runId}` | `{ok}` |
 | `reveal` | `{path}` | `{ok}`；在资源管理器中定位 |
 | `open` | `{target}` | `{ok}`；打开文件或目录 |
@@ -64,12 +61,12 @@ Go 侧通过 `window.__markpicEvents(payload)` 推送。`payload` 可以是单�
 | --- | --- |
 | `run.started` | `runId`、`mode`、`files` |
 | `file.started` | `runId`、`id` |
-| `file.progress` | `runId`、`id`、`uploaded`、`done`、`total`、`items` |
-| `file.finished` | `runId`、`id`、`result` |
+| `file.progress` | `runId`、`id`、`uploaded`、`done`、`total`、`items`、`summary` |
+| `file.finished` | `runId`、`id`、`result`、`summary` |
 | `run.cancelled` | `runId` |
 | `run.finished` | `runId`、`summary` |
 | `log` | `level`、`message` |
 | `scan.file` | `runId`（扫描时放 `scanId`）、`path`、`scanned`、`cancelled`、`timedOut` |
 | `scan.done` | `runId`（扫描时放 `scanId`） |
 
-`run.started` 里的 `mode` 区分上传 / 检测 / 下载三页，界面按它认领自己的那一轮。页面刷新后先调 `run.current` 拿回当前快照，再继续接收事件。
+`run.started` 里的 `mode` 带的是操作名（`upload` / `check` / `download`），界面按它认领自己的那一轮。`file.progress` / `file.finished` 上的 `summary` 是这一轮到目前的累计值，界面不再自己重算计数。

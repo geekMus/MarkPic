@@ -87,29 +87,8 @@ function parsePort(raw, flag) {
   return port;
 }
 
-/**
- * 把 cmd/ 与 internal/ 下的 .go（加上 go.mod / go.sum）揉成一个指纹：
- * 文件数、总字节、最新的修改时间。只要有一样变了就该重编。
- *
- * 用轮询而不是 fs.watch：recursive 在各平台上支持得参差不齐，而这里要看的
- * 文件一共几百个，500ms 走一遍的开销可以忽略。
- */
-function goSourceStamp() {
-  let files = 0;
-  let bytes = 0;
-  let newest = 0;
-
-  const note = (file) => {
-    try {
-      const stat = fs.statSync(file);
-      files += 1;
-      bytes += stat.size;
-      if (stat.mtimeMs > newest) newest = stat.mtimeMs;
-    } catch {
-      // 半秒前还在、现在没了：下一次轮询会看到变化。
-    }
-  };
-
+/** 走一遍 cmd/ 与 internal/ 下的 .go（加上 go.mod / go.sum），每个文件调一次 note。 */
+function eachGoSource(note) {
   const visit = (dir) => {
     let entries;
     try {
@@ -130,52 +109,60 @@ function goSourceStamp() {
 
   for (const dir of WATCH_DIRS) visit(path.join(repoRoot, dir));
   for (const file of WATCH_FILES) note(path.join(repoRoot, file));
-  return `${files}:${bytes}:${newest}`;
-}
-
-/** 编译记录跟在 exe 旁边（bin/.build-stamp.json），不进版本库。 */
-function buildStampPath() {
-  return path.join(path.dirname(defaultExe), '.build-stamp.json');
-}
-
-function readBuildStamp() {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(buildStampPath(), 'utf8'));
-    return parsed && typeof parsed === 'object' ? parsed : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
- * 上一次编出来的 exe 还能不能用：源码指纹、版本号、提交号、调试开关四样都对得上，
- * 而且 exe 本体没被换过（大小与写入时刻一致）。
+ * 把上面那些文件揉成一个指纹：文件数、总字节、最新的修改时间。
+ * 只要有一样变了就该重编。这个指纹只给监视器用。
  *
- * mtime 用整数毫秒判等，不靠比大小 —— 时钟回拨、文件被拷回来的情况都能挡住。
+ * 用轮询而不是 fs.watch：recursive 在各平台上支持得参差不齐，而这里要看的
+ * 文件一共几百个，500ms 走一遍的开销可以忽略。
  */
-function buildIsFresh(stamp) {
-  const saved = readBuildStamp();
-  if (!saved) return false;
-  if (saved.source !== stamp.source || saved.version !== stamp.version) return false;
-  if (saved.commit !== stamp.commit || saved.debug !== stamp.debug) return false;
-  try {
-    const exe = fs.statSync(defaultExe);
-    return exe.size === saved.bytes && Math.round(exe.mtimeMs) === saved.mtimeMs;
-  } catch {
-    return false;
-  }
+function goSourceStamp() {
+  let files = 0;
+  let bytes = 0;
+  let newest = 0;
+
+  eachGoSource((file) => {
+    try {
+      const stat = fs.statSync(file);
+      files += 1;
+      bytes += stat.size;
+      if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+    } catch {
+      // 半秒前还在、现在没了：下一次轮询会看到变化。
+    }
+  });
+
+  return `${files}:${bytes}:${newest}`;
 }
 
-function writeBuildStamp(stamp) {
+/** 参与编译的源码里最新的那个写入时刻：.go / go.mod / go.sum，外加嵌入的 dist/index.html。 */
+function newestSourceMtime() {
+  let newest = 0;
+  eachGoSource((file) => {
+    try {
+      const stat = fs.statSync(file);
+      if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+    } catch {
+      // 文件刚好不在了：留给下一次启动判断。
+    }
+  });
   try {
-    const exe = fs.statSync(defaultExe);
-    fs.writeFileSync(
-      buildStampPath(),
-      `${JSON.stringify({ ...stamp, bytes: exe.size, mtimeMs: Math.round(exe.mtimeMs) }, null, 2)}\n`,
-      'utf8',
-    );
+    const dist = fs.statSync(path.join(repoRoot, 'internal', 'ui', 'dist', 'index.html'));
+    if (dist.mtimeMs > newest) newest = dist.mtimeMs;
   } catch {
-    // 记不下来只是下次多编一遍，不影响启动。
+    // 产物还没建；上面 ensureEmbeddedUi 会补。
+  }
+  return newest;
+}
+
+/** exe 比上面每一份都新，才算不用重编。 */
+function exeIsFresh() {
+  try {
+    return fs.statSync(defaultExe).mtimeMs > newestSourceMtime();
+  } catch {
+    return false;
   }
 }
 
@@ -184,7 +171,7 @@ function writeBuildStamp(stamp) {
  *
  * 一次 go build 约 2.4 秒、后面 winres 再 0.55 秒，是启动耗时里最大的一块；
  * 而绝大多数时候源码根本没变（改 .vue 有 Vite 热更新，连 exe 都不用换）。
- * 源码指纹、版本、提交、调试开关都对得上时，直接用 bin 里那份。
+ * 只看时间：exe 比所有参与编译的文件都新，就直接用 bin 里那份。
  * 想推翻这个判断：--rebuild，或者删掉 bin 里的 exe。
  */
 function ensureBuilt({ go, debug, force }) {
@@ -192,13 +179,11 @@ function ensureBuilt({ go, debug, force }) {
   if (ensureEmbeddedUi()) force = true;
   const version = resolveBuildVersion();
   const commit = resolveCommit();
-  const stamp = { source: goSourceStamp(), version, commit, debug };
-  if (!force && buildIsFresh(stamp)) {
+  if (!force && exeIsFresh()) {
     ui.detail('源码没变，跳过编译（要强制重编加 --rebuild）');
     return;
   }
-  const built = buildProject({ go, debug, output: defaultExe, version, commit, web: false });
-  writeBuildStamp({ source: stamp.source, version: built.version, commit: built.commit, debug });
+  buildProject({ go, debug, output: defaultExe, version, commit, web: false });
 }
 
 /** 盯着 Go 源码；变了就调 onChange。编辑器保存一次往往要写好几个文件，所以留一点防抖。 */

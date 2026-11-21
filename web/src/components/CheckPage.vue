@@ -3,9 +3,9 @@ import { computed, ref } from 'vue'
 import ReportShell from './ReportShell.vue'
 import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
-import type { ImageItem } from '../types'
+import type { FileResult, ImageItem } from '../types'
 import type { RunRowView, ScanState } from '../composables/useRun'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
@@ -36,6 +36,7 @@ const emit = defineEmits<{
   /** 卡片自己的扫描：取消这一份 / 恢复（重试）。 */
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  'confirm-import': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -126,6 +127,12 @@ interface DocGroup {
   /** 这张卡自己扫通了没有：没通的时候卡里说的全是扫描，不是地址。 */
   scan: ScanState
   scanError?: string
+  /** 这是一张扫描卡片（拖进来的是文件夹/盘）。 */
+  scanCard: boolean
+  /** 扫描卡片发现到的 Markdown 份数。 */
+  scanFound: number
+  /** 扫描卡片发现到的文件清单。 */
+  scanFiles: FileResult[]
 }
 
 /** 一行地址在某一篇文档里的位置：同一个地址在同篇里重复引用时，行号收在一起。 */
@@ -181,6 +188,9 @@ const groups = computed<DocGroup[]>(() => {
       pending: list.filter((a) => a.kind === 'pending').length,
       scan: row.scan ?? 'idle',
       scanError: row.scanError,
+      scanCard: row.scanCard === true,
+      scanFound: row.scanFound ?? 0,
+      scanFiles: row.scanFiles ?? [],
     })
   }
   const rank = (group: DocGroup): number => (group.scan === 'ok' ? 0 : 1)
@@ -302,6 +312,11 @@ const emptyHint = computed<MessageKey>(() => {
         :name="group.name"
         :dir="group.dir"
         :scan="group.scan"
+        :scan-card="group.scanCard"
+        :scan-found="group.scanFound"
+        :scan-files="group.scanFiles"
+        :scan-root="group.path"
+        @confirm-import="emit('confirm-import', group.id)"
         :scan-error="group.scanError"
         :busy="busy"
         :tone="group.bad > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
@@ -313,7 +328,7 @@ const emptyHint = computed<MessageKey>(() => {
         @retry-scan="emit('retry-scan', group.id)"
       >
         <template #badges>
-          <span class="badge">{{ t('check.group.count', { count: group.list.length }) }}</span>
+          <span class="badge">{{ t(plural('check.group.count', group.list.length), { count: group.list.length }) }}</span>
           <span v-if="group.ok > 0" class="badge badge--ok">
             {{ t('check.group.ok', { count: group.ok }) }}
           </span>

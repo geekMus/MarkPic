@@ -4,7 +4,7 @@
 // rsrc_windows_amd64.syso 是给图标用的（rsrc 只做图标和清单，不做版本信息）；
 // 再放第二个 .syso 会和它抢同一段 .rsrc，链接器不接受。所以版本信息和清单
 // 统一走 Windows 自己的资源 API（BeginUpdateResource/UpdateResource），
-// 在 build.ps1 里编译完之后原地打进去，不引入任何第三方依赖、不需要联网。
+// 在 scripts/build.mjs 里编译完之后原地打进去，不引入任何第三方依赖、不需要联网。
 //
 // 这两样东西不是装饰：没有版本信息、没有 asInvoker 清单的未知 exe，
 // 杀毒软件和 SmartScreen 都更容易把它当成可疑样本。
@@ -269,8 +269,6 @@ func versionInfo(ver, product, company, desc, copyright string) []byte {
 // 不写 DPI 相关设置——DPI 感知是程序启动时自己调的（cmd/markpic/dpi_windows.go），
 // 清单里再写一遍会和它打架。
 func manifestXML(ver string) string {
-	identity := strings.TrimSuffix(ver, ".0") // 清单版本要 4 段，但 1.0.0 更像发布版本号
-	_ = identity
 	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <assemblyIdentity type="win32" name="MarkPic" version="` + ver + `" processorArchitecture="amd64"/>

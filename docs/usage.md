@@ -15,10 +15,26 @@
   the disk no longer has.
 - **Download** only touches remote images; local ones are left alone.
 
-Drop files or a whole folder, watch the queue, cancel mid-run, retry failures, filter
-down to problems only, and expand any row for per-image details. The same image is
-never uploaded twice, and an unchanged image that was already uploaded or downloaded
-is reused from cache.
+Drop a single file, several files, or a whole folder. The path comes from the native
+drop target — WebView2 itself never exposes the local path of a dropped file. A single file
+becomes a file card right away. A folder or drive becomes one **scan card** that only finds
+Markdown (`.md`, `.markdown`, `.mdown`, `.mkd`, `.mdwn`) without opening anything; it
+counts what it found, shows the directory being walked and the elapsed time; when it ends,
+expand the card to see the list of Markdown files it found. Click **Import** on that card to turn those files into cards; their image
+counts are filled in afterwards with a concurrency limit taken from the machine. A document with no images still gets a card, including an empty
+one. `.txt`, code files, images and archives are ignored.
+
+A big folder (a whole drive, a cloud sync root) is scanned while you watch: the folder row
+shows how many documents have been found so far and expands into the scan details, including
+the file currently being read. When the
+scan finishes — or you stop it — the row is replaced in one pass by a card per document.
+Scanning has no overall time limit, only an inactivity watchdog, and you can stop it at any time;
+after confirming, everything already found stays in the queue and the row tells you the rest
+of that folder was not scanned.
+
+Watch the queue, cancel mid-run, retry failures, filter down to problems only, and expand
+any row for per-image details. The same image is never uploaded twice, and an unchanged
+image that was already uploaded or downloaded is reused from cache.
 
 ## Output modes
 

@@ -62,13 +62,13 @@ func run() int {
 	store := settings.NewStore("")
 	_ = store.Load()
 	if problem := store.Problem(i18n.ZH); problem != "" {
-		fmt.Fprintln(os.Stderr, "提示："+problem)
+		fmt.Fprintln(consoleOut, "提示："+problem)
 	}
 
 	indexURL, err := ui.IndexURL()
 	if err != nil {
 		platform.MessageBox("启动失败", err.Error())
-		fmt.Fprintf(os.Stderr, "启动失败：%v\n", err)
+		fmt.Fprintf(consoleOut, "启动失败：%v\n", err)
 		return 1
 	}
 
@@ -79,7 +79,7 @@ func run() int {
 
 	if err := openAppWindow(indexURL, brand.Name, desktop, sig); err != nil {
 		platform.MessageBox("无法打开窗口", err.Error())
-		fmt.Fprintf(os.Stderr, "无法打开窗口：%v\n", err)
+		fmt.Fprintf(consoleOut, "无法打开窗口：%v\n", err)
 		return 1
 	}
 	return 0

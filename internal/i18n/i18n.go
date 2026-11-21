@@ -69,6 +69,7 @@ const (
 	KeyConvWriteLocked        Key = "conv.writeLocked"
 	KeyConvTargetIsDir        Key = "conv.targetIsDir"
 	KeyConvReadLocked         Key = "conv.readLocked"
+	KeyConvScanTimeout        Key = "conv.scanTimeout"
 	KeyConvOutDirIsFile       Key = "conv.outDirIsFile"
 	KeyConvOutDirIsSourceDir  Key = "conv.outDirIsSourceDir"
 	KeyConvRemoteDirIsFile    Key = "conv.remoteDirIsFile"
@@ -145,6 +146,7 @@ const (
 	KeyServerNoDialog          Key = "server.noDialog"
 	KeyServerNeedPaths         Key = "server.needPaths"
 	KeyServerBusy              Key = "server.busy"
+	KeyServerBadOp             Key = "server.badOp"
 	KeyServerMissingFilePath   Key = "server.missingFilePath"
 	KeyServerMissingPath       Key = "server.missingPath"
 	KeyServerBadJSON           Key = "server.badJSON"
@@ -298,6 +300,10 @@ var catalog = map[Key]entry{
 	KeyConvReadLocked: {
 		"读不出来：文件正被别的程序占用，或者没有读取权限：%s（关掉占用它的程序再试）",
 		"Could not read: the file is in use by another program, or you lack read permission: %s (close whatever is using it and try again)",
+	},
+	KeyConvScanTimeout: {
+		"读取超时：这份文档在 20 秒内没读完（网络盘掉线，或者文件被别的程序占着？）",
+		"Timed out: this document did not finish reading within 20 seconds (network drive dropped, or the file is locked by another program?)",
 	},
 	KeyConvReferenceStyle: {
 		"第 %d 行：引用式图片的标签在文档里找不到对应定义，已跳过",
@@ -574,6 +580,10 @@ var catalog = map[Key]entry{
 	KeyServerBusy: {
 		"这一页已经有一个任务在跑，等它结束或先取消再试",
 		"A task is already running on this page — wait for it to finish or cancel it first",
+	},
+	KeyServerBadOp: {
+		"不认识的操作：%s（只支持 upload / check / download）",
+		"Unknown operation: %s (expected upload, check or download)",
 	},
 	KeyServerMissingFilePath: {
 		"缺少文件路径",

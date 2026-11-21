@@ -7,6 +7,7 @@ import AppIcon from './components/AppIcon.vue'
 import AppRail from './components/AppRail.vue'
 import CheckPage from './components/CheckPage.vue'
 import CloseConfirmDialog from './components/CloseConfirmDialog.vue'
+import ConfirmDialog from './components/ConfirmDialog.vue'
 import DownloadPage from './components/DownloadPage.vue'
 import FileQueue from './components/FileQueue.vue'
 import OptionsPanel from './components/OptionsPanel.vue'
@@ -19,15 +20,14 @@ import {
   pickFiles,
   pickFolder,
   revealPath,
+  setLang as pushLang,
 } from './api'
 import { useFileDrop } from './composables/useFileDrop'
 import { useHealth } from './composables/useHealth'
 import {
   cancelRowScan,
-  currentQueuePage,
-  queuePagePaths,
+  confirmImport,
   queuePagePendingPreview,
-  restoreQueuePage,
   retryRowScan,
   scanPaths,
   setQueuePage,
@@ -44,7 +44,14 @@ import { JOB_VIEWS, modeOfView, viewOfMode, type JobView, type RemoteMode, type 
 const queueRef = ref<InstanceType<typeof FileQueue> | null>(null)
 
 const { toasts, dismiss, warning, success, info } = useToasts()
-const { t } = useI18n()
+const { t, lang: uiLang } = useI18n()
+
+// 后端自己出文案（失败原因、提示），语言必须在启动时推一次、切换时再推一次。
+watch(uiLang, (next) => {
+  void pushLang(next).catch(() => {
+    // 后端没起来时推不进去：它回退到中文默认值，不该因此打断界面
+  })
+}, { immediate: true })
 const { resolved: theme, cycle: toggleTheme } = useTheme()
 // 窗口没有系统边框，缩放热区得由界面在四条边上铺出来
 const { available: windowChrome, minimize, tray, quit, startResize } = useWindowControls()
@@ -62,7 +69,7 @@ const {
   rememberCloseAction,
   update: updateSettings,
   discard: discardSettings,
-  snapshot: settingsSnapshot,
+
 } = useSettings()
 
 const {
@@ -74,7 +81,8 @@ const {
   isRunBusy,
   totalCount,
   completedCount,
-  revealTarget,
+  taskRows,
+  scanCardCount,
   connect,
   disconnect,
   addPaths,
@@ -87,21 +95,9 @@ const {
 // 主视图 = 侧边栏上的菜单项。左边三项是作业视图（共用一条队列，区别只在远程图
 // 怎么处理），右边两项是表单页（结果写到哪 / 怎么跑）。设置不再占用弹窗。
 //
-// 关掉再打开要回到上次停留的那一页：队列本来就是按页存的，回来时接着看。
-const VIEW_KEY = 'markpic.view'
-const SAVED_VIEWS: readonly View[] = [...JOB_VIEWS, 'settings']
-
-function readView(): View {
-  try {
-    const raw = window.localStorage.getItem(VIEW_KEY)
-    if (raw !== null && (SAVED_VIEWS as readonly string[]).includes(raw)) return raw as View
-  } catch {
-    /* 存不了就当没存过 */
-  }
-  return 'convert'
-}
-
-const view = ref<View>(readView())
+// 每次启动都从第一个功能开始：不记住上次停在哪一页，也不恢复上一次的队列。
+// 程序没关的时候，三页之间照常来回切 —— 那是内存里的状态，不落盘。
+const view = ref<View>('convert')
 
 /** 作业视图对应的远程图处理方式；表单页没有这个属性。 */
 function jobModeOf(next: View): RemoteMode | null {
@@ -122,16 +118,9 @@ const isFormView = computed(() => !isJobView.value)
  * 切菜单 = 换一页：转换里的文件、结果、进度留在转换，下载那一页还是它自己的样子；
  * 切回来接着看。跑着的那一轮不跟着画面走，它留在开始它的那一页上。
  */
-const JOB_MODES: readonly RemoteMode[] = ['ignore', 'download', 'check']
-
 watch(
   view,
   (next) => {
-    try {
-      localStorage.setItem(VIEW_KEY, next)
-    } catch {
-      /* 存不下不影响切换 */
-    }
     const nextMode = jobModeOf(next)
     if (nextMode === null) return
     setQueuePage(nextMode)
@@ -159,7 +148,8 @@ const jobBusy = computed(() => isRunBusy(mode.value))
 const jobProgress = computed(() => {
   let done = 0
   let total = 0
-  for (const row of rowViews.value) {
+  // 只按任务行算：文件夹卡片还没数图，混进分母会让进度条永远差一截。
+  for (const row of taskRows.value) {
     const units = row.workTotal ?? 0
     if (units <= 0) continue
     total += units
@@ -274,27 +264,37 @@ const debug = computed(() => health.value?.debug === true)
  * 这些行参与不了这一轮 —— 图片数和远程地址都是跑之前就要算清的东西，
  * 带着一份没扫通的文件去跑，只会跑到一半才发现数不对。
  */
-const scanBlocked = computed(() => rowViews.value.filter((row) => (row.scan ?? 'idle') !== 'ok'))
+const scanBlocked = computed(() => taskRows.value.filter((row) => (row.scan ?? 'idle') !== 'ok'))
 
 /** 正在扫的行数：底栏据此说「正在扫描 2 个文件…」，而不是干灰着按钮。 */
 const scanningCount = computed(
-  () => rowViews.value.filter((row) => (row.scan ?? 'idle') === 'scanning').length,
+  () => taskRows.value.filter((row) => (row.scan ?? 'idle') === 'scanning').length,
 )
 
-// 全都扫通了才允许开始。强行点击也进不来：handleRun 还要再判一次 canStart。
+/**
+ * 能不能开始：**只有文件卡片才算任务**。
+ *
+ * 扫描卡片（文件夹 / 盘）不算 —— 它还没有被「确认导入」拆成一份份文档，用户也没
+ * 表达过要处理里面哪些文件。以前这里只看「队列里有几行」，于是一张扫完的文件夹卡片
+ * 就让「开始上传」亮着，点下去却什么也跑不了。
+ *
+ * 强行点击也进不来：handleRun 还要再判一次 canStart。
+ */
 const canStart = computed(
-  () => !isRunBusy(mode.value) && rowViews.value.length > 0 && scanBlocked.value.length === 0,
+  () => !isRunBusy(mode.value) && taskRows.value.length > 0 && scanBlocked.value.length === 0,
 )
 
 /** 按钮为什么是灰的：给底栏一句话，别让人对着禁用按钮猜。 */
 const startHint = computed(() => {
   if (isRunBusy(mode.value)) return ''
-  if (rowViews.value.length === 0) return ''
+  if (taskRows.value.length === 0) {
+    // 队列里只有文件夹 / 盘：说清楚要先「确认导入」，别让人以为程序没反应。
+    return scanCardCount.value > 0 ? t('footer.blocked.import') : ''
+  }
   if (scanningCount.value > 0) return t('footer.blocked.scanning', { count: scanningCount.value })
   if (scanBlocked.value.length > 0) return t('footer.blocked.problem', { count: scanBlocked.value.length })
   return ''
 })
-const canReveal = computed(() => revealTarget.value !== null)
 
 async function pick(kind: 'files' | 'folder'): Promise<void> {
   try {
@@ -339,53 +339,6 @@ function rememberPaths(paths: string[]): void {
   }
 }
 
-/* 队列本身也记一份：关掉程序再打开，昨天拖进来的东西还在。
-   三页各记各的（转换 / 检测 / 下载），只记路径不记结果 —— 结果要重新扫一遍才算数。 */
-const QUEUE_KEY = 'markpic.queue' // 老版本只存一条队列，读一次当转换那一页的
-const QUEUES_KEY = 'markpic.queues'
-
-function strings(raw: unknown): string[] {
-  return Array.isArray(raw) ? raw.filter((item): item is string => typeof item === 'string') : []
-}
-
-function readQueues(): Partial<Record<RemoteMode, string[]>> {
-  try {
-    const raw = JSON.parse(localStorage.getItem(QUEUES_KEY) ?? 'null') as unknown
-    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) {
-      const out: Partial<Record<RemoteMode, string[]>> = {}
-      for (const pageMode of JOB_MODES) {
-        out[pageMode] = strings((raw as Record<string, unknown>)[pageMode])
-      }
-      return out
-    }
-  } catch {
-    /* 存档坏了就当没有，下面再试老键 */
-  }
-  try {
-    const legacy = JSON.parse(localStorage.getItem(QUEUE_KEY) ?? 'null') as unknown
-    return { ignore: strings(legacy) }
-  } catch {
-    return {}
-  }
-}
-
-function writeQueues(): void {
-  try {
-    localStorage.setItem(QUEUES_KEY, JSON.stringify(queuePagePaths()))
-  } catch {
-    /* 存不下就算了，别为了记住路径把转换拦下来 */
-  }
-}
-
-/**
- * 这一轮要用的设置 = 面板里那份 + 当前菜单决定的远程图模式。
- * 模式不在表单里（它是菜单），所以用覆盖的方式塞进去：既不会让「未保存」变真，
- * 也不会被当成用户改过的设置写回文件。
- */
-function jobSettings() {
-  return settingsSnapshot({ remote: mode.value })
-}
-
 /**
  * 扫一遍某一页里还没扫过的行（切到这一页时顺手做，别让三页在启动时抢网络）。
  *
@@ -394,18 +347,7 @@ function jobSettings() {
 function scanPage(pageMode: RemoteMode): void {
   const paths = queuePagePendingPreview(pageMode)
   if (paths.length === 0) return
-  void scanPaths(pageMode, paths, settingsSnapshot({ remote: pageMode }))
-}
-
-/** 启动时把三页各自的队列接回来；正在跑的那一轮由 run.current 负责，别抢。 */
-async function restoreQueue(): Promise<void> {
-  const saved = readQueues()
-  for (const pageMode of JOB_MODES) {
-    const paths = saved[pageMode] ?? []
-    if (paths.length === 0 || isRunBusy(pageMode)) continue
-    restoreQueuePage(pageMode, paths)
-  }
-  if (!isRunBusy(mode.value)) scanPage(currentQueuePage())
+  void scanPaths(pageMode, paths)
 }
 
 async function enqueue(paths: string[]): Promise<void> {
@@ -415,17 +357,45 @@ async function enqueue(paths: string[]): Promise<void> {
     return
   }
   rememberPaths(added)
-  // 进队列就开始扫，但不等它：卡片先出来，扫完一份亮一份。
-  void scanPaths(mode.value, added, jobSettings())
+  // 先「发现」：拖进来的可能是文件（直接成一张文件卡），也可能是文件夹/盘
+  // （先出扫描卡片，等用户确认导入再铺文件卡片）。
+  void scanPaths(mode.value, added, true)
 }
 
-/** 卡片上的「取消扫描」/「恢复扫描」「重试」。 */
+/** 待确认「停止扫描」的那一行；null 表示没有待确认的操作。 */
+const scanStopId = ref<string | null>(null)
+
+/**
+ * 卡片上的「取消扫描」：先问一句再停。
+ *
+ * 拖进来的是一个目录时，停下意味着「这个目录里还有没扫到的」—— 这是用户事后
+ * 会追问的那句话，所以停下来之前先确认，停下来之后再说一遍。
+ */
 function handleCancelScan(id: string): void {
+  scanStopId.value = id
+}
+
+function confirmStopScan(): void {
+  const id = scanStopId.value
+  scanStopId.value = null
+  if (id === null) return
   cancelRowScan(id)
+  warning(t('scan.stopped'))
 }
 
 function handleRetryScan(id: string): void {
-  retryRowScan(id, jobSettings())
+  retryRowScan(id)
+}
+
+/**
+ * 扫描卡片上的「确认导入」：把发现的文件铺成文件卡片，并开始统计图片数。
+ *
+ * 文件是一次性交给后端的：路径池与文档槽在后端按机器能力限流，前端不需要
+ * 自己算「同时开几个扫描」。
+ */
+function handleConfirmImport(id: string): void {
+  const count = confirmImport(mode.value, id)
+  if (count > 0) success(t('toast.imported', { count }))
 }
 // 拖进窗口就等于加进队列；拦不住 drag 事件的话 WebView2 会把窗口导航到那个文件
 const { active: dropActive } = useFileDrop({
@@ -441,16 +411,19 @@ const { active: dropActive } = useFileDrop({
   },
 })
 
+/**
+ * 开跑：只把**文件卡片**的路径交给后端。
+ *
+ * 文件夹 / 盘留在队列里不动 —— 它们要先「确认导入」变成一张张文件卡片，才谈得上
+ * 上传 / 检测 / 下载。这条规矩对三个作业页一视同仁。
+ */
 function handleRun(): void {
   if (!canStart.value) return
-  void start(
-    rowViews.value.map((row) => row.path),
-    jobSettings(),
-  )
+  void start(taskRows.value.map((row) => row.path))
 }
 
 async function handleSaveSettings(): Promise<void> {
-  if (await saveSettings({ remote: mode.value })) await refreshHealth()
+  if (await saveSettings()) await refreshHealth()
 }
 
 /**
@@ -466,16 +439,6 @@ async function handleRefreshHealth(): Promise<void> {
   if (status.online) success(t('toast.healthOnline'))
   else if (picgoNeeded.value) warning(t('toast.healthOffline'))
   else info(t('toast.healthNotNeeded'))
-}
-
-async function handleReveal(): Promise<void> {
-  const target = revealTarget.value
-  if (target === null) return
-  try {
-    await revealPath(target)
-  } catch (error) {
-    warning(t('error.revealOutput', { detail: describeError(error, t('error.unknown')) }))
-  }
 }
 
 /** 行上的「在资源管理器里打开」：改完文档总要去看一眼 */
@@ -519,7 +482,7 @@ function goView(next: View): void {
   })
 }
 
-/** Ctrl/Cmd + Enter 开始转换；Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
+/** Esc 收起点开的东西。弹窗优先，关于在设置之上。 */
 function handleKeydown(event: KeyboardEvent): void {
   const mod = event.ctrlKey || event.metaKey
   if (mod && event.key.toLowerCase() === 'o') {
@@ -561,21 +524,6 @@ function handleKeydown(event: KeyboardEvent): void {
       return
     }
   }
-  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-    // 表单页上回车是「保存」——底栏那个「开始」按钮不在这两页上
-    if (isFormView.value) {
-      if (dirty.value) {
-        event.preventDefault()
-        void handleSaveSettings()
-      }
-      return
-    }
-    if (aboutOpen.value) return
-    if (canStart.value) {
-      event.preventDefault()
-      handleRun()
-    }
-  }
 }
 
 /**
@@ -598,12 +546,6 @@ onMounted(() => {
   // 后端点叉号时调用；浏览器预览里没有这个函数，弹窗也就不会出现。
   closeBridge.__markpicCloseRequest = handleCloseRequest
   connect()
-  // 队列记在本地；加进来/清掉时同步写一次
-  watch(
-    () => [view.value, ...rowViews.value.map((row) => row.path)],
-    () => writeQueues(),
-  )
-  window.setTimeout(() => void restoreQueue(), 700)
   // 首屏要这两份数据：拿到（或失败）再让原生窗口露面，别把半张空架子推给人。
   void revealWindowWhenReady(Promise.allSettled([refreshHealth(), loadSettings()]))
   window.addEventListener('keydown', handleKeydown)
@@ -683,6 +625,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <CheckPage
             v-else-if="view === 'check'"
@@ -699,6 +642,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <DownloadPage
             v-else-if="view === 'download'"
@@ -715,6 +659,7 @@ onBeforeUnmount(() => {
             @clear="clearQueue"
             @cancel-scan="handleCancelScan"
             @retry-scan="handleRetryScan"
+            @confirm-import="handleConfirmImport"
           />
           <OptionsPanel
             v-else
@@ -736,6 +681,7 @@ onBeforeUnmount(() => {
 
         <AppFooter
           v-if="isJobView"
+          :pending-folders="scanCardCount"
           :busy-elsewhere="runningElsewhere"
           :blocked-hint="startHint"
           :stats="stats"
@@ -743,11 +689,9 @@ onBeforeUnmount(() => {
           :remote-mode="mode"
           :busy="jobBusy"
           :can-start="canStart"
-          :can-reveal="canReveal"
           :debug="mode !== 'check' && debug"
           @run="handleRun"
           @cancel="cancel"
-          @reveal="handleReveal"
         />
           </div>
           </Transition>
@@ -779,6 +723,16 @@ onBeforeUnmount(() => {
     <WhatsNewDialog v-if="whatsNewOpen" @close="whatsNewOpen = false" />
 
     <!-- 点叉号需要确认时：没有任务可选最小化或退出并勾「不再询问」，有任务只确认是否退出 -->
+    <ConfirmDialog
+      v-if="scanStopId !== null"
+      :title="t('scan.stopTitle')"
+      :body="t('scan.stopBody')"
+      :confirm-label="t('scan.stopAction')"
+      tone="danger"
+      @confirm="confirmStopScan"
+      @cancel="scanStopId = null"
+    />
+
     <CloseConfirmDialog
       v-if="closePrompt"
       :count="closePromptCount"

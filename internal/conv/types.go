@@ -188,12 +188,20 @@ type Event struct {
 	Level   string      `json:"level,omitempty"`
 	Message string      `json:"message,omitempty"`
 
-	// 下面四个只用在扫描事件上（scan.file）。扫描是异步的、可以单文件取消：
+	// 下面几个只用在扫描事件上。扫描是异步的、可以随时停：
 	// 前端要能按路径把「扫到了什么」贴回对应的那张卡片，也要能说清这次为什么没扫成。
 	Path      string       `json:"path,omitempty"`
 	Scanned   []FileResult `json:"scanned,omitempty"`
 	Cancelled bool         `json:"cancelled,omitempty"`
 	TimedOut  bool         `json:"timedOut,omitempty"`
+	// Found / Dirs 只用在 scan.progress 上：这个路径到目前为止发现了多少份文档、
+	// 走过了多少目录。拖一整块盘时没有总数可报，只能报「已经找到多少」。
+	Found int `json:"found,omitempty"`
+	Dirs  int `json:"dirs,omitempty"`
+	// Current 是此刻正在读的目录，界面上写成「正在扫描 D:\…」。
+	Current string `json:"current,omitempty"`
+	// File 是此刻正在解析的那份文档（比目录更细一档）。
+	File string `json:"file,omitempty"`
 }
 
 // 事件类型。
@@ -206,8 +214,9 @@ const (
 	EventRunCancelled = "run.cancelled"
 	EventLog          = "log"
 
-	// 扫描（preview）用自己的两个事件：它不写文件、可以多份同时在跑，
+	// 扫描用自己的三个事件：它不写文件、可以多份同时在跑，
 	// 也不能和「一轮转换」混在同一条 runId 上。RunID 位置放的是前端生成的 scanId。
-	EventScanFile = "scan.file"
-	EventScanDone = "scan.done"
+	EventScanProgress = "scan.progress"
+	EventScanFile     = "scan.file"
+	EventScanDone     = "scan.done"
 )

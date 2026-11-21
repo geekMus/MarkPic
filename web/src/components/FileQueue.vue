@@ -13,7 +13,7 @@ import {
   formatBrokenReport,
 } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 
 const props = defineProps<{
   rows: RunRowView[]
@@ -44,6 +44,7 @@ const emit = defineEmits<{
   clear: []
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  'confirm-import': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -341,6 +342,9 @@ const window_ = computed(() => {
 
 const visibleRows = computed(() => filteredRows.value.slice(window_.value.start, window_.value.end))
 
+/** 队列里还有几张文件夹 / 盘扫描卡片等着确认导入（它们不算任务）。 */
+const folderCount = computed(() => Math.max(0, props.rows.length - props.total))
+
 watch(
   () => props.rows.length,
   async () => {
@@ -367,8 +371,12 @@ function onScroll(): void {
       :progress="lineProgress"
     >
       <template #badge>
-        <span v-if="rows.length > 0" class="queue__count num">
-          {{ t('queue.count', { count: rows.length }) }}
+        <!-- 只数文件卡片：文件夹 / 盘还不是任务，单独写一句「待导入」 -->
+        <span v-if="total > 0" class="queue__count num">
+          {{ t(plural('queue.count', total), { count: total }) }}
+        </span>
+        <span v-if="folderCount > 0" class="queue__count num">
+          {{ t(plural('footer.folders', folderCount), { count: folderCount }) }}
         </span>
         <span v-if="busy && showFileProgress" class="queue__progress num" role="status" aria-live="polite">
           {{ t('queue.progress', { done: completed, total }) }}
@@ -495,6 +503,7 @@ function onScroll(): void {
           @select="emit('select', $event)"
           @cancel-scan="emit('cancel-scan', $event)"
           @retry-scan="emit('retry-scan', $event)"
+          @confirm-import="emit('confirm-import', $event)"
           @animating="onRowAnimating"
         />
         <li

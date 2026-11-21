@@ -7,12 +7,18 @@ import { useI18n, type MessageKey } from '../i18n'
 const props = defineProps<{
   stats: RunStats
   phase: RunPhase
+  /**
+   * 队列里还有几张「文件夹 / 盘」扫描卡片等着确认导入。
+   *
+   * 它们不算任务（不参与开始、不参与计数），但用户必须知道它们还在那儿 ——
+   * 否则「队列里有 3 行，底栏却说 0 个文件」看着像丢了东西。
+   */
+  pendingFolders?: number
   /** 远程图模式：调试构建 + 下载模式下，「没动的远程图」是这一轮没去下，不是按策略保留。 */
   remoteMode?: 'ignore' | 'check' | 'download'
   busy: boolean
   canStart: boolean
-  canReveal: boolean
-  /** 调试构建：整轮只扫描、不写文件，所以「打开输出目录」必然打空。 */
+  /** 调试构建：这一轮不写文件，有些读数得换个说法（见 remoteKept）。 */
   debug: boolean
   /**
    * 另一页正在跑时的一句说明（「转换 正在运行」）。
@@ -33,7 +39,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   run: []
   cancel: []
-  reveal: []
 }>()
 
 const { t } = useI18n()
@@ -64,19 +69,18 @@ function countText(key: MessageKey, count: number): string {
 /** 状态栏读数：文件数、引用数，跑完之后追加替换与失败计数。 */
 const parts = computed<Part[]>(() => {
   const stats = props.stats
+  const folders = props.pendingFolders ?? 0
+  // 队列里只剩文件夹卡片：既不是「空队列」，也不该说「0 个文件」——直接讲清楚
+  // 它们还等着确认导入。
+  if (stats.files === 0 && folders > 0) {
+    const list: Part[] = [{ text: countText('footer.folders', folders), tone: 'plain' }]
+    if (props.busyElsewhere) list.push({ text: props.busyElsewhere, tone: 'warn' })
+    return list
+  }
   if (stats.files === 0) return [{ text: t('footer.queueEmpty'), tone: 'plain' }]
 
-  // 队列里还留着目录行时，说「1 个文件」会让粘了整个目录的人以为只处理一篇；
-  // 目录行开跑之后会展开成一行一个文档，所以这里只在还没展开的时候改口。
-  const dirs = stats.dirs
-  const filesOnly = stats.files - dirs
-  const filePart: Part =
-    dirs === 0
-      ? { text: countText('footer.files', stats.files), tone: 'plain' }
-      : filesOnly === 0
-        ? { text: t('footer.dirsOnly', { dirs }), tone: 'plain' }
-        : { text: t('footer.filesAndDirs', { files: filesOnly, dirs }), tone: 'plain' }
-  const list: Part[] = [filePart]
+  const list: Part[] = [{ text: countText('footer.files', stats.files), tone: 'plain' }]
+  if (folders > 0) list.push({ text: countText('footer.folders', folders), tone: 'plain' })
   if (props.busyElsewhere) list.push({ text: props.busyElsewhere, tone: 'warn' })
   list.push(
     stats.images > 0
@@ -220,13 +224,7 @@ const parts = computed<Part[]>(() => {
   return list
 })
 
-// 调试构建没有真正写出文件，别给一个必然失败的「打开输出目录」
-const showReveal = computed(
-  () =>
-    props.canReveal && !props.debug && (props.phase === 'done' || props.phase === 'cancelled'),
-)
 
-const showShortcut = computed(() => props.canStart && !props.busy)
 </script>
 
 <template>
@@ -240,17 +238,6 @@ const showShortcut = computed(() => props.canStart && !props.busy)
 
     <div class="foot__actions">
       <span v-if="!busy && blockedHint" class="foot__hint">{{ blockedHint }}</span>
-
-      <span v-if="showShortcut" class="foot__kbd" aria-hidden="true">
-        <kbd class="kbd">Ctrl</kbd>
-        <span class="foot__plus">+</span>
-        <kbd class="kbd">Enter</kbd>
-      </span>
-
-      <button v-if="showReveal" type="button" class="btn btn--secondary" @click="emit('reveal')">
-        <AppIcon name="folder-open" :size="15" />
-        {{ t('footer.reveal') }}
-      </button>
 
       <button
         v-if="phase === 'preparing'"
@@ -362,22 +349,4 @@ const showShortcut = computed(() => props.canStart && !props.busy)
   white-space: nowrap;
 }
 
-.foot__kbd {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--ink-3);
-  font-size: var(--fs-1);
-}
-
-.foot__plus {
-  color: var(--ink-3);
-}
-
-/* 窄窗口：先丢掉快捷键提示，把空间让给汇总和按钮 */
-@media (max-width: 820px) {
-  .foot__kbd {
-    display: none;
-  }
-}
 </style>

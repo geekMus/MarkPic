@@ -93,6 +93,9 @@ type splashWindow struct {
 	accent uintptr
 	title  uintptr
 	icon   uintptr
+
+	// painted 记着「整窗那部分已经画过了」：之后的定时器只刷新进度条。
+	painted bool
 }
 
 var (
@@ -151,7 +154,9 @@ func showSplash(width, height uint, scale float64, dark bool) {
 	// 立刻自己画一遍：紧接着就去初始化 WebView2 了，等消息循环来发 WM_PAINT
 	// 可能还要几百毫秒（核对过：冷启动时那段时间窗口是全黑的）。
 	if hdc, _, _ := procGetDC.Call(s.hwnd); hdc != 0 {
-		s.paint(hdc)
+		var rc rect32
+		procGetClientRect.Call(s.hwnd, uintptr(unsafe.Pointer(&rc)))
+		s.paint(hdc, rc) // 整窗都是脏的
 		procReleaseDC.Call(s.hwnd, hdc)
 	}
 	procSetTimer.Call(s.hwnd, splashTimerID, splashTimerMS, 0)
@@ -227,75 +232,19 @@ func (s *splashWindow) prepareResources() {
 	}
 }
 
-func (s *splashWindow) paint(hdc uintptr) {
-	var rc rect32
-	procGetClientRect.Call(s.hwnd, uintptr(unsafe.Pointer(&rc)))
-	if rc.right <= 0 || rc.bottom <= 0 {
-		return
-	}
-	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), s.bg)
-
-	iconSize := int32(math.Round(56 * s.scale))
-	gap := int32(math.Round(20 * s.scale))
-	titleH := int32(math.Round(30 * s.scale))
-	barH := int32(math.Round(3 * s.scale))
-	barGap := int32(math.Round(22 * s.scale))
-
-	blockH := iconSize + gap + titleH + barGap + barH
-	top := (rc.bottom - blockH) / 2
-	if top < 0 {
-		top = 0
-	}
-	cx := (rc.right + rc.left) / 2
-
-	if s.icon != 0 {
-		procDrawIconEx.Call(
-			hdc,
-			uintptr(cx-iconSize/2), uintptr(top),
-			s.icon,
-			uintptr(iconSize), uintptr(iconSize),
-			0, 0, diNormal,
-		)
-	}
-
-	// 名字
-	if s.title != 0 {
-		old, _, _ := procSelectObject.Call(hdc, s.title)
-		procSetBkMode.Call(hdc, 1) // TRANSPARENT
-		ink := colorInkLight
-		if s.dark {
-			ink = colorInkDark
-		}
-		procSetTextColor.Call(hdc, uintptr(ink))
-		text, _ := syscall.UTF16PtrFromString("MarkPic")
-		tr := rect32{
-			left:   rc.left,
-			top:    top + iconSize + gap,
-			right:  rc.right,
-			bottom: top + iconSize + gap + titleH,
-		}
-		procDrawText.Call(
-			hdc, uintptr(unsafe.Pointer(text)), ^uintptr(0),
-			uintptr(unsafe.Pointer(&tr)),
-			dtCenter|dtVCenter|dtSingleLine|dtNoPrefix,
-		)
-		procSelectObject.Call(hdc, old)
-	}
-
-	// 进度条：轨道 + 一段往返的强调色
-	bar := s.barRect()
-	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&bar)), s.track)
-
-	segW := int32(float64(bar.right-bar.left) * 0.34)
-	span := (bar.right - bar.left) - segW
-	t := easeInOut(s.phase)
-	segLeft := bar.left + int32(float64(span)*t)
-	seg := rect32{left: segLeft, top: bar.top, right: segLeft + segW, bottom: bar.bottom}
-	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&seg)), s.accent)
+// splashLayout 是启动画面里所有元素的位置。
+//
+// 以前 paint 和 barRect 各算一遍同样的六个尺寸、各取一次窗口大小：改一个间距要改两处，
+// 两处一旦不一致，进度条就会离标题忽远忽近。现在只有这一份算法。
+type splashLayout struct {
+	icon  int32
+	iconX int32
+	iconY int32
+	title rect32
+	bar   rect32
 }
 
-// barRect 是进度条在客户区里的位置（和 paint 里同一套排布）。
-func (s *splashWindow) barRect() rect32 {
+func (s *splashWindow) layout() (splashLayout, rect32) {
 	var rc rect32
 	procGetClientRect.Call(s.hwnd, uintptr(unsafe.Pointer(&rc)))
 	iconSize := int32(math.Round(56 * s.scale))
@@ -304,14 +253,81 @@ func (s *splashWindow) barRect() rect32 {
 	barW := int32(math.Round(176 * s.scale))
 	barH := int32(math.Round(3 * s.scale))
 	barGap := int32(math.Round(22 * s.scale))
+
 	blockH := iconSize + gap + titleH + barGap + barH
 	top := (rc.bottom - blockH) / 2
 	if top < 0 {
 		top = 0
 	}
 	cx := (rc.right + rc.left) / 2
-	barTop := top + iconSize + gap + titleH + barGap
-	return rect32{left: cx - barW/2, top: barTop, right: cx + barW/2, bottom: barTop + barH}
+	titleTop := top + iconSize + gap
+	barTop := titleTop + titleH + barGap
+
+	return splashLayout{
+		icon:  iconSize,
+		iconX: cx - iconSize/2,
+		iconY: top,
+		title: rect32{left: rc.left, top: titleTop, right: rc.right, bottom: titleTop + titleH},
+		bar:   rect32{left: cx - barW/2, top: barTop, right: cx + barW/2, bottom: barTop + barH},
+	}, rc
+}
+
+// coversAll 说明这次的绘制区域就是整块客户区（首次绘制、改尺寸时如此）。
+func coversAll(dirty, rc rect32) bool {
+	return dirty.left <= rc.left && dirty.top <= rc.top && dirty.right >= rc.right && dirty.bottom >= rc.bottom
+}
+
+func (s *splashWindow) paint(hdc uintptr, dirty rect32) {
+	lay, rc := s.layout()
+	if rc.right <= 0 || rc.bottom <= 0 {
+		return
+	}
+
+	// 计时器每次只让进度条那一条变脏：底、图标、标题都不必重画。
+	// 以前这里无视脏区，整窗 FillRect + 重画图标标题，4K 上就是每秒 62 次全窗绘制。
+	if !s.painted || coversAll(dirty, rc) {
+		procFillRect.Call(hdc, uintptr(unsafe.Pointer(&rc)), s.bg)
+
+		if s.icon != 0 {
+			procDrawIconEx.Call(
+				hdc,
+				uintptr(lay.iconX), uintptr(lay.iconY),
+				s.icon,
+				uintptr(lay.icon), uintptr(lay.icon),
+				0, 0, diNormal,
+			)
+		}
+
+		if s.title != 0 {
+			old, _, _ := procSelectObject.Call(hdc, s.title)
+			procSetBkMode.Call(hdc, 1) // TRANSPARENT
+			ink := colorInkLight
+			if s.dark {
+				ink = colorInkDark
+			}
+			procSetTextColor.Call(hdc, uintptr(ink))
+			text, _ := syscall.UTF16PtrFromString("MarkPic")
+			tr := lay.title
+			procDrawText.Call(
+				hdc, uintptr(unsafe.Pointer(text)), ^uintptr(0),
+				uintptr(unsafe.Pointer(&tr)),
+				dtCenter|dtVCenter|dtSingleLine|dtNoPrefix,
+			)
+			procSelectObject.Call(hdc, old)
+		}
+		s.painted = true
+	}
+
+	// 进度条：轨道 + 一段往返的强调色
+	bar := lay.bar
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&bar)), s.track)
+
+	segW := int32(float64(bar.right-bar.left) * 0.34)
+	span := (bar.right - bar.left) - segW
+	t := easeInOut(s.phase)
+	segLeft := bar.left + int32(float64(span)*t)
+	seg := rect32{left: segLeft, top: bar.top, right: segLeft + segW, bottom: bar.bottom}
+	procFillRect.Call(hdc, uintptr(unsafe.Pointer(&seg)), s.accent)
 }
 
 // easeInOut 让进度条两头慢、中间快，比匀速更像「在加载」。
@@ -333,7 +349,7 @@ func splashWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		var ps paintStruct
 		hdc, _, _ := procBeginPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		if s != nil && hdc != 0 {
-			s.paint(hdc)
+			s.paint(hdc, ps.rcPaint)
 		}
 		procEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 		return 0
@@ -345,7 +361,8 @@ func splashWndProc(hwnd, msg, wp, lp uintptr) uintptr {
 				s.phase -= 1
 			}
 			// 只重画进度条那一条：4K 屏上整窗重绘 60 次每秒不划算。
-			bar := s.barRect()
+			lay, _ := s.layout()
+			bar := lay.bar
 			procInvalidateRect.Call(hwnd, uintptr(unsafe.Pointer(&bar)), 0)
 		}
 		return 0

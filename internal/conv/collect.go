@@ -65,14 +65,17 @@ func ExpandPaths(paths []string, suffix, skipDir string) (files []string, missin
 					return nil
 				}
 				lower := strings.ToLower(d.Name())
-				if !strings.HasSuffix(lower, ".md") && !strings.HasSuffix(lower, ".markdown") {
-					return nil
-				}
 				// 产物名是 <stem><suffix>.md，stem 一定非空。名字正好等于 suffix+".md" 的
 				// 文件不可能是产物（剥掉后缀什么都不剩），它更可能是一篇名字就这样的文档：
 				// `--suffix a` 时 a.md 曾被这条规则吃掉，报「没有找到任何可处理的文件」。
 				if strings.HasSuffix(lower, ownSuffix) && len(lower) > len(ownSuffix) {
 					skipped = append(skipped, path)
+					return nil
+				}
+				// 后缀不再是标准：目录里可能有 .txt、.log、无后缀的片段。
+				// 只要是文本文件就收（见 document_detect.go），这样「文件夹里有几份
+				// 文档就有几张卡片」，不会因为内容里恰好没有 Markdown 标记而被悄悄跳过。
+				if !documentFile(path) {
 					return nil
 				}
 				add(path)

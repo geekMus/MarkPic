@@ -116,42 +116,6 @@ export function buildGo(options) {
   return output;
 }
 
-/** 图标资源是提交过的；只有删了才联网重新生成。 */
-export function ensureIconResource(go, target = targetGoos()) {
-  if (target !== 'windows') return;
-  const light = path.join(repoRoot, 'assets', 'icon-light.ico');
-  const dark = path.join(repoRoot, 'assets', 'icon-dark.ico');
-  const syso = path.join(repoRoot, 'cmd', 'markpic', 'rsrc_windows_amd64.syso');
-  if (fs.existsSync(syso)) return;
-  if (!fs.existsSync(light) || !fs.existsSync(dark)) {
-    ui.warn('找不到 assets 下的 ico，exe 会使用默认图标。');
-    return;
-  }
-  if (!isWindows) {
-    ui.warn('当前不是 Windows，跳过图标资源生成；交叉编译出来的 exe 没有自定义图标。');
-    return;
-  }
-  ui.step('生成图标资源（只做一次）');
-  try {
-    run(
-      go,
-      [
-        'run',
-        'github.com/akavel/rsrc@latest',
-        '-ico',
-        `${light},${dark}`,
-        '-arch',
-        'amd64',
-        '-o',
-        syso,
-      ],
-      { cwd: repoRoot, label: '生成图标资源' },
-    );
-  } catch (error) {
-    ui.warn(`图标资源没生成成功：${error.message}`);
-  }
-}
-
 /** 把版本信息与 asInvoker 清单写进 PE；失败不影响 exe 运行。 */
 export function writeWinres(go, exe, version) {
   if (!isWindows) {

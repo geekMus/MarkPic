@@ -5,7 +5,7 @@ import ResultGroup from './ResultGroup.vue'
 import StatusPill from './StatusPill.vue'
 import type { ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
-import { useI18n } from '../i18n'
+import { plural, useI18n } from '../i18n'
 import type { MessageKey } from '../i18n'
 import { shortReason } from '../composables/useDeadLinks'
 import { useToasts } from '../composables/useToasts'
@@ -38,6 +38,7 @@ const emit = defineEmits<{
   /** 卡片自己的扫描：取消这一份 / 恢复（重试）。 */
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  'confirm-import': [id: string]
 }>()
 
 const { t } = useI18n()
@@ -139,8 +140,9 @@ const groups = computed<DlGroup[]>(() => {
       .filter((item) => isRemoteRef(item.target))
       .map((item) => ({ item, kind: kindOf(item), local: localOf(row.dir, item) }))
     // 扫完了确实没有远程图的行不必占一张空卡；还没扫通的行必须留着 ——
-    // 扫描就发生在卡片里面，卡先出来，内容随后才到。
-    if (items.length === 0 && (row.scan ?? 'idle') === 'ok') continue
+    // 扫描就发生在卡片里面，卡先出来，内容随后才到。扫描卡片（文件夹/盘）也要留：
+    // 它本来就没有「远程图」可数，扫完还得等用户确认导入。
+    if (items.length === 0 && (row.scan ?? 'idle') === 'ok' && row.scanCard !== true) continue
     out.push({
       row,
       items,
@@ -216,6 +218,11 @@ const band = computed(() => {
         :name="group.row.name"
         :dir="group.row.dir"
         :scan="group.row.scan ?? 'idle'"
+        :scan-card="group.row.scanCard === true"
+        :scan-found="group.row.scanFound ?? 0"
+        :scan-files="group.row.scanFiles ?? []"
+        :scan-root="group.row.path"
+        @confirm-import="emit('confirm-import', group.row.id)"
         :scan-error="group.row.scanError"
         :busy="busy"
         :tone="group.failed > 0 ? 'danger' : group.unsupported > 0 ? 'warning' : 'neutral'"
@@ -227,7 +234,7 @@ const band = computed(() => {
         @retry-scan="emit('retry-scan', group.row.id)"
       >
         <template #badges>
-          <span class="badge">{{ t('row.count', { count: group.items.length }) }}</span>
+          <span class="badge">{{ t(plural('row.count', group.items.length), { count: group.items.length }) }}</span>
           <span v-if="group.saved > 0" class="badge badge--ok">
             {{ t('download.group.saved', { count: group.saved }) }}
           </span>

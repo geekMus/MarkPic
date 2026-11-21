@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -122,6 +123,17 @@ type Runner struct {
 	// remoteCache 是跨运行的下载记录：上次已经下过、文件还在且大小对得上，
 	// 就不再打一次网络。为 nil 或路径为空时等于关掉。
 	remoteCache *remotecache.Cache
+
+	// runMu/runSum 是「这一轮到目前为止」的累计汇总：每处理完一个文件就并一次，
+	// 随 file.progress / file.finished 一起发出去。
+	//
+	// 为什么由后端算：界面要在跑动中显示「替换了几处、失效几张、失败几张」。
+	// 以前这些数由前端按事件自己加减（二十几个字段各来一遍），后端跑完又发一份
+	// 汇总把它整个盖掉 —— 同一份数字两个算法，口径一旦有一处不同就当场对不上。
+	// 现在只有一个算法，界面只负责显示。
+	runMu  sync.Mutex
+	runSum Summary
+	runAt  time.Time
 }
 
 // abortsAfterFailures 是「认定图床不可用」的连续失败张数。
@@ -289,6 +301,30 @@ func NewRunner(cfg settings.Settings, lang i18n.Lang, runID string, emit Emit) *
 	}
 }
 
+// NewScanRunner 造一个「只扫描」的 Runner：不建任何网络客户端。
+//
+// 扫描一份文档只需要读盘、解码、解析引用、分类；picgo 与 remoteimg 的客户端
+// 各自带着一条 HTTP 连接池，在扫描里纯属浪费 —— 之前每份文档造一个，一万份文档
+// 就是一万个连接池，实测占掉扫描时间的一大半。
+//
+// 用它的地方必须保持 previewOnly（这里已经设好）：扫描永远走不到网络分支，
+// 真走过去 client / remote 都是 nil。
+func NewScanRunner(cfg settings.Settings, lang i18n.Lang) *Runner {
+	if lang == "" {
+		lang = i18n.ZH
+	}
+	return &Runner{
+		cfg:         cfg,
+		lang:        lang,
+		previewOnly: true,
+		stamps:      make(map[string]stamp),
+		scanDocs:    make(map[string]*mdscan.Document),
+		// 预扫也要算一遍输出路径（界面上写「计划输出到 …」），用到这两张表。
+		outPlan: make(map[string]string),
+		usedOut: make(map[string]bool),
+	}
+}
+
 // rememberDoc 记下预扫结果，供正式处理时复用。
 func (r *Runner) rememberDoc(path string, doc *mdscan.Document) {
 	r.scanMu.Lock()
@@ -319,6 +355,56 @@ func (r *Runner) takeDoc(path string, data []byte) *mdscan.Document {
 		return nil
 	}
 	return doc
+}
+
+// ScanOne 扫描单个文件：读盘、解析引用、逐张分类，不发任何网络请求。
+//
+// 异步扫描用它逐份处理目录里发现的文档。和 Run 的区别是它不碰整轮的状态机
+// （不派工、不写文件、不汇总），所以可以同时开好几个、各自处理各自的文件。
+func (r *Runner) ScanOne(ctx context.Context, path string) FileResult {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		abs = path
+	}
+	return r.processFile(ctx, "", abs)
+}
+
+// beginRun 清空这一轮的累计汇总，并记下起跑时刻。
+func (r *Runner) beginRun(at time.Time) {
+	r.runMu.Lock()
+	r.runSum = Summary{RunID: r.runID}
+	r.runAt = at
+	r.runMu.Unlock()
+}
+
+// absorbResult 把一个刚处理完的文件并进累计汇总，返回可以随事件发出去的快照。
+func (r *Runner) absorbResult(res *FileResult) *Summary {
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
+	addFileToSummary(&r.runSum, res)
+	return r.liveSummaryLocked()
+}
+
+// liveSummary 返回「到目前为止」的汇总快照（进度事件用）。
+func (r *Runner) liveSummary() *Summary {
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
+	return r.liveSummaryLocked()
+}
+
+// liveSummaryLocked 组装快照。调用方必须已持有 runMu。
+//
+// 「省下了几次」三个计数来自缓存与计数器，不在 addFileToSummary 里：
+// 它们算的是这一轮少发了几次请求，不是某个文件的处理结果。
+func (r *Runner) liveSummaryLocked() *Summary {
+	snap := r.runSum
+	snap.Reused = r.uploads.Hits()
+	snap.UploadRequests = int(r.sent.Load())
+	snap.RemoteReused = r.remoteCacheHits()
+	if !r.runAt.IsZero() {
+		snap.DurationMs = time.Since(r.runAt).Milliseconds()
+	}
+	return &snap
 }
 
 func (r *Runner) notify(ev Event) {

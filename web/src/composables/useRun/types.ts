@@ -32,14 +32,6 @@ export interface RunRow {
   /** 预览跑过之后仍然没有任何文件与之匹配（路径不存在，或目录里没有 Markdown）。 */
   missing?: boolean
   /**
-   * 这一行是个目录：真正的文档要等开跑时才展开成一行一个。
-   *
-   * 预览是按前缀把目录里的图片数加起来的，所以能分辨出「这一行不是文档」。
-   * 底栏靠它说「1 个目录」而不是「1 个文件」—— 粘一个目录进去却看到「1 个文件」，
-   * 用户会以为只有一篇会被处理。
-   */
-  isDir?: boolean
-  /**
    * 这一行的转换结果（或预检结果）。
    *
    * 结果直接挂在行上，行对象自己就是响应式的：某一行完成时只有那一行重渲染，
@@ -48,12 +40,31 @@ export interface RunRow {
   result: FileResult | null
   /** 服务端为这次运行分配的 id（事件里的 id）。队列行的 id 由本地生成，两者都要能查到行。 */
   serverId?: string
-  /** 内部记账：这份结果是否已经算进 live 统计（预检结果只贡献图片数）。 */
-  scored?: boolean
   /** 这一行自己的扫描状态；只有 'ok' 的行才允许参与「开始」。 */
   scan?: ScanState
   /** 扫描没通过时给人看的一句话（超时、找不到文件、后台报错）。 */
   scanError?: string
+  /**
+   * 这一行是「拖进来的目录」时的实时进度：已经发现多少份文档、走过多少目录。
+   *
+   * 拖一整块盘时没有总数可报，只能报「已经找到多少」；这里的数由 scan.progress
+   * 推上来，扫完这一行就摘掉了（文件已经各自成行）。
+   */
+  scanFound?: number
+  scanDirs?: number
+  /** 扫描中此刻正在读的目录（目录卡展开时显示，随事件刷新）。 */
+  scanCurrent?: string
+  /** 扫描中此刻正在解析的文档；有它时优先显示它。 */
+  scanFile?: string
+  /**
+   * 这一行是一张「扫描卡片」（拖进来的是文件夹/盘）：发现完成之前不铺文件卡片，
+   * 发现结果挂在 scanFiles 上，等用户点「确认导入」才换成文件卡片。
+   */
+  scanCard?: boolean
+  /** 扫描卡片发现到的 Markdown（发现档结束时填一次）。 */
+  scanFiles?: FileResult[]
+  /** 这一行开始扫描的时刻（毫秒），用来在卡上显示已用时间。 */
+  scanStartedAt?: number
   /**
    * 这一行的扫描属于哪一批。
    *
@@ -79,13 +90,6 @@ export interface RunRow {
   workTotal?: number
   /** 这一篇已经处理完的单元数；文件完成时补齐，运行中由 file.progress 推进。 */
   workDone?: number
-  /**
-   * 这一轮已经计进页脚「替换」的明细下标。
-   *
-   * 卡片每处理完一处就换状态，页脚也该跟着走；按位置去重，进度事件重放不会
-   * 把数字算重。file.finished 会用结果校正一次，并清掉这份记账。
-   */
-  counted?: Set<number>
 }
 
 /** 列表拿到的行就带着结果。保留这个别名，免得每个组件都改一遍类型。 */
@@ -93,8 +97,6 @@ export type RunRowView = RunRow
 
 export interface RunStats {
   files: number
-  /** 队列里那些还没展开的目录行有几行（开跑之后目录展开成文件，这里回到 0）。 */
-  dirs: number
   images: number
   // uploaded 是「替换了几处」，与行上的 done（处理了几张图）不是一个东西。
   uploaded: number
@@ -138,6 +140,7 @@ export const KNOWN_EVENT_TYPES = new Set<string>([
   'run.finished',
   'run.cancelled',
   'log',
+  'scan.progress',
   'scan.file',
   'scan.done',
 ])

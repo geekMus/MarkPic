@@ -112,7 +112,9 @@ func applyWebView2Background(w webview2.WebView, dark bool) {
 	}
 	var applied atomic.Bool
 	go func() {
-		for attempt := 0; attempt < 150 && !applied.Load(); attempt++ {
+		// 控制器通常几十毫秒就绪；给到 6 秒是留给冷启动的余量。轮询间隔 100ms
+		// 而不是 40ms：同样的覆盖窗口，丢进窗口队列的 Dispatch 少四成。
+		for attempt := 0; attempt < 60 && !applied.Load(); attempt++ {
 			w.Dispatch(func() {
 				defer func() { _ = recover() }()
 				if applied.Load() {
@@ -133,7 +135,7 @@ func applyWebView2Background(w webview2.WebView, dark bool) {
 					applied.Store(true)
 				}
 			})
-			time.Sleep(40 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}()
 }

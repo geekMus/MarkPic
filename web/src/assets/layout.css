@@ -41,8 +41,8 @@
 .group-card__head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 8px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -138,16 +138,21 @@
   flex: none;
   align-items: center;
   gap: 6px;
+  height: 24px;
 }
 
+/* 徽标、查看详情、图标按钮共用 24px 高的一条基线，右边才齐 */
 .badge {
-  padding: 1px 7px;
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
   border: 1px solid var(--line);
   border-radius: var(--r-pill);
   background: var(--panel-2);
   color: var(--ink-2);
   font-size: var(--fs-1);
-  line-height: 1.6;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -232,10 +237,24 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
   color: var(--ink-3);
   font-size: var(--fs-1);
+  line-height: 1;
   white-space: nowrap;
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+.group-card__head:hover .group-card__more,
+.group-card__head:focus-within .group-card__more {
+  color: var(--ink-2);
+  background: var(--panel-2);
 }
 
 .group-card__more--on {
@@ -249,8 +268,25 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   margin-left: 2px;
+  padding-right: 2px;
+}
+
+.group-card__import {
+  margin-right: 6px;
+}
+
+/* 扫描卡片的文件清单：只在展开后的折叠区里出现。
+   外层不留内边距（否则收起时 0fr 的格子里还会露出那点空白），
+   内边距加在清单根元素上，收起来时跟着一起被裁掉。 */
+.group-card__scan {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.group-card__scan-list {
+  padding: 4px 14px 10px;
 }
 
 .group-card__tools .icon-btn {
@@ -275,6 +311,10 @@
 }
 
 .group-card__chev {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
   transition: transform 200ms var(--ease);
 }
 
@@ -297,4 +337,56 @@
 
 .group-card__fold--open {
   grid-template-rows: 1fr;
+}
+
+/* 窗口窄的时候，扫描卡头右侧的徽标/按钮会把文档名挤没：只让扫描卡片换行，
+   名字至少留 160px，按钮组掉到下一行靠右。上传页的 FileRow 用同一套做法。 */
+@media (max-width: 820px) {
+  .group-card__head--scan {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .group-card__head--scan .group-card__text {
+    min-width: 160px;
+  }
+
+  .group-card__head--scan .group-card__badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .group-card__head--scan .group-card__tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
+}
+
+/* 再窄一档：所有卡片都折成两行（名字一行，徽标与按钮一行），否则 270px 的卡
+   连文档名都放不下。 */
+@media (max-width: 620px) {
+  .group-card__head {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .group-card__head .group-card__text {
+    min-width: 160px;
+  }
+
+  .group-card__head .group-card__badges {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .group-card__head .group-card__tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
 }

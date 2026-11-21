@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, useId, useTemplateRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, useTemplateRef, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import ScanBadge from './ScanBadge.vue'
+import ScanFileList from './ScanFileList.vue'
 import StatusPill from './StatusPill.vue'
 import type { FileResult, ImageItem } from '../types'
 import type { RunRowView } from '../composables/useRun'
-import { useI18n, type MessageKey } from '../i18n'
+import { plural, useI18n, type MessageKey } from '../i18n'
 import { redactUrl } from '../composables/useDeadLinks'
 import { describeError, openTarget } from '../api'
 import { useToasts } from '../composables/useToasts'
@@ -36,6 +37,8 @@ const emit = defineEmits<{
   /** 这张卡自己的扫描：取消 / 恢复（重试）。 */
   'cancel-scan': [id: string]
   'retry-scan': [id: string]
+  /** 扫描卡片：把发现到的文件铺成文件卡片。 */
+  'confirm-import': [id: string]
   /** 卡片正在做高度动画：外面的虚拟列表这段时间先别重新量行高。 */
   animating: [active: boolean]
 }>()
@@ -153,13 +156,24 @@ const statusMeta = computed<{ tone: Tone; labelKey: MessageKey }>(() => {
  * 只是不用上传，不该跟它长得一样 —— 它单独标「无本地图」。
  */
 const emptyCard = computed(
-  () => (props.remoteMode ?? 'ignore') === 'ignore' && items.value.length === 0,
+  () =>
+    (props.remoteMode ?? 'ignore') === 'ignore' &&
+    items.value.length === 0 &&
+    // 扫描卡片（包括还在发现中的）不是「空文档」：它还没解析图片，斜纹空卡的
+    // 样式会让人以为没有图片。
+    props.row.scanCard !== true &&
+    (props.row.scan ?? 'idle') !== 'scanning',
 )
 
 /** 扫通了没有：没扫通的卡上都在说扫描的事，不再写「几张图」。 */
 const scanOk = computed(() => (props.row.scan ?? 'idle') === 'ok')
 
 const countLabel = computed(() => {
+  // 扫描卡片数的是「发现了几份 Markdown」，不是图片。
+  if (props.row.scanCard) {
+    const found = props.row.scanFiles?.length ?? props.row.scanFound ?? 0
+    return t(plural('row.count.found', found), { count: found })
+  }
   const mode = props.remoteMode ?? 'ignore'
   // 跑动中报的是这一轮的张数：上一轮留下的「7 张图」挂在「运行中 0/1」
   // 旁边，只会让人以为已经在处理那 7 张。
@@ -167,7 +181,7 @@ const countLabel = computed(() => {
   if (mode === 'ignore' && local !== null) {
     if (items.value.length === 0) return t('row.status.noImages')
     if (local === 0) return t('row.status.noLocal')
-    return t('row.count', { count: local })
+    return countText(local)
   }
   const images =
     loading.value && props.row.total > 0
@@ -176,8 +190,13 @@ const countLabel = computed(() => {
   if (images === null || images === undefined) {
     return props.row.missing ? '—' : t('row.count.pending')
   }
-  return t('row.count', { count: images })
+  return countText(images)
 })
+
+/** 英文里一张图是 "1 image"，不能写成 "1 images"。 */
+function countText(count: number): string {
+  return count === 1 ? t('row.count.one', { count }) : t('row.count', { count })
+}
 
 /**
  * 卡面只写最后一级目录名：整条 `D:\Projects\convert-md-picture\.tmp-scroll`
@@ -464,8 +483,74 @@ const outputLabel = computed<MessageKey>(() =>
   props.row.result?.status === 'preview' ? 'row.output.planned' : 'row.output',
 )
 
-/** 有逐图明细才能展开：判据直接看结果里的 items，不再绕「缺文件」那一层推断。 */
-const canExpand = computed(() => (props.row.result?.items?.length ?? 0) > 0)
+/**
+ * 这一行是「正在扫的目录」：它自己不是文档，展开时该看的是扫描进度，不是图片明细。
+ * 扫完之后这一行要么退场（文件已各自成行），要么留着说明「一份都没找到」。
+ */
+const scanHost = computed(
+  () =>
+    props.row.scanCard === true ||
+    (!props.row.result && (props.row.scan ?? 'idle') === 'scanning'),
+)
+
+/** 扫描卡片已经扫完、手上也有文件：这时才允许「确认导入」。 */
+const scanCardReady = computed(
+  () => props.row.scanCard === true && (props.row.scan ?? 'idle') === 'ok' && (props.row.scanFiles?.length ?? 0) > 0,
+)
+
+/**
+ * 「正在扫描」的那一行路径：留尾部、掐头部。
+ *
+ * 深目录的路径长度很容易把一行撑爆，而真正能告诉用户「走到哪儿了」的是尾部。
+ * 直接截字符而不是 CSS 省略：CSS 的 text-overflow 掐的是尾部，恰好掐掉有用的部分。
+ */
+const scanCurrentLabel = computed(() => {
+  // 文件比目录细一档：有正在解析的文档就先报它，还没开始解析时再退回目录。
+  const path = (props.row.scanFile || props.row.scanCurrent || '').trim()
+  if (path === '') return ''
+  return path.length > 72 ? '…' + path.slice(-72) : path
+})
+
+/**
+ * 扫描卡片已用时间。
+ *
+ * 拖一整块盘时，最坏的情况是卡在一个超大目录里（WinSxS 这种），路径和计数都不动；
+ * 秒数每秒跳一下，至少能让人确信它没死。
+ */
+const clock = ref(Date.now())
+let clockTimer: number | null = null
+
+watch(
+  () => (props.row.scan ?? 'idle') === 'scanning',
+  (scanning) => {
+    if (clockTimer !== null) {
+      window.clearInterval(clockTimer)
+      clockTimer = null
+    }
+    if (!scanning) return
+    clock.value = Date.now()
+    clockTimer = window.setInterval(() => {
+      clock.value = Date.now()
+    }, 1000)
+  },
+  { immediate: true },
+)
+
+onBeforeUnmount(() => {
+  if (clockTimer !== null) window.clearInterval(clockTimer)
+})
+
+const scanElapsed = computed(() => {
+  const started = props.row.scanStartedAt
+  if (!started || (props.row.scan ?? 'idle') !== 'scanning') return ''
+  const seconds = Math.max(0, Math.round((clock.value - started) / 1000))
+  return t('row.scan.elapsed', { seconds })
+})
+
+/** 能展开的两种情形：有逐图明细，或者它是一张正在扫描的目录卡。 */
+const canExpand = computed(
+  () => scanHost.value || (props.row.result?.items?.length ?? 0) > 0,
+)
 
 /**
  * 逐图状态文字。下载模式里「failed」指的是下载不下来，
@@ -561,7 +646,7 @@ function toggleExpanded(): void {
     :data-busy="loading ? 'yes' : null"
   >
     <div class="card" :data-empty="emptyCard ? 'yes' : undefined">
-      <div class="card__top">
+      <div class="card__top" :class="{ 'card__top--scan': scanHost }">
       <button
         type="button"
         class="card__head"
@@ -574,7 +659,7 @@ function toggleExpanded(): void {
         <span class="item__mark" aria-hidden="true">
           <!-- 一枚小方块垫在名字左边：一列卡片里每张都有个落点，
                状态靠它的底色说话，不靠一行字。 -->
-          <AppIcon :name="row.isDir ? 'folder' : 'doc'" :size="16" />
+          <AppIcon name="doc" :size="16" />
         </span>
 
         <span class="item__id">
@@ -595,7 +680,7 @@ function toggleExpanded(): void {
         </span>
         <!-- 有明细就收起这一行字，让「查看详情」当唯一的入口 -->
         <span v-else-if="canExpand" class="item__more">
-          {{ t(expanded ? 'row.details.collapse' : 'row.details.expand') }}
+          <span class="item__more-label">{{ t(expanded ? 'row.details.collapse' : 'row.details.expand') }}</span>
           <span class="item__chev" :class="{ 'item__chev--on': expanded }" aria-hidden="true">
             <AppIcon name="chevron-down" :size="13" />
           </span>
@@ -609,11 +694,22 @@ function toggleExpanded(): void {
 
       <!-- 打开、定位与移除放在卡面上：要删一张卡，不该先展开它 -->
       <span class="card__tools">
+        <!-- 扫描卡片扫完之后，卡面上唯一该点的就是它：把发现的文件铺进队列 -->
+        <button
+          v-if="scanCardReady"
+          type="button"
+          class="btn btn--primary btn--sm card__import"
+          :disabled="busy"
+          @click.stop="emit('confirm-import', row.id)"
+        >
+          {{ t('row.scan.confirm') }}
+        </button>
         <!-- 扫描没通过时卡片上唯一该点的是「取消扫描」/「恢复扫描」 -->
         <ScanBadge
           :state="row.scan ?? 'idle'"
           :error="row.scanError"
           :busy="busy"
+          :found="row.scanFound ?? 0"
           @cancel="emit('cancel-scan', row.id)"
           @retry="emit('retry-scan', row.id)"
         />
@@ -648,6 +744,7 @@ function toggleExpanded(): void {
       </span>
       </div>
 
+      <!-- 扫描卡片：发现的文件直接铺在卡里，不必先展开详情才知道要导入什么 -->
       <!-- 跑动中把逐图结论摊在卡面上：只有一根进度条时，用户不知道某张图到底下没下 -->
       <div v-if="barVisible && liveParts.length > 0" class="item__live">
         <span
@@ -675,11 +772,38 @@ function toggleExpanded(): void {
       >
       <div v-if="expanded && canExpand" :id="detailsId" class="details selectable">
         <div class="details__inner">
-        <div class="details__head">
+        <!-- 正在扫的目录：展开看的是扫描本身，不是图片明细 -->
+        <div v-if="scanHost" class="scan-info">
+          <p class="scan-info__path mono" :title="row.path">{{ row.path }}</p>
+          <p class="scan-info__line">
+            <span class="scan-info__num">{{ row.scanFound ?? 0 }}</span>
+            {{ t(plural('row.scan.found', row.scanFound ?? 0)) }}
+            <span class="scan-info__sep" aria-hidden="true">·</span>
+            <span class="scan-info__num">{{ row.scanDirs ?? 0 }}</span>
+            {{ t(plural('row.scan.dirs', row.scanDirs ?? 0)) }}
+          </p>
+          <p
+            v-if="scanCurrentLabel !== '' && (row.scan ?? 'idle') === 'scanning'"
+            class="scan-info__line scan-info__line--current"
+          >
+            <span class="scan-info__label">{{ t('row.scan.current') }}</span>
+            <span class="mono scan-info__path" :title="row.scanFile || row.scanCurrent">{{ scanCurrentLabel }}</span>
+          </p>
+          <p v-if="scanElapsed !== ''" class="scan-info__hint">{{ scanElapsed }}</p>
+          <p class="scan-info__hint">{{ t(scanCardReady ? 'row.scan.ready' : 'row.scan.hint') }}</p>
+          <!-- 发现的文件清单：只在展开详情时出现，收起时卡片保持一行高度 -->
+          <ScanFileList
+            v-if="(row.scanFiles?.length ?? 0) > 0"
+            class="scan-info__list"
+            :files="row.scanFiles ?? []"
+            :root="row.path"
+          />
+        </div>
+        <div v-if="!scanHost" class="details__head">
           <p class="details__lede" :title="lede">{{ lede }}</p>
         </div>
       <ul
-        v-if="items.length > 0"
+        v-if="!scanHost && items.length > 0"
         ref="itemsEl"
         class="items"
         :class="{ 'items--scroll': bounded }"
@@ -709,7 +833,7 @@ function toggleExpanded(): void {
         />
       </ul>
 
-      <p v-else class="details__empty">{{ emptyDetailsText }}</p>
+      <p v-else-if="!scanHost" class="details__empty">{{ emptyDetailsText }}</p>
 
       <p v-if="row.result?.outputPath" class="details__out">
         <span>{{ t(outputLabel) }}</span>
@@ -813,10 +937,10 @@ function toggleExpanded(): void {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
-  padding: 14px 6px 14px 18px;
+  padding: 14px 10px 14px 18px;
   border: 0;
   background: none;
   color: inherit;
@@ -898,18 +1022,23 @@ function toggleExpanded(): void {
 }
 
 /* 图片数做成一枚小胶囊：纯数字在卡片右边太轻，立不住 */
+/* 卡片右侧是一排同高的「小件」：胶囊、查看详情、图标按钮都是 24px，
+   一律垂直居中。以前胶囊 23px、文字 18px、图标 24px 混在一起，右边看着发毛。 */
 .item__count {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 6px;
-  padding: 2px 8px;
-  border: 1px solid var(--line);
+  height: 24px;
+  padding: 0 9px;
+  /* 不用描边：一颗软底胶囊和旁边的幽灵按钮同高同圆角，一排看过去才是一行；
+     描边会把「徽标」和「按钮」分成两种物件，视觉上就错位了。 */
+  border: 1px solid transparent;
   border-radius: var(--r-pill);
-  background: var(--panel);
+  background: var(--panel-2);
   color: var(--ink-2);
   font-size: var(--fs-1);
-  line-height: 1.5;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -940,6 +1069,8 @@ function toggleExpanded(): void {
 .item__status {
   display: flex;
   flex: none;
+  align-items: center;
+  height: 24px;
 }
 
 /* 「查看详情」本身就是一个动作词，比「未处理」这种半截状态诚实 */
@@ -947,28 +1078,43 @@ function toggleExpanded(): void {
   color: var(--ink-2);
 }
 
+/* 「查看详情」做成同高的幽灵按钮：和胶囊、图标按钮共用一条基线与一圈圆角，
+   是卡片上仅次于标题的第二个可点区域。 */
 .item__more {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  transition: color 140ms var(--ease-out);
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
   color: var(--ink-3);
-  font-size: var(--fs-2);
+  font-size: var(--fs-1);
+  line-height: 1;
   white-space: nowrap;
-  transition: color var(--t-fast) var(--ease);
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+
+/* 展开之后把「查看详情」换成同一颗胶囊的样子：位置不动，只换文案与箭头方向 */
+.card__head[aria-expanded='true'] .item__more {
+  background: var(--panel-2);
+  color: var(--ink-2);
 }
 
 .card__head:hover .item__more,
 .card__head:focus-visible .item__more {
   color: var(--ink-2);
+  background: var(--panel-2);
 }
 
 .item__chev {
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   transition: transform var(--t-base) var(--ease);
 }
 
@@ -1109,8 +1255,8 @@ function toggleExpanded(): void {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
-  padding-right: 10px;
+  gap: 4px;
+  padding-right: 12px;
 }
 
 /* 手不放在卡上时不显示：一列十张卡、张张挂两个按钮，比什么都吵 */
@@ -1123,6 +1269,10 @@ function toggleExpanded(): void {
 .item--open .card__tools .icon-btn,
 .card__tools:focus-within .icon-btn {
   opacity: 1;
+}
+
+.card__import {
+  margin-right: 6px;
 }
 
 .card__drop:hover {
@@ -1202,6 +1352,70 @@ function toggleExpanded(): void {
   color: var(--bad);
 }
 
+.scan-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px 14px;
+}
+
+/* 扫描卡片的文件清单：只在展开详情里出现 */
+.scan-info__list {
+  margin-top: 4px;
+}
+
+.scan-info__path {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+  overflow-wrap: anywhere;
+}
+
+.scan-info__line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--fs-2);
+}
+
+.scan-info__num {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.scan-info__sep {
+  color: var(--ink-3);
+}
+
+.scan-info__line--current {
+  min-width: 0;
+  align-items: center;
+}
+
+.scan-info__label {
+  flex: none;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+}
+
+.scan-info__path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-1);
+  white-space: nowrap;
+}
+
+.scan-info__hint {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-size: var(--fs-1);
+  line-height: 1.6;
+}
+
 .details__empty {
   padding: 10px 0 2px;
   color: var(--ink-3);
@@ -1263,6 +1477,25 @@ function toggleExpanded(): void {
     display: none;
   }
 
+  /* 窗口窄的时候，扫描卡头右边那组状态词（「扫描中 · 已找到 100 份 · 取消扫描」）
+     会把文件夹名挤成一条缝。只让扫描卡片换行：名字先占一行，按钮组掉到下一行
+     靠右排；普通文件卡片保持一行，名字该省略就省略，不至于整列被撑高。 */
+  .card__top--scan {
+    flex-wrap: wrap;
+  }
+
+  .card__top--scan .card__head {
+    min-width: 200px;
+  }
+
+  .card__top--scan .card__tools {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 10px;
+  }
+
   .item__main {
     grid-template-columns: minmax(0, 1fr) 104px 56px;
   }
@@ -1272,6 +1505,41 @@ function toggleExpanded(): void {
   }
 
   .items__result {
+    display: none;
+  }
+}
+
+/* 再窄一档（520 上下）：卡片只有 270px 宽，"查看详情"四个字能把文件名挤没。
+   收成一颗只有箭头的按钮，卡片本身仍然可点开。 */
+@media (max-width: 620px) {
+  /* 窗口再窄（卡片约 270px）时，一行放不下「图标 + 文件名 + 状态 + 按钮」：
+     统一折成两行，名字独占一行，状态和按钮落到下一行右侧。 */
+  .card__top {
+    flex-wrap: wrap;
+  }
+
+  .card__top .card__head {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .card__top .card__tools {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
+    row-gap: 4px;
+    padding-bottom: 8px;
+  }
+
+  .item__more {
+    width: 24px;
+    padding: 0 4px;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .item__more-label {
     display: none;
   }
 }

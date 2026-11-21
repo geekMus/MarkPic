@@ -209,6 +209,19 @@ export type RunFileInfo = {
  */
 export type ScanEvent =
   | {
+      type: 'scan.progress'
+      runId: string
+      /** 请求的那个路径（目录）。 */
+      path: string
+      /** 到这个时刻为止已经发现多少份文档、走过多少目录。 */
+      found?: number
+      dirs?: number
+      /** 此刻正在读的那个目录，界面上写成「正在扫描 …」。 */
+      current?: string
+      /** 此刻正在解析的那份文档（比目录更细一档）。 */
+      file?: string
+    }
+  | {
       type: 'scan.file'
       runId: string
       path: string
@@ -231,8 +244,17 @@ export type RunEvent =
       total: number
       /** 这一条进度里刚处理完的那几处（按 items 的下标），卡片据此逐条换状态。 */
       items?: { index: number; item: ImageItem }[]
+      /** 这一轮到目前为止的累计汇总：页脚那几个数直接用，不再由前端重算一遍。 */
+      summary?: RunSummary
     }
-  | { type: 'file.finished'; runId: string; id: string; result: FileResult }
+  | {
+      type: 'file.finished'
+      runId: string
+      id: string
+      result: FileResult
+      /** 同上：每跑完一个文件，后端把最新累计值一并带回来。 */
+      summary?: RunSummary
+    }
   | { type: 'run.finished'; runId: string; summary: RunSummary }
   | { type: 'run.cancelled'; runId: string; summary?: RunSummary }
   | { type: 'log'; level: 'info' | 'warn' | 'error'; message: string }
@@ -261,27 +283,13 @@ export type Health = {
 
 export type DialogResult = { paths: string[] }
 
-export type PreviewResult = { files: FileResult[]; summary: RunSummary }
+/** 用户点的是哪一个操作。它和设置里的 remote 是两件事：那是「文档里的网络图片怎么办」。 */
+export type RunOp = 'upload' | 'check' | 'download'
 
-export type RunStartResult = { runId: string }
+export type RunStartResult = { runId: string; op: RunOp }
 
 /** scan.start 的返回：只是确认收下了，结果走 scan.file 事件。 */
 export type ScanStartResult = { scanId: string; paths: string[] }
-
-/**
- * 服务端眼里的「这一轮」。刷新页面之后前端内存里的 runId 就没了，
- * 只能问服务端现在在跑什么、已经出了哪些结果。
- */
-export type CurrentRun = {
-  running: boolean
-  done: boolean
-  runId?: string
-  /** 这一轮属于哪一页：run.current 按页取，重连时各页各自接回自己的快照。 */
-  mode?: RemoteMode
-  files?: RunFileInfo[]
-  results?: FileResult[]
-  summary?: RunSummary
-}
 
 export type OkResult = { ok: boolean }
 

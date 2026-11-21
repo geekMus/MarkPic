@@ -27,7 +27,12 @@ type Batcher struct {
 
 // batchQueueLimit 是积压事件的上限。正常情况下队列里是成批落下的文件槽加零头，
 // 这个上限只是兜底。
-const batchQueueLimit = 4096
+//
+// 4096 → 32768：扫描一份一万篇文档的目录时，每篇一条 scan.file，两百毫秒内涌进
+// 一万条；界面那边消化一条要序列化+Eval，队列很容易冲破 4096，于是「丢最旧的」
+// 把一两百份文档的结果丢掉了 —— 表现就是队列比文件夹里的文件少。事件本身很小
+// （每条四五百字节），三万条也就十几 MB，兜底上限放宽更划算。
+const batchQueueLimit = 32768
 
 // batchSlotBatch 是一批文件槽攒到多少条就先落进队列，让长时间运行的界面
 // 仍然能一条条往前推进，而不是跑完才一次性收到。
@@ -164,8 +169,11 @@ func (b *Batcher) drain() []conv.Event {
 }
 
 // isTerminalEvent 判断事件是否属于「丢了界面就会卡住」的那一类。
+//
+// scan.done 也算：扫描收尾那条一旦被丢，界面会一直停在「扫描中」，直到 30 秒的
+// 静默看门狗把它判死。
 func isTerminalEvent(t string) bool {
-	return t == conv.EventRunFinished || t == conv.EventRunCancelled
+	return t == conv.EventRunFinished || t == conv.EventRunCancelled || t == conv.EventScanDone
 }
 
 // isFileEvent 判断事件是否描述「某个文件的状态」，这类事件按文件 id 覆盖。
